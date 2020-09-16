@@ -1,0 +1,192 @@
+//let requirejs = require('requirejs');
+var memory, instance, constants, load_file, parse_code, parse_file, free, requirejs;
+
+if(typeof requirejs === 'undefined') requirejs = require('requirejs');
+requirejs(['../../src/interface'], function(interfc){
+
+//import {map_constants, constants, Program} from './interface.js';
+//import {readFileSync} from 'fs';
+let exports = {};
+(async () => {
+   ({instance, memory, constants, load_file, parse_code, bind_parse_tree, parse_file, free, Program} = await interfc());
+   /*
+   //const {instance} = await WebAssembly.instantiate(bytes, {env: env});
+   const bytes = await read_file('parser.wasi.wasm')
+   const wasm = await WebAssembly.instantiate(bytes, {env: env});
+   instance = wasm.instance;
+   memory = instance.exports.memory;
+   //console.log(instance, memory);
+   constants = map_constants(instance);
+   //console.log(instance);
+   */
+   /*
+   {
+      let start = new Date;
+      let tokens;
+      for(let it = 0; it < 1000; ++it) {
+         tokens = esprima.parse(data_string);
+      }
+      console.log((new Date - start));
+      console.log(tokens);
+   }
+   //*/
+   /*
+   {
+      let start = new Date;
+      for(let it = 0; it < 1000; ++it) {
+         tokenize(data_string, 0, data_string.length);
+      }
+      console.log((new Date - start));
+   }
+   */
+   //console.log(await parse_file('../../data/jquery-3.5.1.js'));
+   ///*
+   if(!process.versions || !process.versions.electron) {
+      const fs = require('fs');
+      let args = (await import('minimist')).default(process.argv.slice(2));
+      if(args.f) {
+         if(args.b) {
+            let result;
+            let code = await load_file(args.f);
+            let start = new Date;
+            let iterations = args.i || 1000;
+            for(let it = 0; it < iterations; ++it) {
+               //instance.exports.tokenize(result_pointer, index, index + file_data.byteLength);
+               //instance.exports.parse(result_pointer, index, index + file_data.byteLength);
+               //result = new Uint32Array(memory.buffer, result_pointer, result_size/4);
+               //instance.exports.wasm_free(result[0]);
+               //instance.exports.parser_free(result_pointer + 4);
+               result = parse_code(code);
+               if(it != iterations - 1) free(result);
+            }
+            //console.log(result);
+            const elapsed = (new Date - start) / iterations;
+
+            start = new Date();
+            const {program} = bind_parse_tree(code, result);
+            console.log('syntax tree constructions took', (new Date - start));
+
+            const script = code.utf8_view.toString();
+            const acorn = require('acorn');
+            const options = {ecmaVersion: 2020};
+            let acorn_result;
+            start = new Date();
+            for(let it = 0; it < iterations; ++it) {
+               acorn_result = acorn.parse(script, options);
+            }
+            const acorn_elpased = (new Date - start) / iterations;
+            const meriyah = require('meriyah');
+            let meriyah_result;
+            start = new Date();
+            for(let it = 0; it < iterations; ++it) {
+               meriyah_result = meriyah.parseScript(script);
+            }
+            const meriyah_elpased = (new Date - start) / iterations;
+            console.log(elapsed, acorn_elpased, meriyah_elpased);
+
+            //return;
+            //*/
+         } else {
+            let result = await parse_file(args.f);
+            const acorn = require('acorn');
+            const options = {ecmaVersion: 2020};
+            const script = require('fs').readFileSync(args.f).toString();
+            const acorn_result = acorn.parse(script, options);
+            const object_diff = requirejs('object_diff');
+            const source = JSON.parse(JSON.stringify(result.program));
+            const target = JSON.parse(JSON.stringify(acorn_result));
+            fs.writeFileSync('../../.ignore/log1', JSON.stringify(source, null, '   '));
+            fs.writeFileSync('../../.ignore/log2', JSON.stringify(target, null, '   '));
+            const diff = object_diff(source, target);
+            console.log(JSON.stringify(diff, null, '   '));
+            //console.log(JSON.stringify(result.program, null, ' '));
+         }
+      }
+   }
+   //*/
+   {
+      /*
+
+      /*
+      start = new Date();
+      let tkn_base = 0x80, base = 0xc0;
+      let symbols = new Map();
+      symbols.set(tkn_base + 1, Symbol('numeric_literal'));
+      symbols.set(tkn_base + 2, Symbol('string_literal'));
+      symbols.set(tkn_base + 3, Symbol('regexp_literal'));
+      symbols.set(tkn_base + 4, Symbol('identifier'));
+      symbols.set(tkn_base + 5, Symbol('punctuator'));
+      symbols.set(tkn_base + 6, Symbol('terminator'));
+      symbols.set(tkn_base + 7, Symbol('whitespace'));
+      symbols.set(tkn_base + 8, Symbol('comment'));
+      symbols.set(tkn_base + 9, Symbol('keyword'));
+      symbols.set(base + 0, Symbol('await'));
+      symbols.set(base + 1, Symbol('break'));
+      symbols.set(base + 2, Symbol('case'));
+      symbols.set(base + 3, Symbol('catch'));
+      symbols.set(base + 4, Symbol('class'));
+      symbols.set(base + 5, Symbol('const'));
+      symbols.set(base + 6, Symbol('continue'));
+      symbols.set(base + 7, Symbol('debugger'));
+      symbols.set(base + 8, Symbol('default'));
+      symbols.set(base + 9, Symbol('delete'));
+      symbols.set(base + 10, Symbol('do'));
+      symbols.set(base + 11, Symbol('else'));
+      symbols.set(base + 12, Symbol('enum'));
+      symbols.set(base + 13, Symbol('export'));
+      symbols.set(base + 14, Symbol('extends'));
+      symbols.set(base + 15, Symbol('false'));
+      symbols.set(base + 16, Symbol('finally'));
+      symbols.set(base + 17, Symbol('for'));
+      symbols.set(base + 18, Symbol('function'));
+      symbols.set(base + 19, Symbol('if'));
+      symbols.set(base + 20, Symbol('import'));
+      symbols.set(base + 21, Symbol('in'));
+      symbols.set(base + 22, Symbol('instanceof'));
+      symbols.set(base + 23, Symbol('new'));
+      symbols.set(base + 24, Symbol('null'));
+      symbols.set(base + 25, Symbol('return'));
+      symbols.set(base + 26, Symbol('super'));
+      symbols.set(base + 27, Symbol('switch'));
+      symbols.set(base + 28, Symbol('this'));
+      symbols.set(base + 29, Symbol('throw'));
+      symbols.set(base + 30, Symbol('true'));
+      symbols.set(base + 31, Symbol('try'));
+      symbols.set(base + 32, Symbol('typeof'));
+      symbols.set(base + 33, Symbol('var'));
+      symbols.set(base + 34, Symbol('void'));
+      symbols.set(base + 35, Symbol('while'));
+      symbols.set(base + 36, Symbol('with'));
+      symbols.set(base + 37, Symbol('yield'));
+      symbols.set(base + 38, Symbol('implements'));
+      symbols.set(base + 39, Symbol('interface'));
+      symbols.set(base + 40, Symbol('package'));
+      symbols.set(base + 41, Symbol('private'));
+      symbols.set(base + 42, Symbol('protected'));
+      symbols.set(base + 43, Symbol('public'));
+
+      let token_size = 12;
+      //let pointer = result[0], token_count = result[1];
+      let pointer = result[2], token_count = (result[3] - result[2]) / token_size + 1;
+      result = new Uint32Array(memory.buffer, pointer, token_size*token_count/4);
+      let tokens = new Array(token_count);
+      for(let i = 0; i < 3*token_count; i += 3) {
+         let begin = result[i], end = result[i + 1];
+         let value = result[i + 2];
+         let type = value & 0xff;
+         let id = (value >> 8) & 0xff;
+         let group = (value >> 16) & 0xffff;
+         tokens[i/3] = {
+            type: symbols.get(type), id: symbols.get(id) || id,
+            value: data_string.substring(begin, end),
+            group: group, begin: begin, end: end
+         }
+      }
+      console.log('token binding took', (new Date - start));
+      //console.log(tokens);
+      //*/
+   }
+})();
+
+return exports;
+});

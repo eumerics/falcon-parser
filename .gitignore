@@ -1,0 +1,5 @@
+.ignore
+build
+dist
+node_modules
+src/simd
