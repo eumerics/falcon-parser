@@ -1,16 +1,5 @@
 /* globals module window */
-(function(global, factory){
-   return (
-      typeof define === 'function' && define.amd
-         ? define([], factory)
-         : typeof exports === 'object' && typeof module !== 'undefined'
-            ? module.exports = factory()
-            : window.object_diff = factory()
-   );
-}(this, function(){
-'use strict';
-
-function object_diff(actual, expected) {
+export function object_diff(actual, expected) {
    var default_diff = {left: actual, right: expected};
    if(typeof actual != typeof expected) return default_diff;
    switch(typeof actual) {
@@ -86,6 +75,3 @@ function object_diff(actual, expected) {
       }
    }
 }
-
-return object_diff;
-}));

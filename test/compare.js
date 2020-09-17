@@ -1,35 +1,6 @@
-//let requirejs = require('requirejs');
-var memory, instance, constants, load_file, parse_code, parse_file, free, requirejs;
+import {Parser} from '../src/interface.js';
 
-if(typeof requirejs === 'undefined') requirejs = require('requirejs');
-requirejs(['../../src/interface'], function(interfc){
-
-//import {map_constants, constants, Program} from './interface.js';
-//import {readFileSync} from 'fs';
-let exports = {};
 (async () => {
-   ({instance, memory, constants, load_file, parse_code, bind_parse_tree, parse_file, free, Program} = await interfc());
-   /*
-   //const {instance} = await WebAssembly.instantiate(bytes, {env: env});
-   const bytes = await read_file('parser.wasi.wasm')
-   const wasm = await WebAssembly.instantiate(bytes, {env: env});
-   instance = wasm.instance;
-   memory = instance.exports.memory;
-   //console.log(instance, memory);
-   constants = map_constants(instance);
-   //console.log(instance);
-   */
-   /*
-   {
-      let start = new Date;
-      let tokens;
-      for(let it = 0; it < 1000; ++it) {
-         tokens = esprima.parse(data_string);
-      }
-      console.log((new Date - start));
-      console.log(tokens);
-   }
-   //*/
    /*
    {
       let start = new Date;
@@ -42,32 +13,27 @@ let exports = {};
    //console.log(await parse_file('../../data/jquery-3.5.1.js'));
    ///*
    if(!process.versions || !process.versions.electron) {
-      const fs = require('fs');
       let args = (await import('minimist')).default(process.argv.slice(2));
+      await Parser.load_wasm('../dist/parser.wasm');
+      let parser = new Parser();
       if(args.f) {
          if(args.b) {
             let result;
-            let code = await load_file(args.f);
+            await parser.load_file(args.f);
             let start = new Date;
             let iterations = args.i || 1000;
             for(let it = 0; it < iterations; ++it) {
-               //instance.exports.tokenize(result_pointer, index, index + file_data.byteLength);
-               //instance.exports.parse(result_pointer, index, index + file_data.byteLength);
-               //result = new Uint32Array(memory.buffer, result_pointer, result_size/4);
-               //instance.exports.wasm_free(result[0]);
-               //instance.exports.parser_free(result_pointer + 4);
-               result = parse_code(code);
-               if(it != iterations - 1) free(result);
+               parser.parse_code();
+               if(it != iterations - 1) parser.free();
             }
-            //console.log(result);
             const elapsed = (new Date - start) / iterations;
 
             start = new Date();
-            const {program} = bind_parse_tree(code, result);
+            const program = parser.bind_parse_tree();
             console.log('syntax tree constructions took', (new Date - start));
 
-            const script = code.utf8_view.toString();
-            const acorn = require('acorn');
+            const script = parser.code.utf8_view.toString();
+            const acorn = await import('acorn');
             const options = {ecmaVersion: 2020};
             let acorn_result;
             start = new Date();
@@ -75,7 +41,7 @@ let exports = {};
                acorn_result = acorn.parse(script, options);
             }
             const acorn_elpased = (new Date - start) / iterations;
-            const meriyah = require('meriyah');
+            const meriyah = (await import('meriyah')).default;
             let meriyah_result;
             start = new Date();
             for(let it = 0; it < iterations; ++it) {
@@ -83,20 +49,18 @@ let exports = {};
             }
             const meriyah_elpased = (new Date - start) / iterations;
             console.log(elapsed, acorn_elpased, meriyah_elpased);
-
-            //return;
-            //*/
          } else {
-            let result = await parse_file(args.f);
-            const acorn = require('acorn');
+            let program = await parser.parse_file(args.f);
+            const acorn = await import('acorn');
             const options = {ecmaVersion: 2020};
-            const script = require('fs').readFileSync(args.f).toString();
+            const fs = await import('fs');
+            const script = fs.readFileSync(args.f).toString();
             const acorn_result = acorn.parse(script, options);
-            const object_diff = requirejs('object_diff');
-            const source = JSON.parse(JSON.stringify(result.program));
+            const {object_diff} = await import('./object_diff.js');
+            const source = JSON.parse(JSON.stringify(program));
             const target = JSON.parse(JSON.stringify(acorn_result));
-            fs.writeFileSync('../../.ignore/log1', JSON.stringify(source, null, '   '));
-            fs.writeFileSync('../../.ignore/log2', JSON.stringify(target, null, '   '));
+            fs.writeFileSync('../.ignore/log1', JSON.stringify(source, null, '   '));
+            fs.writeFileSync('../.ignore/log2', JSON.stringify(target, null, '   '));
             const diff = object_diff(source, target);
             console.log(JSON.stringify(diff, null, '   '));
             //console.log(JSON.stringify(result.program, null, ' '));
@@ -188,5 +152,5 @@ let exports = {};
    }
 })();
 
-return exports;
-});
+//return exports;
+//});

@@ -1,9 +1,9 @@
 {
+   "type": "module",
    "devDependencies": {
       "acorn": "^8.0.1",
       "meriyah": "^2.1.1",
       "minimist": "^1.2.5",
-      "requirejs": "^2.3.6",
       "test262-parser-tests": "0.0.5"
    }
 }
