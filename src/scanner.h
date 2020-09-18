@@ -69,6 +69,7 @@ inline_spec char_t const* scan_string_literal(char_t const* string, char_t const
             hex_chars = 2;
             ++string;
          } else if(c == 'u') {
+            if(string + 1 == end) return begin;
             if(*(string + 1) == '{') {
                code_point = 1;
                ++string;
@@ -84,16 +85,16 @@ inline_spec char_t const* scan_string_literal(char_t const* string, char_t const
          } else {
             ++string;
          }
+         if(string == end) return begin;
          if(code_point) {
-            // buffer should be two additional characters long
             while(*string != '}') {
-               if(string >= end) return begin;
                if(!is_hex(*string)) return begin;
                ++string; ++hex_chars;
+               if(string == end) return begin;
             }
             ++string;
          } else if(hex_chars != 0) {
-            if(string + hex_chars >= end) return begin;
+            if(string + hex_chars > end) return begin;
             for(int hi = 0; hi < hex_chars; ++hi, ++string) {
                if(!is_hex(*string)) return begin;
             }
@@ -108,7 +109,6 @@ inline_spec char_t const* scan_string_literal(char_t const* string, char_t const
 inline_spec char_t const* scan_numeric_literal(char_t const* string, char_t const* end)
 {
    //[TODO] spacing character _
-   if(string == end) return string;
    char_t const* begin = string;
    if(*string == '0') {
       if(++string == end) return string;
@@ -148,13 +148,14 @@ decimal:
    }
    // parse the exponent
    if(((*string | 0x20) == 'e') && (string - begin > 0)) {
-      char_t c = *(++string);
+      if(string + 1 == end) return begin;
+      char_t c = *(string + 1);
       if(c == '+' || c == '-') ++string;
       int decimal_digits = 0;
-      do {
+      while(++string < end) {
          if(!is_decimal(*string)) break;
          ++decimal_digits;
-      } while(++string < end);
+      }
       return (decimal_digits == 0 ? begin : string);
    }
    return string;
@@ -176,25 +177,29 @@ inline_spec uint32_t scan_regexp_literal(char_t const* string, char_t const* end
       if(current == '\\') {
          // for scanning it is enough to eat next character
          // as long as it is not a line terminator
-         char_t next = *(++string);
+         if(++string == end) return 0;
+         char_t next = *string;
          if(next == '\n' || next == '\r') return 0;
       } else if(current == '[') {
          while(1) {
-            if(++string >= end) return 0;
+            if(++string == end) return 0;
             if(*string == ']') break;
             if(*string == '\\') {
-               char_t next = *(++string);
+               if(++string == end) return 0;
+               char_t next = *string;
                if(next == '\n' || next == '\r') return 0;
             }
          }
       }
    }
    // parse flags
-   char_t c = *string;
    char_t const* flag_begin = string;
-   while(c == 'g' || c == 'i' || c == 'm' || c == 's' || c == 'u' || c == 'y'){
-      if(++string == end) return ((end - begin) << 24) | (string - flag_begin);
-      c = *string;
+   if(string < end) {
+      char_t c = *string;
+      while(c == 'g' || c == 'i' || c == 'm' || c == 's' || c == 'u' || c == 'y'){
+         if(++string == end) break;
+         c = *string;
+      }
    }
    return ((string - begin) << 24) | (string - flag_begin);
 }
@@ -202,23 +207,20 @@ inline_spec uint32_t scan_regexp_literal(char_t const* string, char_t const* end
 inline_spec char_t const* scan_comment(char_t const* string, char_t const* const end)
 {
    char_t const* begin = string;
-   char_t type = *(string + 1);
-   string += 2;
+   char_t type = *(++string);
    if(type == '/') {
-      do {
+      while(++string != end) {
          char_t current = *string;
          if(current == '\n' || current == '\r') return string;
-      } while(++string != end);
+      }
       return string;
    } else {
-      do {
-         char_t current = *string;
-         if(current == '*') {
+      while(++string != end) {
+         if(*string == '*') {
             if(string + 1 == end) return begin;
             if(*(string + 1) == '/') return string + 2;
-            continue;
          }
-      } while(++string != end);
+      }
       return begin;
    }
 }
@@ -287,7 +289,7 @@ inline_spec char_t scan_punctuator(char_t const* string, char_t const* end)
 inline_spec uint32_t scan_punctuator(char_t const* string, char_t const* end)
 {
    char_t c1 = *string;
-   char_t c2 = *(string + 1);
+   char_t c2 = (string + 1 < end ? *(string + 1) : 0);
    //[14] { } ( ) [ ] ; , : . === == => =
    if(c1 == '(' || c1 == ')') return combine(c1, mask_parentheses, precedence_none, 1);
    if(c1 != c2) { // . => =
@@ -298,7 +300,7 @@ inline_spec uint32_t scan_punctuator(char_t const* string, char_t const* end)
       }
    } else { // === ==
       if(c1 == '=') {
-         char_t c3 = *(string + 2);
+         char_t c3 = (string + 2 < end ? *(string + 2) : 0);
          if(c3 == '=') return combine(pnct_strict_equals, mask_comparison_ops | mask_binary_ops, precedence_equality, 3);
          return combine(pnct_equals, mask_comparison_ops | mask_binary_ops, precedence_equality, 2);
       }
@@ -313,7 +315,7 @@ inline_spec uint32_t scan_punctuator(char_t const* string, char_t const* end)
    if(c1 == ':') return combine(c1, mask_none, precedence_none, 1);
    //[17] >>>= >>> ... <<= >>= &&= ||= **= ??= ++ -- << >> && || ** ??
    if(c1 == c2) {
-      char_t c3 = *(string + 2);
+      char_t c3 = (string + 2 < end ? *(string + 2) : 0);
       if(c3 == '=') { // <<= >>= &&= ||= **= ??=
          switch(c1) {
             case '?': return combine(pnct_inplace_logical_coalesce, mask_assign_ops, precedence_none, 3);
@@ -337,7 +339,7 @@ inline_spec uint32_t scan_punctuator(char_t const* string, char_t const* end)
             // >>>= >>> >>
             case '>': {
                if(c3 == '>') { // >>>= >>>
-                  char_t c4 = *(string + 3);
+                  char_t c4 = (string + 3 < end ? *(string + 3) : 0);
                   if(c4 == '=') {
                      return combine(pnct_inplace_unsigned_shift_right, mask_assign_ops, precedence_none, 4);
                   } else {
@@ -358,7 +360,7 @@ inline_spec uint32_t scan_punctuator(char_t const* string, char_t const* end)
    if(c2 == '=') {
       //[2] !== !=
       if(c1 == '!') {
-         char_t c3 = *(string + 2);
+         char_t c3 = (string + 2 < end ? *(string + 2) : 0);
          if(c3 == '=') return combine(pnct_strict_not_equals, mask_comparison_ops | mask_binary_ops, precedence_equality, 3);
          else return combine(pnct_not_equals, mask_comparison_ops | mask_binary_ops, precedence_equality, 2);
       }
@@ -427,7 +429,7 @@ inline_spec uint32_t scan_template_characters(char_t const* string, char_t const
    char_t const* const begin = string;
    while(string < end) {
       char_t c = *string;
-      if(c == '`' || (c == '$' && (*(string + 1) == '{'))) return string - begin;
+      if(c == '`' || (c == '$' && (string + 1 < end) && (*(string + 1) == '{'))) return string - begin;
       if(c == '\\') {
          if(string + 1 == end) return error_result;
          else ++string;
@@ -668,7 +670,7 @@ wasm_export scan_result_t tokenize(char_t const* string, char_t const* end)
    while(string < end) {
       uint8_t current_token_flags = token_flag_none;
       char_t current = *string;
-      char_t next = *(string + 1);
+      char_t next = (string + 1 < end ? *(string + 1) : 0);
       char_t lower = current | 0x20;
       if(current == '`' || (template_level != 0 && current == '}')) {
          // the only purpose of saved_string is for debugging
@@ -684,7 +686,7 @@ wasm_export scan_result_t tokenize(char_t const* string, char_t const* end)
             assign_char_token('}');
          }
          if(template_level == 0) string = saved_string;
-         while(template_level > 0) {
+         while(template_level > 0 && string < end) {
             string = result; token_flags = current_token_flags;
             uint32_t error_result = 0x80000000;
             uint32_t length = scan_template_characters(string, end);
@@ -750,7 +752,8 @@ wasm_export scan_result_t tokenize(char_t const* string, char_t const* end)
          note_elapsed_time(terminator, counts1, timings1, characters1);
          if_verbose(print_string("newline: "));
       } else if((current >= '0' && current <= '9') ||
-         (current == '.' && (*(string + 1) >= '0' && *(string + 1) <= '9'))
+         //(current == '.' && (*(string + 1) >= '0' && *(string + 1) <= '9'))
+         (current == '.' && (next >= '0' && next <= '9'))
       ){
          regexp_context = 0;
          start_clock();
