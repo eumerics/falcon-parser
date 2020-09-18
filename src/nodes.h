@@ -1,6 +1,16 @@
 #ifndef _NODES_H_
 #define _NODES_H_
 
+typedef struct _parse_list_node_t {
+   void* parse_node;
+   struct _parse_list_node_t* next;
+} parse_list_node_t;
+typedef struct {
+   parse_list_node_t* head;
+   parse_list_node_t* current;
+   int node_count;
+} parse_node_list_state_t;
+
 #include "interface.h"
 
 struct empty_list_t {} empty_list;
@@ -25,15 +35,6 @@ typedef struct {
    size_t page_count;
 } memory_state_t;
 
-typedef struct _parse_list_node_t {
-   void* parse_node;
-   struct _parse_list_node_t* next;
-} parse_list_node_t;
-typedef struct {
-   parse_list_node_t* head;
-   parse_list_node_t* current;
-   int node_count;
-} parse_node_list_state_t;
 typedef struct {
    parse_node_list_state_t spread;
    parse_node_list_state_t assignment;

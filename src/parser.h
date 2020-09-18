@@ -113,6 +113,7 @@ void parser_free(parser_state_t* state)
 #define exists_word(name) (state->token->id == word(name))
 #define exists_mask(mask) (state->token->group & mask)
 #define exists_newline() (state->token->flags & token_flag_newline)
+#define exists_offset_newline(offset) ((state->token + offset)->flags & token_flag_newline)
 #ifdef verbose
    #define optional(token_id) (\
       (state->token->id == token_id ? (print_token_consumption(), ++state->token, 1) : 0) \
@@ -352,6 +353,10 @@ void* parse_expression(parser_state_t* state, parser_tree_state_t* tree_state, p
 void* parse_assignment_expression(parser_state_t* state, parser_tree_state_t* tree_state, params_t params);
 void* parse_lhs_expression(parser_state_t* state, parser_tree_state_t* tree_state, params_t params);
 
+#define is_a_directive(token) ( \
+   token->id == tkn_string_literal && \
+   (++token == state->token || (token->id == ';' && ++token == state->token)) \
+)
 #define is_let_a_keyword() ( \
    (params & param_flag_strict_mode) || \
    ((state->token + 1)->group & (mask_let_inclusions | mask_identifier)) \
@@ -388,6 +393,14 @@ inline_spec bool is_an_assignment_target(void* node)
       }
    }
    return node_is_an(assignment_target, node);
+}
+
+#define parse_semicolon() { \
+   if(exists(';')) { \
+      ensure(';'); \
+   } else { \
+      if(!exists('}') && !exists(tkn_eot) && !exists_newline()) expect(';'); \
+   } \
 }
 
 // ====== IDENTIFIERS / LITERALS ====== //
@@ -440,6 +453,13 @@ inline_spec literal_t* parse_literal(parser_state_t* state, parser_tree_state_t*
    ensure_mask(mask_literal);
    return_node();
 }
+inline_spec literal_t* parse_string_literal(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+{
+   make_node(literal);
+   assign(token_id, current_token_id);
+   ensure(tkn_string_literal);
+   return_node();
+}
 inline_spec regexp_literal_t* parse_regexp_literal(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
 {
    make_node(regexp_literal);
@@ -477,8 +497,11 @@ inline_spec void* parse_property_name(parser_state_t* state, parser_tree_state_t
 }
 
 // ====== STATEMENT LISTS ====== //
+void* parse_import_declaration(parser_state_t* state, parser_tree_state_t* tree_state, params_t params);
+void* parse_export_declaration(parser_state_t* state, parser_tree_state_t* tree_state, params_t params);
 void* parse_declaration(parser_state_t* state, parser_tree_state_t* tree_state, params_t params);
 void* parse_statement(parser_state_t* state, parser_tree_state_t* tree_state, params_t params);
+void* parse_var_variable_statement(parser_state_t* state, parser_tree_state_t* tree_state, params_t params);
 /*
 StatementList[Yield, Await, Return]:
    StatementListItem[?Yield, ?Await, ?Return]
@@ -514,9 +537,7 @@ void* parse_directive_statement_list_with_end_token(
       } else {
          parse(statement);
          add_to_list(statement);
-         if(look_for_directive && token->id == tkn_string_literal &&
-            (++token == state->token || (token->id == ';' && ++token == state->token)))
-         {
+         if(look_for_directive && is_a_directive(token)) {
             set_node_type_of(statement, directive);
          } else {
             look_for_directive = false;
@@ -552,6 +573,48 @@ inline_spec void* parse_script_body(parser_state_t* state, parser_tree_state_t* 
 {
    parse_with_arg(tkn_eot, directive_statement_list_with_end_token, YLD|AWT|RET, NONE);
    passon(directive_statement_list_with_end_token);
+}
+/*
+Module:
+   ModuleBody_opt
+ModuleBody:
+   ModuleItemList
+ModuleItemList:
+   ModuleItem
+   ModuleItemList ModuleItem
+ModuleItem:
+   ImportDeclaration
+   ExportDeclaration
+   StatementListItem[~Yield, ~Await, ~Return]
+*/
+inline_spec void* parse_module_body(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+{
+   bool look_for_directive = true;
+   token_t* token = state->token;
+   start_list();
+   while(!exists(tkn_eot)) {
+      if(exists_word(import)) {
+         parse(import_declaration);
+         add_to_list(import_declaration);
+      } else if(exists_word(export)) {
+         parse(export_declaration);
+         add_to_list(export_declaration);
+      } else {
+         optional_parse(declaration, YLD|AWT|RET, NONE);
+         if(declaration) {
+            add_to_list(declaration);
+         } else {
+            parse(statement, YLD|AWT|RET, NONE);
+            add_to_list(statement);
+            if(look_for_directive && is_a_directive(token)) {
+               set_node_type_of(statement, directive);
+            } else {
+               look_for_directive = false;
+            }
+         }
+      }
+   }
+   passon(list_head());
 }
 
 // ====== BINDING PATTERNS ====== //
@@ -852,19 +915,29 @@ AsyncGeneratorBody:
 */
 void* parse_function_declaration(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
 {
-   make_node(function_declaration);
    params_t add_params = 0;
    uint8_t function_flags = flag_none;
-   if(optional_word(async)) {
+   save_begin();
+   if(exists_word(async)) {
+      if(exists_offset_newline(1) || !offset_lookahead(1, word(function))) {
+         passon(nullptr);
+      }
+      ensure_word(async);
       function_flags |= function_flag_async;
       add_params |= param_flag_await;
    }
+   make_node(function_declaration);
+   assign_begin();
    expect_word(function);
    if(optional('*')) {
       function_flags |= function_flag_generator;
       add_params |= param_flag_yield;
    }
-   parse(id, binding_identifier);
+   if((params & param_flag_default) && !exists_mask(mask_identifier)) {
+      assign(id, nullptr);
+   } else {
+      parse(id, binding_identifier);
+   }
    expect('('); list_parse(params, formal_parameters, YLD|AWT, add_params); expect(')');
    //expect('{'); parse(body, function_body, YLD|AWT, flags); expect('}');
    parse(body, function_body_container, YLD|AWT, add_params);
@@ -1147,7 +1220,11 @@ void* parse_class_declaration(parser_state_t* state, parser_tree_state_t* tree_s
 {
    make_node(class_declaration);
    expect_word(class);
-   parse(id, binding_identifier);
+   if((params & param_flag_default) && !exists_mask(mask_identifier)) {
+      assign(id, nullptr);
+   } else {
+      parse(id, binding_identifier);
+   }
    if(optional_word(extends)) {
       parse(super_class, lhs_expression);
    }
@@ -1170,6 +1247,188 @@ void* parse_class_expression(parser_state_t* state, parser_tree_state_t* tree_st
    //expect('{'); parse(body, class_body); expect('}');
    parse(body, class_body_container);
    return_node();
+}
+
+// ====== MODULES ====== //
+/*
+ImportDeclaration:
+   import ImportClauseFromClause ;
+   import ModuleSpecifier ;
+ImportClause:
+   ImportedDefaultBinding
+   NameSpaceImport
+   NamedImports
+   ImportedDefaultBinding , NameSpaceImport
+   ImportedDefaultBinding , NamedImports
+ImportedDefaultBinding:
+   ImportedBinding
+NameSpaceImport:
+   * as ImportedBinding
+NamedImports:
+   { }
+   { ImportsList }
+   { ImportsList , }
+FromClause:
+   fromModuleSpecifier
+ImportsList:
+   ImportSpecifier
+   ImportsList , ImportSpecifier
+ImportSpecifier:
+   ImportedBinding
+   IdentifierName as ImportedBinding
+ModuleSpecifier:
+   StringLiteral
+ImportedBinding:
+   BindingIdentifier[~Yield, ~Await]
+*/
+void* parse_import_declaration(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+{
+   make_node(import_declaration);
+   ensure_word(import);
+   if(exists(tkn_string_literal)) {
+      assign(specifiers, nullptr);
+   } else {
+      start_list();
+      // parse the default specifier if exists
+      bool has_specifiers = true;
+      if(exists_mask(mask_identifier)) {
+         make_node(import_default_specifier);
+         parse(local, binding_identifier, YLD|AWT, NONE);
+         add_to_list(completed_node());
+         has_specifiers = optional(',');
+      }
+      if(has_specifiers) {
+         if(exists('*')) {
+            make_node(import_namespace_specifier);
+            ensure('*'); expect_word(as);
+            parse(local, binding_identifier, YLD|AWT, NONE);
+            add_to_list(completed_node());
+         } else if(exists('{')) {
+            ensure('{');
+            while(!exists('}')) {
+               make_node(import_specifier);
+               if(offset_lookahead(1, word(as))) {
+                  parse(imported, identifier_name);
+                  ensure_word(as);
+                  parse(local, binding_identifier, YLD|AWT, NONE);
+               } else {
+                  parse(binding_identifier, YLD|AWT, NONE);
+                  assign(imported, binding_identifier);
+                  assign(local, binding_identifier);
+               }
+               add_to_list(completed_node());
+               if(!optional(',')) break;
+            }
+            expect('}');
+         } else {
+            return_error(missing_import_specifier, nullptr);
+         }
+      }
+      assign(specifiers, raw_list_head());
+      expect_word(from);
+   }
+   parse(source, string_literal);
+   parse_semicolon();
+   return_node();
+}
+/*
+ExportDeclaration:
+   export ExportFromClause FromClause ;
+   export NamedExports ;
+   export VariableStatement[~Yield, ~Await]
+   export Declaration[~Yield, ~Await]
+   export default HoistableDeclaration[~Yield, ~Await, +Default]
+   export default ClassDeclaration[~Yield, ~Await, +Default]
+   export default [lookahead ∉ { function, async [no LineTerminator here] function, class }]
+      AssignmentExpression[+In, ~Yield, ~Await];
+ExportFromClause:
+   *
+   * as IdentifierName
+   NamedExports
+NamedExports:
+   { }
+   { ExportsList }
+   { ExportsList , }
+ExportsList:
+   ExportSpecifier
+   ExportsList , ExportSpecifier
+ExportSpecifier:
+   IdentifierName
+   IdentifierName as IdentifierName
+*/
+void* parse_export_declaration(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+{
+   save_begin();
+   ensure_word(export);
+   if(optional('*')) {
+      make_node(export_all_declaration);
+      assign_begin();
+      if(optional_word(as)) {
+         parse(exported, identifier_name);
+      } else {
+         assign(exported, nullptr);
+      }
+      expect_word(from);
+      parse(source, string_literal);
+      parse_semicolon();
+      return_node();
+   } else if(optional('{')) {
+      make_node(export_named_declaration);
+      assign_begin();
+      start_list();
+      while(!exists('}')) {
+         make_node(export_specifier);
+         parse(identifier_name);
+         if(optional_word(as)) {
+            assign(local, identifier_name);
+            parse(exported, identifier_name);
+         } else {
+            assign(exported, identifier_name);
+            assign(local, identifier_name);
+         }
+         add_to_list(completed_node());
+         if(!optional(',')) break;
+      }
+      assign(specifiers, raw_list_head());
+      expect('}');
+      if(optional_word(from)) {
+         parse(source, string_literal);
+      } else {
+         assign(source, nullptr);
+      }
+      assign(declaration, nullptr);
+      parse_semicolon();
+      return_node();
+   } else if(optional_word(default)) {
+      make_node(export_default_declaration);
+      assign_begin();
+      void* default_declaration = nullptr;
+      if(exists_word(function) || exists_word(async)) {
+         optional_parse(function_declaration, YLD|AWT, DEF);
+         default_declaration = function_declaration;
+      } else if(exists_word(class)) {
+         optional_parse(class_declaration, YLD|AWT, DEF);
+         default_declaration = class_declaration;
+      }
+      if(default_declaration == nullptr){
+         parse(assignment_expression, YLD|AWT, IN);
+         parse_semicolon();
+         default_declaration = assignment_expression;
+      }
+      assign(declaration, default_declaration);
+      return_node();
+   } else {
+      make_node(export_named_declaration);
+      assign_begin();
+      if(exists_word(var)) {
+         parse(declaration, var_variable_statement, YLD|AWT, NONE);
+      } else {
+         parse(declaration, declaration, YLD|AWT, NONE);
+      }
+      assign(specifiers, nullptr);
+      assign(source, nullptr);
+      return_node();
+   }
 }
 
 // ====== ARRAY LITERAL ====== //
@@ -1879,8 +2138,10 @@ void* parse_primary_expression(parser_state_t* state, parser_tree_state_t* tree_
       //case '(': passon_parsed(parenthesized_expression);
       case '(': passon_parsed(covered_parenthesized_expression);
       case rw_function: passon_parsed(function_expression, YLD|AWT, NONE);
-      case rw_async: if(offset_lookahead(1, word(function))) {
-         passon_parsed(function_expression, YLD|AWT, NONE);
+      case rw_async: {
+         if(!exists_offset_newline(1) && offset_lookahead(1, word(function))) {
+            passon_parsed(function_expression, YLD|AWT, NONE);
+         }
       } // fallthrough
       default: {
          // contextual keyword
@@ -2632,14 +2893,6 @@ void* parse_assignment_expression(parser_state_t* state, parser_tree_state_t* tr
 }
 
 // ============ STATEMENTS ============= //
-#define parse_semicolon() { \
-   if(exists(';')) { \
-      ensure(';'); \
-   } else { \
-      if(!exists('}') && !exists(tkn_eot) && !exists_newline()) expect(';'); \
-   } \
-}
-
 /*
 BlockStatement[Yield, Await, Return]:
    Block[?Yield, ?Await, ?Return]
@@ -3220,13 +3473,11 @@ HoistableDeclaration[Yield, Await, Default]:
 void* parse_declaration(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
 {
    switch(state->token->id) {
+      case rw_async: // fallthrough
       case rw_function: passon_parsed(function_declaration, DEF, NONE);
       case rw_class: passon_parsed(class_declaration, DEF, NONE);
       case rw_let: passon_parsed(let_variable_statement, DEF, IN);
       case rw_const: passon_parsed(const_variable_statement);
-      case rw_async: if(offset_lookahead(1, word(function))) {
-         passon_parsed(function_declaration, DEF, NONE);
-      } // fallthrough
       default: passon(nullptr);
    }
 }
@@ -3275,7 +3526,7 @@ void* parse_statement(parser_state_t* state, parser_tree_state_t* tree_state, pa
          } else if(exists_mask(mask_expression_exclusions)) {
             if(exists_word(async)) {
                token_t* token = (state->token + 1);
-               if(token->id == word(function) && (token->flags & token_flag_newline)) {
+               if(token->id == word(function) && !(token->flags & token_flag_newline)) {
                   passon(nullptr);
                }
             } else if(exists_word(let)) {
@@ -3289,15 +3540,21 @@ void* parse_statement(parser_state_t* state, parser_tree_state_t* tree_state, pa
    }
 }
 
-program_t* parse_code(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+program_t* parse_script(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
 {
    make_node(program);
-   //print_token();
    assign(source_type, program_kind_script);
    list_parse(body, script_body);
-   //print_token();
    complete_node();
-   //log_node(node, node->begin, node->end, node->type, node->body);
+   return node;
+}
+
+program_t* parse_module(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+{
+   make_node(program);
+   assign(source_type, program_kind_module);
+   list_parse(body, module_body);
+   complete_node();
    return node;
 }
 
@@ -3360,7 +3617,7 @@ program_t* parse_code(parser_state_t* state, parser_tree_state_t* tree_state, pa
 #undef add_to_list
 #undef list_head
 
-parser_result_t parse(char_t const* source_begin, char_t const* source_end)
+parser_result_t parse(char_t const* source_begin, char_t const* source_end, bool is_module)
 {
    size_t source_length = source_end - source_begin;
    scan_result_t result = tokenize(source_begin, source_end);
@@ -3381,7 +3638,12 @@ parser_result_t parse(char_t const* source_begin, char_t const* source_end)
    //init_named_list(state.aggregator.array.assignment);
    //init_named_list(state.aggregator.array.pattern)
    //printf("%p begin: %zu end: %zu\n", state.tokens, (state.tokens + 1)->begin, (state.tokens + 1)->end);
-   program_t* program = parse_code(&state, &tree_state, 0);
+   program_t* program = nullptr;
+   if(is_module) {
+      program = parse_module(&state, &tree_state, 0);
+   } else {
+      program = parse_script(&state, &tree_state, 0);
+   }
    //printf("%p begin: %zu end: %zu\n", state.tokens, (state.tokens + 1)->begin, (state.tokens + 1)->end);
    //printf("length = %d\n", program->end - program->begin);
    if(program != nullptr) {

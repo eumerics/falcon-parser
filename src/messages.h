@@ -17,6 +17,7 @@ define_error(0x0005, non_assignment,
 define_error(0x0006, unexpected_await, "await is valid only in async functions and async generators");
 define_error(0x0007, missing_binding_initializer, "missing initializer in a destructuring declaration");
 define_error(0x0008, missing_const_initializer, "missing initializer in a const declaration");
+define_error(0x0009, missing_import_specifier, "missing import specifier");
 
 define_error(0x1000, missing_assignment_or_binding_flag,
    "internal-error: change flags must have one of assignment or binding flag"

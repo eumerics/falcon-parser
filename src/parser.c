@@ -120,6 +120,7 @@ int main(int argc, char* argv[])
 {
    if(argc > 1) {
       FILE* fp = fopen(argv[1], "r");
+      bool is_module = true;
       if(fp != NULL) {
          fseek(fp, 0L, SEEK_END);
          size_t file_size = ftell(fp);
@@ -144,7 +145,7 @@ int main(int argc, char* argv[])
             for(int it = 0; it < iterations; ++it) {
                //result = tokenize(source, source + file_size);
                //free(result.tokens);
-               result = parse(source, source + file_size);
+               result = parse(source, source + file_size, is_module);
                parser_free(&result.state);
             }
             uint64_t end = __rdtsc();

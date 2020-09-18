@@ -8,9 +8,9 @@
    <script type="text/javascript" src="scanner.js"></script>
    -->
    <script type="text/javascript">
-      var Parser, parser;
+      var Parser, Interface, parser;
       (async () => {
-         ({Parser} = await import('../../src/interface.js'));
+         ({Parser, ...Interface} = await import('../../src/interface.js'));
          await Parser.load_wasm('../../dist/parser.wasm');
          parser = new Parser;
          program = await parser.parse_file('../data/pass/expressions/assignment.js');

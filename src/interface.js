@@ -72,12 +72,29 @@ function utf8_to_utf16(utf8_view) {
    return new Uint16Array(utf16_buffer, 0, j);
 }
 
+function change_node_type(Class, type_name)
+{
+   Object.defineProperty(Class.prototype, 'type', {value: type_name});
+}
+function add_enumerables(Class, new_enumerables)
+{
+   let enumerables = Class.prototype.hasOwnProperty('enumerables')
+      ? Class.prototype.enumerables : Array.from(Class.prototype.enumerables);
+   //let t1 = new Set(enumerables);
+   enumerables.push(...new_enumerables);
+   /*
+   let t2 = new Set(enumerables);
+   if(t1.size + new_enumerables.length != t2.size) {
+      console.error(Class, t1, new_enumerables, t2);
+   }
+   */
+   Class.prototype.enumerables = enumerables;
+}
 function define_interface(Class, type_info, type_name)
 {
    group_begin(Class.name);
-   let enumerables = Class.prototype.hasOwnProperty('enumerables')
-      ? Class.prototype.enumerables : Array.from(Node.prototype.enumerables);
-   if(type_name) Object.defineProperty(Class.prototype, 'type', {value: type_name});
+   let enumerables = [];
+   if(type_name) change_node_type(Class, type_name);
    if(type_info.flags) _bind_flags(Class, type_info.flags);
    if(type_info.nodes) _bind_nodes(Class, type_info.nodes);
    //if(type_info.properties) _bind_properties(Class, type_info.properties);
@@ -91,7 +108,8 @@ function define_interface(Class, type_info, type_name)
       });
    }
    //Object.defineProperty(Class.prototype, 'enumerables', {value: enumerables});
-   Class.prototype.enumerables = enumerables;
+   //Class.prototype.enumerables = enumerables;
+   add_enumerables(Class, enumerables);
    group_end();
 
    function _make_node(parent, node_pointer) {
@@ -290,6 +308,7 @@ export class Statement extends Node {}
 export class Declaration extends Node {}
 export class Expression extends Node {}
 export class Pattern extends Node {}
+export class ModuleDeclaration extends Node {}
 
 export class SpreadElement extends Node {}
 export class RestElement extends Node {}
@@ -327,7 +346,8 @@ export class Literal extends Expression {
    }
    get raw() { return this.get_value(); }
 }
-Literal.prototype.enumerables = Array.from(Node.prototype.enumerables).concat(['value', 'raw']);
+add_enumerables(Literal, ['value', 'raw']);
+//Literal.prototype.enumerables = Array.from(Node.prototype.enumerables).concat(['value', 'raw']);
 export class RegExpLiteral extends Literal {
    get regex() {
       const flags_length = this.buffer_view.u08[this.pointer + 10] >> 3;
@@ -342,8 +362,10 @@ export class RegExpLiteral extends Literal {
       return new RegExp(regexp.pattern, regexp.flags);
    }
 }
-Object.defineProperty(RegExpLiteral.prototype, 'type', {value: 'Literal'});
-RegExpLiteral.prototype.enumerables = Array.from(Node.prototype.enumerables).concat(['regex', 'value', 'raw']);
+//Object.defineProperty(RegExpLiteral.prototype, 'type', {value: 'Literal'});
+//RegExpLiteral.prototype.enumerables = Array.from(Node.prototype.enumerables).concat(['regex', 'value', 'raw']);
+add_enumerables(RegExpLiteral, ['regex']);
+change_node_type(RegExpLiteral, 'Literal');
 
 export class ThisExpression extends Expression {}
 export class ArrayExpression extends Expression {}
@@ -364,7 +386,8 @@ export class TemplateElement extends Node {
       return {raw: token_string, cooked: token_string};
    }
 }
-TemplateElement.prototype.enumerables = Array.from(Node.prototype.enumerables).concat(['value']);
+//TemplateElement.prototype.enumerables = Array.from(Node.prototype.enumerables).concat(['value']);
+add_enumerables(TemplateElement, ['value']);
 export class ParenthesizedExpression extends Expression {
    constructor() {
       super(...arguments);
@@ -373,7 +396,7 @@ export class ParenthesizedExpression extends Expression {
 }
 export class Property extends Node {}
 export class AssignmentProperty extends Property {}
-export class MethodDefinition extends Property {}
+export class MethodDefinition extends Node {}
 
 export class Function extends Node {}
 export class FunctionExpression extends Function {}
@@ -383,6 +406,16 @@ export class ArrowFunctionExpression extends Function {}
 export class Class extends Statement {}
 export class ClassExpression extends Class {}
 export class ClassDeclaration extends Class {}
+
+export class ImportDeclaration extends ModuleDeclaration {}
+export class ModuleSpecifier extends Node {}
+export class ImportSpecifier extends ModuleSpecifier {}
+export class ImportDefaultSpecifier extends ModuleSpecifier {}
+export class ImportNamespaceSpecifier extends ModuleSpecifier {}
+export class ExportAllDeclaration extends ModuleDeclaration {}
+export class ExportNamedDeclaration extends ModuleDeclaration {}
+export class ExportDefaultDeclaration extends ModuleDeclaration {}
+export class ExportSpecifier extends ModuleSpecifier {}
 
 export class MemberExpression extends Expression {}
 export class TaggedTemplateExpression extends Expression {}
@@ -419,7 +452,8 @@ export class Directive extends Node {
       return this.decode(this.expression.begin + 1, this.expression.end - 1);
    }
 }
-Directive.prototype.enumerables = Array.from(Node.prototype.enumerables).concat(['directive']);
+//Directive.prototype.enumerables = Array.from(Node.prototype.enumerables).concat(['directive']);
+add_enumerables(Directive, ['directive']);
 export class IfStatement extends Statement {}
 export class DoStatement extends Statement {}
 export class WhileStatement extends Statement {}
@@ -561,10 +595,11 @@ export class Parser {
       shared_memory.set(code_uint8_view, index);
       this.code = {pointer: index, view: code_view, utf8_view: code_utf8_view};
    }
-   parse_code() {
-      let result_size = 4096; //[BUG] large enough for now to now worry about actual size
+   parse_code(is_module) {
+      let result_size = 4096; //[BUG] large enough for now to not worry about actual size
       let result_pointer = Parser.instance.exports.malloc(result_size);
-      Parser.instance.exports.parse(result_pointer, this.code.pointer, this.code.pointer + this.code.view.byteLength);
+      let begin = this.code.pointer, end = begin + this.code.view.byteLength;
+      Parser.instance.exports.parse(result_pointer, begin, end, is_module);
       let result = new Uint32Array(Parser.memory.buffer, result_pointer, result_size/4);
       this.parse_result = {value: result, pointer: result_pointer};
    }
@@ -582,10 +617,11 @@ export class Parser {
       this.program = new Program(buffer_view, this.parse_result.value[0]);
       return this.program;
    }
-   async parse_file(file_name) {
+   async parse_file(file_name, is_module) {
       await this.load_file(file_name);
-      this.parse_code(this.code);
-      return this.bind_parse_tree(this.code, this.result);
+      is_module = is_module ?? /\.module\.js$|\.mjs$/.test(file_name);
+      this.parse_code(is_module);
+      return this.bind_parse_tree();
    }
    free() {
       //Parser.instance.exports.wasm_free(result.value[0]);
@@ -695,6 +731,15 @@ export class Parser {
       constructors[constants.pnt_variable_declarator] = VariableDeclarator;
       constructors[constants.pnt_function_declaration] = FunctionDeclaration;
       constructors[constants.pnt_class_declaration] = ClassDeclaration;
+
+      constructors[constants.pnt_import_declaration] = ImportDeclaration;
+      constructors[constants.pnt_import_specifier] = ImportSpecifier;
+      constructors[constants.pnt_import_default_specifier] = ImportDefaultSpecifier;
+      constructors[constants.pnt_import_namespace_specifier] = ImportNamespaceSpecifier;
+      constructors[constants.pnt_export_all_declaration] = ExportAllDeclaration;
+      constructors[constants.pnt_export_named_declaration] = ExportNamedDeclaration;
+      constructors[constants.pnt_export_default_declaration] = ExportDefaultDeclaration;
+      constructors[constants.pnt_export_specifier] = ExportSpecifier;
    }
    static complete_interface_definitions() {
       group_begin('interface');
@@ -747,7 +792,8 @@ export class Parser {
          static: constants.method_flag_static
       }}};
       define_interface(Property, property_type_info);
-      define_interface(AssignmentProperty, property_type_info, 'Property');
+      change_node_type(AssignmentProperty, 'Property');
+      //define_interface(AssignmentProperty, property_type_info, 'Property');
       define_interface(MethodDefinition, method_type_info);
 
       const declarator_kind_to_string = new Map();
@@ -766,6 +812,20 @@ export class Parser {
             from_string: declarator_kind_from_string
          }},
       });
+
+      define_interface(ImportDeclaration, {
+         lists: {specifiers: 12},
+         nodes: {source: 16}
+      });
+      define_interface(ModuleSpecifier, {nodes: {local: 12}});
+      define_interface(ImportSpecifier, {nodes: {imported: 16}});
+      define_interface(ExportAllDeclaration, {nodes: {exported: 12, source: 16}});
+      define_interface(ExportNamedDeclaration, {
+         lists: {specifiers: 12},
+         nodes: {source: 16, declaration: 20}
+      });
+      define_interface(ExportDefaultDeclaration, {nodes: {declaration: 12}});
+      define_interface(ExportSpecifier, {nodes: {exported: 16}});
 
       define_interface(SpreadElement, {nodes: {argument: 12}});
       define_interface(RestElement, {nodes: {argument: 12}});

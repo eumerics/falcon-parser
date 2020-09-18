@@ -358,7 +358,26 @@ uint8_t const pnt_function_declaration = declaration_base + 2;
 uint8_t const png_function_declaration = NONE;
 uint8_t const pnt_class_declaration = declaration_base + 3;
 uint8_t const png_class_declaration = NONE;
-uint8_t const pnt_assignment_pattern = declaration_base + 4;
+uint8_t const pnt_import_declaration = declaration_base + 4;
+uint8_t const png_import_declaration = NONE;
+uint8_t const pnt_import_specifier = declaration_base + 5;
+uint8_t const png_import_specifier = NONE;
+uint8_t const pnt_import_default_specifier = declaration_base + 6;
+uint8_t const png_import_default_specifier = NONE;
+uint8_t const pnt_import_namespace_specifier = declaration_base + 7;
+uint8_t const png_import_namespace_specifier = NONE;
+uint8_t const pnt_export_all_declaration = declaration_base + 8;
+uint8_t const png_export_all_declaration = NONE;
+uint8_t const pnt_export_named_declaration = declaration_base + 9;
+uint8_t const png_export_named_declaration = NONE;
+uint8_t const pnt_export_default_declaration = declaration_base + 10;
+uint8_t const png_export_default_declaration = NONE;
+uint8_t const pnt_export_specifier = declaration_base + 11;
+uint8_t const png_export_specifier = NONE;
+
+// patterns
+uint8_t const pattern_base = 0x80;
+uint8_t const pnt_assignment_pattern = pattern_base + 0;
 uint8_t const png_assignment_pattern = NONE;
 
 uint8_t const program_kind_script = 0x01;

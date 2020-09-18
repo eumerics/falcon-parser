@@ -6,7 +6,6 @@
 #include <stdint.h>
 #include "common.h"
 #include "constants.h"
-#include "interface.h"
 #include "nodes.h"
 
 #if defined(timing) || defined(profile)

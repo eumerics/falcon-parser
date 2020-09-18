@@ -30,3 +30,6 @@ function top_level(a)
       await {a: a, b: b, f: f};
    }
 }
+
+async
+function a(){}

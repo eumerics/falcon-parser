@@ -17,6 +17,7 @@ import {Parser} from '../src/interface.js';
       await Parser.load_wasm('../dist/parser.wasm');
       let parser = new Parser();
       if(args.f) {
+         const is_module = /\.module\.js$|\.mjs$/.test(args.f);
          if(args.b) {
             let result;
             await parser.load_file(args.f);
@@ -34,7 +35,7 @@ import {Parser} from '../src/interface.js';
 
             const script = parser.code.utf8_view.toString();
             const acorn = await import('acorn');
-            const options = {ecmaVersion: 2020};
+            const options = {ecmaVersion: 2020, sourceType: is_module ? 'module' : 'script'};
             let acorn_result;
             start = new Date();
             for(let it = 0; it < iterations; ++it) {
@@ -52,7 +53,7 @@ import {Parser} from '../src/interface.js';
          } else {
             let program = await parser.parse_file(args.f);
             const acorn = await import('acorn');
-            const options = {ecmaVersion: 2020};
+            const options = {ecmaVersion: 2020, sourceType: is_module ? 'module' : 'script'};
             const fs = await import('fs');
             const script = fs.readFileSync(args.f).toString();
             const acorn_result = acorn.parse(script, options);

@@ -152,6 +152,44 @@ typedef class_declaration_t class_expression_t;
 
 typedef struct {
    embed_parse_node();
+   parse_list_node_t* specifiers;
+   literal_t* source;
+} import_declaration_t;
+typedef struct {
+   embed_parse_node();
+   identifier_t* local;
+} module_specifier_t;
+typedef module_specifier_t import_default_specifier_t;
+typedef module_specifier_t import_namespace_specifier_t;
+typedef struct {
+   embed_parse_node();
+   identifier_t* local;
+   identifier_t* imported;
+} import_specifier_t;
+
+typedef struct {
+   embed_parse_node();
+   identifier_t* exported;
+   literal_t* source;
+} export_all_declaration_t;
+typedef struct {
+   embed_parse_node();
+   parse_list_node_t* specifiers;
+   literal_t* source;
+   void* declaration;
+} export_named_declaration_t;
+typedef struct {
+   embed_parse_node();
+   void* declaration;
+} export_default_declaration_t;
+typedef struct {
+   embed_parse_node();
+   identifier_t* local;
+   identifier_t* exported;
+} export_specifier_t;
+
+typedef struct {
+   embed_parse_node();
    uint8_t flags;
    void* argument;
 } yield_expression_t;
