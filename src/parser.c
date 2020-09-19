@@ -74,7 +74,7 @@ elements_t characters2 = {0, 0, 0, 0, 0, 0, 0, 0, 0};
       ); \
       fflush(stdout); \
    }
-   #define print_token(token, length) printf("%.*s\n", length, token)
+   #define print_token(token, length) printf("%.*s\n", (int)(length), token)
    #if !defined(UTF16)
       #define print_token_consumption() ( \
          printf( \
@@ -146,7 +146,7 @@ int main(int argc, char* argv[])
                //result = tokenize(source, source + file_size);
                //free(result.tokens);
                result = parse(source, source + file_size, is_module);
-               parser_free(&result.state);
+               if(it != iterations - 1) parser_free(&result.state);
             }
             uint64_t end = __rdtsc();
             clock_t cend = clock();

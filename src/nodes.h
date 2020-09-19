@@ -18,6 +18,22 @@ struct error_node_t {} error_node;
 void* errptr = &error_node;
 
 typedef struct {
+   char_t const* code_begin;
+   char_t const* code_end;
+   char_t const* code;
+   token_t* token_begin;
+   token_t* token_end;
+   token_t* token;
+   uint8_t token_flags;
+   uint8_t current_token_flags;
+   uint8_t in_template_expression; // bool
+   uint8_t in_regexp_context; // bool
+   uint32_t template_level;
+   uint32_t parenthesis_level;
+   uint32_t template_parenthesis_offset;
+} scan_state_t;
+
+typedef struct {
    token_t* tokens;
    size_t token_count;
    int return_value;

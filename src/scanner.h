@@ -24,11 +24,11 @@
 #if defined(profile)
    #define note_elapsed_time(name, counts, timings, characters) \
       ++counts.name; \
-      timings.name += __rdtsc() - clock_begin; \
-      characters.name += (result - string);
+      timings.name += __rdtsc() - clock_begin;
 #else
    #define note_elapsed_time(name, counts, timings, characters)
 #endif
+//characters.name += (result - string);
 
 inline_spec int is_binary(char_t d)
 {
@@ -53,176 +53,232 @@ inline_spec int is_identifier_start(char_t c)
    return (l >= 'a' && l <= 'z') || c == '$' || c == '_';
 }
 
-inline_spec char_t const* scan_string_literal(char_t const* string, char_t const* end)
+inline_spec void make_char_token(scan_state_t* state, uint8_t const id)
 {
-   char_t const* begin = string;
-   char_t const quote = *string; ++string;
-   while(string < end) {
-      if(*string == quote) return ++string;
-      if(*string == '\\') {
-         ++string;
-         if(string == end) return begin;
-         char_t const c = *string;
+   size_t offset = state->code - state->code_begin;
+   *(state->token) = (token_t){
+      .begin = offset, .end = offset + 1,
+      .id = id, .group = mask_none, .flags = token_flag_none
+   };
+   ++state->token;
+   ++state->code;
+}
+
+inline_spec void make_token(scan_state_t* const state, char_t const* begin, uint8_t const id, uint16_t const group, uint8_t const contextual)
+{
+   *(state->token) = (token_t){
+      .begin = begin - state->code_begin,
+      .end = state->code - state->code_begin,
+      .id = id, .group = group, .flags = (contextual << 3 | state->token_flags)
+   };
+   ++state->token;
+}
+
+inline_spec void make_aggregated_token(scan_state_t* const state, char_t const* begin, uint32_t const aggregated_id)
+{
+   *(state->token) = (token_t){
+      .begin = begin - state->code_begin,
+      .end = state->code - state->code_begin,
+      .aggregated_id = aggregated_id
+   };
+   ++state->token;
+}
+
+inline_spec int scan_string_literal(scan_state_t* const state)
+{
+   char_t const* const begin = state->code;
+   char_t const* const end = state->code_end;
+   char_t const* code = state->code;
+   char_t const quote = *code; ++code;
+   while(code < end) {
+      if(*code == quote) { ++code; goto _make_string_token; }
+      if(*code == '\\') {
+         if(++code == end) return 0;
+         char_t const c = *code;
          int hex_chars = 0;
          int code_point = 0;
          if(c == 'x') {
             hex_chars = 2;
-            ++string;
+            ++code;
          } else if(c == 'u') {
-            if(string + 1 == end) return begin;
-            if(*(string + 1) == '{') {
+            if(code + 1 == end) return 0;
+            if(*(code + 1) == '{') {
                code_point = 1;
-               ++string;
+               ++code;
             } else {
                hex_chars = 4;
             }
-            ++string;
+            ++code;
          } else if(c == '\n') { // \u2028 <LS> \u2029 <PS>
-            ++string;
+            ++code;
          } else if(c == '\r') {
-            if(++string == end) return begin;
-            if(c == '\n') ++string;
+            if(++code == end) return 0;
+            if(*code == '\n') ++code;
          } else {
-            ++string;
+            ++code;
          }
-         if(string == end) return begin;
+         if(code == end) return 0;
          if(code_point) {
-            while(*string != '}') {
-               if(!is_hex(*string)) return begin;
-               ++string; ++hex_chars;
-               if(string == end) return begin;
+            while(*code != '}') {
+               if(!is_hex(*code)) return 0;
+               ++code; ++hex_chars;
+               if(code == end) return 0;
             }
-            ++string;
+            ++code;
          } else if(hex_chars != 0) {
-            if(string + hex_chars > end) return begin;
-            for(int hi = 0; hi < hex_chars; ++hi, ++string) {
-               if(!is_hex(*string)) return begin;
+            if(code + hex_chars > end) return 0;
+            for(int hi = 0; hi < hex_chars; ++hi, ++code) {
+               if(!is_hex(*code)) return 0;
             }
          }
       } else {
-         ++string;
+         ++code;
       }
    }
-   return begin;
+   return 0;
+_make_string_token:
+   state->code = code;
+   make_token(state, begin, tkn_string_literal, mask_literal, precedence_none);
+   return 1;
 }
 
-inline_spec char_t const* scan_numeric_literal(char_t const* string, char_t const* end)
+inline_spec int scan_numeric_literal(scan_state_t* const state)
 {
    //[TODO] spacing character _
-   char_t const* begin = string;
-   if(*string == '0') {
-      if(++string == end) return string;
-      char_t lower = *string | 0x20;
-      char_t const* digit_begin = string + 1;
+   char_t const* const begin = state->code;
+   char_t const* const end = state->code_end;
+   char_t const* code = state->code;
+   if(*code == '0') {
+      if(++code == end) goto _make_numeric_token;
+      char_t lower = *code | 0x20;
+      char_t const* digit_begin = code + 1;
       if(lower == 'x') { // hexadecimal number
-         while(++string < end && is_hex(*string));
+         while(++code < end && is_hex(*code));
       } else if(lower == 'b') {
-         while(++string < end && is_binary(*string));
+         while(++code < end && is_binary(*code));
       } else if(lower == 'o') {
-         while(++string < end && is_octal(*string));
+         while(++code < end && is_octal(*code));
       } else {
          goto decimal;
       }
-      if(string == digit_begin) return begin;
-      if(string == end) return string;
+      if(code == digit_begin) return 0;
+      if(code == end) goto _make_numeric_token;
       // https://tc39.es/ecma262/#sec-literals-numeric-literals
       // The SourceCharacter immediately following a NumericLiteral
       // must not be an IdentifierStart or DecimalDigit
-      return ((is_identifier_start(*string) || is_decimal(*string)) ? begin : string);
+      if(is_identifier_start(*code) || is_decimal(*code)) return 0;
+      goto _make_numeric_token;
    }
 decimal:
    // parse the integer part
-   if(*string != '.') {
+   if(*code != '.') {
       do {
-         if(!is_decimal(*string)) break;
-      } while(++string < end);
-      if(string == end) return string;
+         if(!is_decimal(*code)) break;
+      } while(++code < end);
+      if(code == end) goto _make_numeric_token;
    }
    // parse the decimal part
-   if(*string == '.') {
-      while(++string < end) {
-         if(!is_decimal(*string)) break;
+   if(*code == '.') {
+      while(++code < end) {
+         if(!is_decimal(*code)) break;
       }
-      if(string - begin == 1) return begin; // . must follow atleast a digit
-      if(string == end) return string;
+      if(code - begin == 1) return 0; // . must follow atleast a digit
+      if(code == end) goto _make_numeric_token;
    }
    // parse the exponent
-   if(((*string | 0x20) == 'e') && (string - begin > 0)) {
-      if(string + 1 == end) return begin;
-      char_t c = *(string + 1);
-      if(c == '+' || c == '-') ++string;
+   if(((*code | 0x20) == 'e') && (code - begin > 0)) {
+      if(code + 1 == end) return 0;
+      char_t c = *(code + 1);
+      if(c == '+' || c == '-') ++code;
       int decimal_digits = 0;
-      while(++string < end) {
-         if(!is_decimal(*string)) break;
+      while(++code < end) {
+         if(!is_decimal(*code)) break;
          ++decimal_digits;
       }
-      return (decimal_digits == 0 ? begin : string);
+      if(decimal_digits == 0) return 0;
+      goto _make_numeric_token;
    }
-   return string;
+_make_numeric_token:
+   state->code = code;
+   make_token(state, begin, tkn_numeric_literal, mask_literal, precedence_none);
+   return 1;
 }
 
-// low 8-bits: length of flags
-// high 24-bits: length of the literal
-//[LIMITATION]: regular expression literal length is less than 1<<24 and the
-// number of flags are less than 1<<8.
-inline_spec uint32_t scan_regexp_literal(char_t const* string, char_t const* end)
+//[LIMITATION]: maximum number of allowed flags 1<<5 = 32.
+inline_spec int scan_regexp_literal(scan_state_t* const state)
 {
-   char_t const* begin = string;
+   char_t const* const begin = state->code;
+   char_t const* const end = state->code_end;
+   char_t const* code = state->code;
    while(1) {
-      if(++string == end) return 0;
-      char_t current = *string;
-      if(current == '/') { ++string; break; }
+      if(++code == end) return 0;
+      char_t current = *code;
+      if(current == '/') { ++code; break; }
       if(current == '\n' || current == '\r') return 0;
       // take care of scenarios where '/' fails to serve as a closing tag
       if(current == '\\') {
          // for scanning it is enough to eat next character
          // as long as it is not a line terminator
-         if(++string == end) return 0;
-         char_t next = *string;
+         if(++code == end) return 0;
+         char_t next = *code;
          if(next == '\n' || next == '\r') return 0;
       } else if(current == '[') {
          while(1) {
-            if(++string == end) return 0;
-            if(*string == ']') break;
-            if(*string == '\\') {
-               if(++string == end) return 0;
-               char_t next = *string;
+            if(++code == end) return 0;
+            if(*code == ']') break;
+            if(*code == '\\') {
+               if(++code == end) return 0;
+               char_t next = *code;
                if(next == '\n' || next == '\r') return 0;
             }
          }
       }
    }
    // parse flags
-   char_t const* flag_begin = string;
-   if(string < end) {
-      char_t c = *string;
+   char_t const* flags_begin = code;
+   if(code < end) {
+      char_t c = *code;
       while(c == 'g' || c == 'i' || c == 'm' || c == 's' || c == 'u' || c == 'y'){
-         if(++string == end) break;
-         c = *string;
+         if(++code == end) break;
+         c = *code;
       }
    }
-   return ((string - begin) << 24) | (string - flag_begin);
+   state->code = code;
+   make_token(state, begin, tkn_regexp_literal, mask_none, code - flags_begin);
+   return 1;
 }
 
-inline_spec char_t const* scan_comment(char_t const* string, char_t const* const end)
+inline_spec int scan_comment(scan_state_t* const state)
 {
-   char_t const* begin = string;
-   char_t type = *(++string);
+   char_t const* const begin = state->code;
+   char_t const* const end = state->code_end;
+   char_t const* code = state->code;
+   char_t type = *(++code);
    if(type == '/') {
-      while(++string != end) {
-         char_t current = *string;
-         if(current == '\n' || current == '\r') return string;
-      }
-      return string;
-   } else {
-      while(++string != end) {
-         if(*string == '*') {
-            if(string + 1 == end) return begin;
-            if(*(string + 1) == '/') return string + 2;
+      while(++code != end) {
+         char_t current = *code;
+         if(current == '\n' || current == '\r') {
+            goto _make_comment_token;
          }
       }
-      return begin;
+   } else {
+      while(++code != end) {
+         char_t const c = *code;
+         if(c == '*') {
+            if(code + 1 == end) return 0;
+            if(*(code + 1) == '/') {
+               code += 2; goto _make_comment_token;
+            }
+         } else if(c == '\r' || c == '\n') {
+            state->current_token_flags |= token_flag_newline;
+         }
+      }
+      return 0;
    }
+_make_comment_token:
+   state->code = code;
+   //make_token(state, begin, tkn_comment, mask_none, precedence_none);
+   return 1;
 }
 
 /*
@@ -286,73 +342,86 @@ inline_spec char_t scan_punctuator(char_t const* string, char_t const* end)
 // [57]
 #define combine(id, group, precedence, token_flags) \
    ((uint32_t)(token_flags)) | (((uint32_t)(precedence)) << 3) | (((uint32_t)(id)) << 8) | (((uint32_t)(group)) << 16)
-inline_spec uint32_t scan_punctuator(char_t const* string, char_t const* end)
+inline_spec int scan_punctuator(scan_state_t* const state)
 {
-   char_t c1 = *string;
-   char_t c2 = (string + 1 < end ? *(string + 1) : 0);
+   #define return_scan(id, group, precedence, length) { \
+      code += length; \
+      aggregated_id = combine(id, group, precedence, state->token_flags); \
+      goto _make_punctuator_token; \
+   }
+   uint32_t aggregated_id;
+   char_t const* const begin = state->code;
+   char_t const* const end = state->code_end;
+   char_t const* code = state->code;
+   char_t c1 = *code;
+   char_t c2 = (code + 1 < end ? *(code + 1) : 0);
    //[14] { } ( ) [ ] ; , : . === == => =
-   if(c1 == '(' || c1 == ')') return combine(c1, mask_parentheses, precedence_none, 1);
+   if(c1 == '(' || c1 == ')') return_scan(c1, mask_parentheses, precedence_none, 1);
    if(c1 != c2) { // . => =
-      if(c1 == '.') return combine(c1, mask_none, precedence_none, 1);
+      if(c1 == '.') return_scan(c1, mask_none, precedence_none, 1);
       if(c1 == '=') {
-         if(c2 == '>') return combine(pnct_arrow, mask_none, precedence_none, 2);
-         return combine(c1, mask_assign_ops, precedence_none, 1);
+         if(c2 == '>') return_scan(pnct_arrow, mask_none, precedence_none, 2);
+         return_scan(c1, mask_assign_ops, precedence_none, 1);
       }
    } else { // === ==
       if(c1 == '=') {
-         char_t c3 = (string + 2 < end ? *(string + 2) : 0);
-         if(c3 == '=') return combine(pnct_strict_equals, mask_comparison_ops | mask_binary_ops, precedence_equality, 3);
-         return combine(pnct_equals, mask_comparison_ops | mask_binary_ops, precedence_equality, 2);
+         char_t c3 = (code + 2 < end ? *(code + 2) : 0);
+         if(c3 == '=') return_scan(pnct_strict_equals, mask_comparison_ops | mask_binary_ops, precedence_equality, 3);
+         return_scan(pnct_equals, mask_comparison_ops | mask_binary_ops, precedence_equality, 2);
       }
    }
-   if(c1 == ';' || c1 == ',') return combine(c1, mask_none, precedence_none, 1);
-   if(c1 == '{' || c1 == '['){
-      return combine(c1, mask_parentheses | mask_let_inclusions, precedence_none, 1);
+   if(c1 == ';' || c1 == ',') return_scan(c1, mask_none, precedence_none, 1);
+   if(c1 == '{') {
+      ++state->parenthesis_level;
+      return_scan(c1, mask_parentheses | mask_let_inclusions, precedence_none, 1);
    }
-   if(c1 == '}' || c1 == ']'){
-      return combine(c1, mask_parentheses, precedence_none, 1);
+   if(c1 == '}'){
+      --state->parenthesis_level;
+      return_scan(c1, mask_parentheses, precedence_none, 1);
    }
-   if(c1 == ':') return combine(c1, mask_none, precedence_none, 1);
+   if(c1 == '[') return_scan(c1, mask_parentheses | mask_let_inclusions, precedence_none, 1);
+   if(c1 == ']') return_scan(c1, mask_parentheses, precedence_none, 1);
+   if(c1 == ':') return_scan(c1, mask_none, precedence_none, 1);
    //[17] >>>= >>> ... <<= >>= &&= ||= **= ??= ++ -- << >> && || ** ??
    if(c1 == c2) {
-      char_t c3 = (string + 2 < end ? *(string + 2) : 0);
+      char_t c3 = (code + 2 < end ? *(code + 2) : 0);
       if(c3 == '=') { // <<= >>= &&= ||= **= ??=
          switch(c1) {
-            case '?': return combine(pnct_inplace_logical_coalesce, mask_assign_ops, precedence_none, 3);
-            case '&': return combine(pnct_inplace_logical_and, mask_assign_ops, precedence_none, 3);
-            case '|': return combine(pnct_inplace_logical_or, mask_assign_ops, precedence_none, 3);
-            case '<': return combine(pnct_inplace_shift_left, mask_assign_ops, precedence_none, 3);
-            case '>': return combine(pnct_inplace_shift_right, mask_assign_ops, precedence_none, 3);
-            case '*': return combine(pnct_inplace_exponentiation, mask_assign_ops, precedence_none, 3);
+            case '?': return_scan(pnct_inplace_logical_coalesce, mask_assign_ops, precedence_none, 3);
+            case '&': return_scan(pnct_inplace_logical_and, mask_assign_ops, precedence_none, 3);
+            case '|': return_scan(pnct_inplace_logical_or, mask_assign_ops, precedence_none, 3);
+            case '<': return_scan(pnct_inplace_shift_left, mask_assign_ops, precedence_none, 3);
+            case '>': return_scan(pnct_inplace_shift_right, mask_assign_ops, precedence_none, 3);
+            case '*': return_scan(pnct_inplace_exponentiation, mask_assign_ops, precedence_none, 3);
          }
       } else {
          switch(c1) {
             // && || ??
-            case '&': return combine(pnct_logical_and, mask_logical_ops, precedence_logical_and, 2);
-            case '|': return combine(pnct_logical_or, mask_logical_ops, precedence_logical_or, 2);
-            case '?': return combine(pnct_logical_coalesce, mask_none, precedence_logical_coalesce, 2);
+            case '&': return_scan(pnct_logical_and, mask_logical_ops, precedence_logical_and, 2);
+            case '|': return_scan(pnct_logical_or, mask_logical_ops, precedence_logical_or, 2);
+            case '?': return_scan(pnct_logical_coalesce, mask_none, precedence_logical_coalesce, 2);
             // ++ --
-            case '+': return combine(pnct_increment, mask_update_ops, precedence_none, 2);
-            case '-': return combine(pnct_decrement, mask_update_ops, precedence_none, 2);
+            case '+': return_scan(pnct_increment, mask_update_ops, precedence_none, 2);
+            case '-': return_scan(pnct_decrement, mask_update_ops, precedence_none, 2);
             // <<
-            case '<': return combine(pnct_shift_left, mask_shift_ops | mask_binary_ops, precedence_shift, 2);
+            case '<': return_scan(pnct_shift_left, mask_shift_ops | mask_binary_ops, precedence_shift, 2);
             // >>>= >>> >>
             case '>': {
                if(c3 == '>') { // >>>= >>>
-                  char_t c4 = (string + 3 < end ? *(string + 3) : 0);
+                  char_t c4 = (code + 3 < end ? *(code + 3) : 0);
                   if(c4 == '=') {
-                     return combine(pnct_inplace_unsigned_shift_right, mask_assign_ops, precedence_none, 4);
+                     return_scan(pnct_inplace_unsigned_shift_right, mask_assign_ops, precedence_none, 4);
                   } else {
-                     return combine(pnct_unsigned_shift_right, mask_shift_ops | mask_binary_ops, precedence_shift, 3);
+                     return_scan(pnct_unsigned_shift_right, mask_shift_ops | mask_binary_ops, precedence_shift, 3);
                   }
                } else { // >>
-                  return combine(pnct_shift_right, mask_shift_ops | mask_binary_ops, precedence_shift, 2);
+                  return_scan(pnct_shift_right, mask_shift_ops | mask_binary_ops, precedence_shift, 2);
                }
             }
             // **
-            case '*': return combine(pnct_exponentitation, mask_arithmetic_ops, precedence_none, 2);
+            case '*': return_scan(pnct_exponentitation, mask_arithmetic_ops, precedence_none, 2);
             // ...
-            case '.': if(c3 == '.') return combine(pnct_spread, mask_none, precedence_none, 3);
+            case '.': if(c3 == '.') return_scan(pnct_spread, mask_none, precedence_none, 3);
             // fallthrough
          }
       }
@@ -360,83 +429,134 @@ inline_spec uint32_t scan_punctuator(char_t const* string, char_t const* end)
    if(c2 == '=') {
       //[2] !== !=
       if(c1 == '!') {
-         char_t c3 = (string + 2 < end ? *(string + 2) : 0);
-         if(c3 == '=') return combine(pnct_strict_not_equals, mask_comparison_ops | mask_binary_ops, precedence_equality, 3);
-         else return combine(pnct_not_equals, mask_comparison_ops | mask_binary_ops, precedence_equality, 2);
+         char_t c3 = (code + 2 < end ? *(code + 2) : 0);
+         if(c3 == '=') { return_scan(pnct_strict_not_equals, mask_comparison_ops | mask_binary_ops, precedence_equality, 3); }
+         else { return_scan(pnct_not_equals, mask_comparison_ops | mask_binary_ops, precedence_equality, 2); }
       }
       //[10] += -= *= /= %= &= |= ^= <= >=
       switch(c1) {
-         case '+': return combine(pnct_inplace_add, mask_assign_ops, precedence_none, 2);
-         case '-': return combine(pnct_inplace_substract, mask_assign_ops, precedence_none, 2);
-         case '*': return combine(pnct_inplace_mulitply, mask_assign_ops, precedence_none, 2);
-         case '/': return combine(pnct_inplace_divide, mask_assign_ops, precedence_none, 2);
-         case '%': return combine(pnct_inplace_remainder, mask_assign_ops, precedence_none, 2);
-         case '&': return combine(pnct_inplace_binary_and, mask_assign_ops, precedence_none, 2);
-         case '|': return combine(pnct_inplace_binary_or, mask_assign_ops, precedence_none, 2);
-         case '^': return combine(pnct_inplace_binary_xor, mask_assign_ops, precedence_none, 2);
-         case '<': return combine(pnct_lesser_or_equals, mask_comparison_ops | mask_binary_ops, precedence_relational, 2);
-         case '>': return combine(pnct_greater_or_equals, mask_comparison_ops | mask_binary_ops, precedence_relational, 2);
+         case '+': return_scan(pnct_inplace_add, mask_assign_ops, precedence_none, 2);
+         case '-': return_scan(pnct_inplace_substract, mask_assign_ops, precedence_none, 2);
+         case '*': return_scan(pnct_inplace_mulitply, mask_assign_ops, precedence_none, 2);
+         case '/': return_scan(pnct_inplace_divide, mask_assign_ops, precedence_none, 2);
+         case '%': return_scan(pnct_inplace_remainder, mask_assign_ops, precedence_none, 2);
+         case '&': return_scan(pnct_inplace_binary_and, mask_assign_ops, precedence_none, 2);
+         case '|': return_scan(pnct_inplace_binary_or, mask_assign_ops, precedence_none, 2);
+         case '^': return_scan(pnct_inplace_binary_xor, mask_assign_ops, precedence_none, 2);
+         case '<': return_scan(pnct_lesser_or_equals, mask_comparison_ops | mask_binary_ops, precedence_relational, 2);
+         case '>': return_scan(pnct_greater_or_equals, mask_comparison_ops | mask_binary_ops, precedence_relational, 2);
       }
    }
    {
       //[3] ? ?.
       if(c1 == '?') {
-         if(c2 == '.') return combine(pnct_optional, mask_none, precedence_none, 2);
-         else return combine(c1, mask_none, precedence_none, 1);
+         if(c2 == '.') { return_scan(pnct_optional, mask_none, precedence_none, 2); }
+         else { return_scan(c1, mask_none, precedence_none, 1); }
       }
       //[11] + - * / % & | ^ ! < >
       if(c1 == '+' || c1 == '-') {
-         return combine(c1, mask_arithmetic_ops | mask_unary_ops | mask_binary_ops, precedence_additive, 1);
+         return_scan(c1, mask_arithmetic_ops | mask_unary_ops | mask_binary_ops, precedence_additive, 1);
       } else if(c1 == '*' || c1 == '/' || c1 == '%') {
-         return combine(c1, mask_arithmetic_ops | mask_binary_ops, precedence_multiplicative, 1);
+         return_scan(c1, mask_arithmetic_ops | mask_binary_ops, precedence_multiplicative, 1);
       } else if(c1 == '&') {
-         return combine(c1, mask_arithmetic_ops | mask_binary_ops, precedence_bitwise_and, 1);
+         return_scan(c1, mask_arithmetic_ops | mask_binary_ops, precedence_bitwise_and, 1);
       } else if(c1 == '|') {
-         return combine(c1, mask_arithmetic_ops | mask_binary_ops, precedence_bitwise_or, 1);
+         return_scan(c1, mask_arithmetic_ops | mask_binary_ops, precedence_bitwise_or, 1);
       } else if(c1 == '^') {
-         return combine(c1, mask_arithmetic_ops | mask_binary_ops, precedence_bitwise_xor, 1);
+         return_scan(c1, mask_arithmetic_ops | mask_binary_ops, precedence_bitwise_xor, 1);
       } else if(c1 == '<' || c1 == '>') {
-         return combine(c1, mask_comparison_ops | mask_binary_ops, precedence_relational, 1);
+         return_scan(c1, mask_comparison_ops | mask_binary_ops, precedence_relational, 1);
       } else if(c1 == '!') {
-         return combine(c1, mask_logical_ops | mask_unary_ops, precedence_none, 1);
+         return_scan(c1, mask_logical_ops | mask_unary_ops, precedence_none, 1);
       }
    }
    //[1] ~
-   if(c1 == '~') return combine(c1, mask_unary_ops, precedence_none, 1);
+   if(c1 == '~') return_scan(c1, mask_unary_ops, precedence_none, 1);
+   return 0;
+_make_punctuator_token:
+   state->code = code;
+   make_aggregated_token(state, begin, aggregated_id);
+   return 1;
+   #undef return_scan
+}
+
+inline_spec int scan_template_characters(scan_state_t* const state)
+{
+   char_t const* const begin = state->code;
+   char_t const* const end = state->code_end;
+   while(state->code < end) {
+      switch(*state->code) {
+         case '`': {
+            make_token(state, begin, tkn_template_string, mask_none, precedence_none);
+            make_char_token(state, '`');
+            --state->template_level;
+            state->in_template_expression = (state->template_level > 0);
+            if_debug(
+               print_string("template-chars: ");
+               print_token(begin, state->code-1 - begin);
+               print_string("template: `\n");
+            );
+            return 1;
+         }
+         case '$': {
+            if(state->code + 1 == end) return 0;
+            if(*(state->code + 1) == '{') {
+               make_token(state, begin, tkn_template_string, mask_none, precedence_none);
+               make_char_token(state, '$');
+               make_char_token(state, '{');
+               ++state->parenthesis_level;
+               state->in_template_expression = 1;
+               if_debug(
+                  print_string("template-chars: ");
+                  print_token(begin, state->code-2 - begin);
+                  print_string("template: $\n");
+                  print_string("template: {\n");
+               );
+               return 1;
+            }
+            break;
+         }
+         case '\\': {
+            if(state->code + 1 == end) return 0;
+            ++state->code;
+            break;
+         }
+      }
+      ++state->code;
+   }
    return 0;
 }
-//*/
 
-inline_spec char_t const* scan_identifier(char_t const* string, char_t const* const end)
+inline_spec int scan_template_literal(scan_state_t* const state)
 {
-   char_t const* const begin = string;
-   while(++string < end) {
-      char_t c = *string;
-      char_t cl = c | 0x20;
-      int is_valid =
-         (cl >= 'a' && cl <= 'z') ||
-         (c >= '0' && c <= '9') ||
-         c == '$' || c == '_'
-      ;
-      if(!is_valid) return string;
-   }
-   return string;
-}
-
-inline_spec uint32_t scan_template_characters(char_t const* string, char_t const* const end)
-{
-   uint32_t const error_result = 0x80000000;
-   char_t const* const begin = string;
-   while(string < end) {
-      char_t c = *string;
-      if(c == '`' || (c == '$' && (string + 1 < end) && (*(string + 1) == '{'))) return string - begin;
-      if(c == '\\') {
-         if(string + 1 == end) return error_result;
-         else ++string;
+   // the declartion below is purely for debugging
+   char_t const* const begin = state->code;
+   char_t const* const end = state->code_end;
+   if(*state->code == '`'){
+      if(state->template_level == 0) {
+         state->template_parenthesis_offset = state->parenthesis_level;
+         ++state->template_level;
+      } else if(state->in_template_expression){
+         ++state->template_level;
+      } else {
+         --state->template_level;
       }
-      ++string;
+      make_char_token(state, '`');
+      if(state->template_level == 0) {
+         state->token_flags = token_flag_none;
+      }
+      if_verbose( print_string("template: `\n"); );
+   } else {
+      make_char_token(state, '}');
+      --state->parenthesis_level;
+      if_verbose( print_string("template: }\n"); );
    }
-   return error_result;
+   while(state->template_level > 0 && state->code < end) {
+      state->token_flags = state->current_token_flags;
+      if(!scan_template_characters(state)) return 0;
+      if(state->in_template_expression) break;
+   }
+   return 1;
 }
 
 /*
@@ -465,7 +585,7 @@ inline_spec int is_reserved(char_t const* string, char_t first_char, int length)
 }
 */
 
-inline_spec uint32_t is_reserved(char_t const* string, char_t const first_char, int const length)
+inline_spec uint32_t is_reserved(scan_state_t const* const state, char_t const* string, char_t const first_char, int const length)
 {
    if(length == 0) return 0;
    #if defined(profile)
@@ -476,7 +596,7 @@ inline_spec uint32_t is_reserved(char_t const* string, char_t const first_char, 
    #else
       #define _strncmp(kw) strncmp_impl(string, stringize(kw), strlen_impl(stringize(kw)))
    #endif
-   #define _rwid(word) combine(rw_##word, rwg_##word, rwp_##word, token_flag_none)
+   #define _rwid(word) combine(rw_##word, rwg_##word, rwp_##word, state->token_flags)
    #define return_comparison_with(string) return (_strncmp(string) == 0 ? _rwid(string) : 0);
    #define return_comparison_with_vec2(string1, string2) { \
       if(!_strncmp(string1)) return _rwid(string1); \
@@ -630,215 +750,148 @@ inline_spec uint32_t is_reserved(char_t const* string, char_t const first_char, 
    #undef return_comparison_with_vec3
 }
 
-#define finalize_token(_begin, _end) \
-   current_token->begin = _begin; \
-   current_token->end = _end; \
-   ++current_token;
-#define assign_token(_id, _group, _precedence) \
-   *current_token = (token_t){ \
-      .begin = string - begin, .end = result - begin, \
-      .id = _id, .group = _group, \
-      .flags = (_precedence << 3) | token_flags \
-   }; \
-   ++current_token;
-#define assign_char_token(_id) { \
-   size_t offset = string - begin; \
-   *current_token = (token_t){ \
-      .begin = offset, .end = offset + 1, \
-      .id = _id, .group = mask_none, .flags = token_flag_none \
-   }; \
-   ++current_token; \
-   result = string + 1; \
+inline_spec int scan_identifier(scan_state_t* const state)
+{
+   char_t const* const begin = state->code;
+   char_t const* const end = state->code_end;
+   char_t const* code = state->code;
+   while(++code < end) {
+      char_t c = *code;
+      char_t cl = c | 0x20;
+      int is_valid =
+         (cl >= 'a' && cl <= 'z') ||
+         (c >= '0' && c <= '9') ||
+         c == '$' || c == '_'
+      ;
+      if(!is_valid) break;
+   }
+   state->code = code;
+   uint32_t reserved_word_id = is_reserved(state, begin, *begin, code - begin);
+   if(reserved_word_id == 0) {
+      make_token(state, begin, tkn_identifier, mask_identifier, precedence_none);
+      if_verbose(print_string("identifier: "));
+   } else {
+      make_aggregated_token(state, begin, reserved_word_id);
+      if_verbose(print_string("reserved_word: "));
+      state->in_regexp_context = 1;
+   }
+   return 1;
 }
 
-wasm_export scan_result_t tokenize(char_t const* string, char_t const* end)
+#if defined(verbose)
+   #define debug_wrap(_token_name, _token_type, _code) { \
+      char_t const* begin = state->code; \
+      start_clock(); \
+      _code \
+      note_elapsed_time(_token_type, counts1, timings1, characters1); \
+      print_string(_token_name ": "); \
+      print_token(begin, state->code - begin); \
+   }
+#else
+   #define debug_wrap(_token_name, _token_type, _code) _code
+#endif
+
+wasm_export scan_result_t tokenize(char_t const* const code_begin, char_t const* const code_end)
 {
    if_verbose( begin_group("tokenization"); )
    start_clock();
    // additional eot token and 2 more dummy tokens for algorithmic convenience
-   size_t predicted_tokens = ((end - string) / 1) + 3;
+   size_t predicted_tokens = ((code_end - code_begin) / 1) + 3 + 128;
    token_t* tokens = (token_t*) malloc(predicted_tokens * sizeof(token_t));
-   token_t* current_token = tokens;
-   token_t* end_token = current_token + predicted_tokens;
-
-   char_t const* begin = string;
-   char_t const* result;
-   int regexp_context = 1;
-   uint8_t token_flags = token_flag_none;
-   uint32_t template_level = 0;
-   int in_template_expression = 0;
-   while(string < end) {
-      uint8_t current_token_flags = token_flag_none;
-      char_t current = *string;
-      char_t next = (string + 1 < end ? *(string + 1) : 0);
+   scan_state_t _state = {
+      .code_begin = code_begin,
+      .code_end = code_end,
+      .code = code_begin,
+      .token_begin = tokens,
+      .token_end = tokens + predicted_tokens,
+      .token = tokens,
+      .token_flags = token_flag_none,
+      .current_token_flags = token_flag_none,
+      .in_template_expression = 0,
+      .in_regexp_context = 1,
+      .template_level = 0,
+      .parenthesis_level = 0,
+      .template_parenthesis_offset = 0
+   };
+   int errored = 0;
+   scan_state_t* const state = &_state;
+   while(state->code < code_end) {
+      state->current_token_flags = token_flag_none;
+      char_t current = *(state->code);
+      char_t next = (state->code + 1 < state->code_end ? *(state->code + 1) : 0);
       char_t lower = current | 0x20;
-      if(current == '`' || (template_level != 0 && current == '}')) {
-         // the only purpose of saved_string is for debugging
-         char_t const* saved_string = string;
-         if(current == '`'){
-            if(template_level == 0 || in_template_expression){
-               ++template_level;
-            } else {
-               --template_level;
-            }
-            assign_char_token('`');
-         } else {
-            assign_char_token('}');
-         }
-         if(template_level == 0) string = saved_string;
-         while(template_level > 0 && string < end) {
-            string = result; token_flags = current_token_flags;
-            uint32_t error_result = 0x80000000;
-            uint32_t length = scan_template_characters(string, end);
-            if(length == error_result) {
-               break;
-            } else {
-               if(length != 0) {
-                  result = string + length;
-                  assign_token(tkn_template_string, mask_none, precedence_none);
-                  string = result;
-               }
-               if(*string == '`') {
-                  assign_char_token('`');
-                  --template_level;
-                  in_template_expression = (template_level > 0);
-               } else { // ${
-                  assign_char_token('$'); string = result;
-                  assign_char_token('{');
-                  in_template_expression = 1;
-               }
-               if(in_template_expression) {
-                  string = saved_string;
-                  break;
-               }
-            }
-         }
-         if_verbose(print_string("template: "));
+      //printf("%d %d\n", state->template_level, state->parenthesis_level);
+      if(current == '`' || (state->template_level != 0 && current == '}' && state->template_level + state->template_parenthesis_offset == state->parenthesis_level)) {
+         if(!scan_template_literal(state)) { errored = 1; break; }
       } else if((lower >= 'a' && lower <= 'z') || current == '$' || current == '_') {
-         regexp_context = 0;
-         start_clock();
-         result = scan_identifier(string, end);
-         note_elapsed_time(identifier, counts1, timings1, characters1);
-         if(result != string){
-            start_clock();
-            size_t length = result - string;
-            uint32_t reserved_word_id = is_reserved(string, current, length);
-            note_elapsed_time(reserved_word, counts1, timings1, characters1);
-            if(reserved_word_id == 0) {
-               assign_token(tkn_identifier, mask_identifier, precedence_none);
-               if_verbose(print_string("identifier: "));
-            } else {
-               //current_token->aggregated_id = combine(reserved_word_id, mask_reserved_word, tkn_keyword);
-               current_token->aggregated_id = reserved_word_id | token_flags;
-               finalize_token(string - begin, result - begin);
-               if_verbose(print_string("reserved_word: "));
-               regexp_context = 1;
-            }
-         }
+         debug_wrap("", identifier,
+            state->in_regexp_context = 0;
+            if(!scan_identifier(state)) { errored = 1; break; }
+         );
       } else if(current == ' ' || current == '\t') {
-         result = string;
-         start_clock();
-         while(++result < end && (*result == ' ' || *result == '\t'));
-         //assign_token(tkn_whitespace, mask_none, precedence_none);
-         current_token_flags = token_flags;
-         note_elapsed_time(whitespace, counts1, timings1, characters1);
-         if_verbose(print_string("space: "));
+         debug_wrap("space", whitespace,
+            while(++state->code < code_end && (*state->code == ' ' || *state->code == '\t'));
+            //make_token(state, tkn_whitespace, mask_none, precedence_none);
+            state->current_token_flags = state->token_flags;
+         );
       } else if(current == '\r' || current == '\n') {
-         result = string;
-         start_clock();
-         while(++result < end && (*result == '\r' || *result == '\n'));
-         //assign_token(tkn_terminator, mask_none, precedence_none);
-         current_token_flags |= token_flag_newline;
-         note_elapsed_time(terminator, counts1, timings1, characters1);
-         if_verbose(print_string("newline: "));
+         debug_wrap("newline", terminator,
+            while(++state->code < code_end && (*state->code == '\r' || *state->code == '\n'));
+            //make_token(state, tkn_terminator, mask_none, precedence_none);
+            state->current_token_flags |= token_flag_newline;
+         );
       } else if((current >= '0' && current <= '9') ||
-         //(current == '.' && (*(string + 1) >= '0' && *(string + 1) <= '9'))
          (current == '.' && (next >= '0' && next <= '9'))
       ){
-         regexp_context = 0;
-         start_clock();
-         result = scan_numeric_literal(string, end);
-         assign_token(tkn_numeric_literal, mask_literal, precedence_none);
-         note_elapsed_time(numeric_literal, counts1, timings1, characters1);
-         if_verbose(print_string("number: "));
+         debug_wrap("number", numeric_literal,
+            state->in_regexp_context = 0;
+            if(!scan_numeric_literal(state)) { errored = 1; break; }
+         )
       } else if(current == '\'' || current == '"') {
-         regexp_context = 0;
-         start_clock();
-         result = scan_string_literal(string, end);
-         assign_token(tkn_string_literal, mask_literal, precedence_none);
-         note_elapsed_time(string_literal, counts1, timings1, characters1);
-         if_verbose(print_string("string: "));
+         debug_wrap("string", string_literal,
+            state->in_regexp_context = 0;
+            if(!scan_string_literal(state)) { errored = 1; break; }
+         );
       } else if(current == '/') {
          if(next == '/' || next == '*') {
-            start_clock();
-            result = scan_comment(string, end);
-            //assign_token(tkn_comment, mask_none, precedence_none);
-            note_elapsed_time(comment, counts1, timings1, characters1);
-            if_verbose(print_string("comment: "));
-         } else if(regexp_context) {
-            start_clock();
-            //result = scan_regexp_literal(string, end);
-            uint32_t lengths = scan_regexp_literal(string, end);
-            uint8_t flags_length = lengths & 0xff;
-            result = string + (lengths >> 24);
-            assign_token(tkn_regexp_literal, mask_none, flags_length);
-            note_elapsed_time(regexp_literal, counts1, timings1, characters1);
-            if_verbose(print_string("regexp: "));
+            debug_wrap("comment", comment,
+               if(!scan_comment(state)) { errored = 1; break; }
+            );
+         } else if(state->in_regexp_context) {
+            debug_wrap("regexp", regexp_literal,
+               if(!scan_regexp_literal(state)) { errored = 1; break; }
+            );
          } else {
-            regexp_context = 1;
-            start_clock();
-            uint32_t aggregated_id = scan_punctuator(string, end);
-            uint8_t length = aggregated_id & 0x07;
-            result = string + length;
-            current_token->aggregated_id = (aggregated_id & 0xfffffff8) | token_flags;
-            finalize_token(string - begin, result - begin);
-            note_elapsed_time(punctuator, counts1, timings1, characters1);
-            if_verbose(print_string("punctuator: "));
+            debug_wrap("punctuator", punctuator,
+               state->in_regexp_context = 1;
+               if(!scan_punctuator(state)) { errored = 1; break; }
+            );
          }
       } else {
-         regexp_context = (current == ')' || current == ']' ? 0 : 1);
-         start_clock();
-         uint32_t aggregated_id = scan_punctuator(string, end);
-         uint8_t length = aggregated_id & 0x07;
-         result = string + length;
-         current_token->aggregated_id = (aggregated_id & 0xfffffff8) | token_flags;
-         finalize_token(string - begin, result - begin);
-         note_elapsed_time(punctuator, counts1, timings1, characters1);
-         if_verbose(print_string("punctuator: "));
+         debug_wrap("punctuator", punctuator,
+            state->in_regexp_context = (current == ')' || current == ']' ? 0 : 1);
+            if(!scan_punctuator(state)) { errored = 1; break; }
+         );
       }
-      if(result == string) {
-         //printf("\nparse failed at %ld\n", string - begin);
-         return (scan_result_t){
-            .tokens = tokens,
-            .token_count = current_token - tokens,
-            .return_value = 0
-         };
-      }
-      //if_verbose(printf("%.*s\n", result - string, string));
-      //if_verbose(show_token("%.*s\n", result - string, string));
-      print_token(string, result - string);
-      //printf("%.*s (%d, %d)\n", result - string, string, string - begin, result - string);
-      token_flags = current_token_flags;
-      string = result;
+      state->token_flags = state->current_token_flags;
    }
-   *current_token = (token_t){
-      .begin = end - begin,
-      .end = end - begin,
-      .precedence = precedence_none,
-      .id = tkn_eot,
-      .group = 0
-      //.aggregated_id = __token_aggr_id
-   };
-   ++current_token;
-   //printf("%d %d %d\n", predicted_tokens, (current_token - tokens), sizeof(token_t));
-   if_verbose( end_group(); )
-   print_elapsed_time("tokenization");
-   return (scan_result_t){
-      .tokens = tokens,
-      .token_count = current_token - tokens,
-      .return_value = 1
-   };
-   //if(string == end) printf("parsing succesful\n");
+   if(errored) {
+      //printf("\nparse failed at %ld\n", string - begin);
+      return (scan_result_t){
+         .tokens = state->token_begin,
+         .token_count = state->token - state->token_begin,
+         .return_value = 0
+      };
+   } else {
+      make_token(state, state->code, tkn_eot, 0, precedence_none);
+      if_verbose( end_group(); )
+      print_elapsed_time("tokenization");
+      return (scan_result_t){
+         .tokens = state->token_begin,
+         .token_count = state->token - state->token_begin,
+         .return_value = 1
+      };
+   }
 }
 
 #endif //_SCANNER_BASE_H_

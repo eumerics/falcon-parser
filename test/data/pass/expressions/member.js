@@ -6,6 +6,7 @@ a.b, a[c], a`d`;
 a.b.e, a.b[c], a.b`d`;
 a[c].e, a[c][f], a[c]`d`;
 a`d`.e, a`d`[f], a`d``g`;
+````;
 
 a.await, a.yield, a.let, a.static, a.implements,
 a.interface, a.package, a.private, a.protected,
