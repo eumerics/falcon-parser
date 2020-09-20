@@ -107,7 +107,7 @@ void parser_free(parser_state_t* state)
    node->operator_id = state->token->id; \
    node->operator = state->token;
 
-#define allow_annex() ((params & param_flag_annex) & !(params & param_flag_strict_mode))
+#define allow_annex() ((params & param_flag_annex) && !(params & param_flag_strict_mode))
 
 #define exists(token_id) (state->token->id == token_id)
 #define exists_word(name) (state->token->id == word(name))
@@ -393,6 +393,26 @@ inline_spec bool is_an_assignment_target(void* node)
       }
    }
    return node_is_an(assignment_target, node);
+}
+#define property_key_is(name, node) _property_key_is(state, node, stringize(name), strlen_impl(stringize(name)))
+inline_spec bool _property_key_is(parser_state_t* state, property_t* property, char_t const* name, size_t const length)
+{
+   if(property == nullptr) return false;
+   if(property->key == nullptr) return false;
+   parse_node_t* key = (parse_node_t*)(property->key);
+   size_t begin, end;
+   if(key->type == pnt_identifier) {
+      begin = key->begin; end = key->end;
+   } else if(key->type == pnt_literal) {
+      if(!(property->flags & property_flag_computed) && node_as(literal, key)->token_id == tkn_string_literal) {
+         begin = key->begin + 1; end = key->end - 1;
+      } else {
+         return false;
+      }
+   } else {
+      return false;
+   }
+   return (strncmp_impl(state->buffer + begin, name, length) == 0);
 }
 
 #define parse_semicolon() { \
@@ -884,6 +904,11 @@ inline_spec void* parse_function_body_container(parser_state_t* state, parser_tr
    return_node();
 }
 /*
+HoistableDeclaration[Yield, Await, Default]:
+   FunctionDeclaration[?Yield, ?Await, ?Default]
+   GeneratorDeclaration[?Yield, ?Await, ?Default]
+   AsyncFunctionDeclaration[?Yield, ?Await, ?Default]
+   AsyncGeneratorDeclaration[?Yield, ?Await, ?Default]
 FunctionDeclaration[Yield, Await, Default]:
    function BindingIdentifier[?Yield, ?Await]
       ( FormalParameters[~Yield, ~Await] )
@@ -913,25 +938,29 @@ AsyncFunctionBody:
 AsyncGeneratorBody:
    FunctionBody[+Yield, +Await]
 */
-void* parse_function_declaration(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_hoistable_declaration(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
 {
    params_t add_params = 0;
    uint8_t function_flags = flag_none;
    save_begin();
-   if(exists_word(async)) {
-      if(exists_offset_newline(1) || !offset_lookahead(1, word(function))) {
-         passon(nullptr);
+   if(!(params & param_flag_vanilla_function)) {
+      if(exists_word(async)) {
+         if(exists_offset_newline(1) || !offset_lookahead(1, word(function))) {
+            passon(nullptr);
+         }
+         ensure_word(async);
+         function_flags |= function_flag_async;
+         add_params |= param_flag_await;
       }
-      ensure_word(async);
-      function_flags |= function_flag_async;
-      add_params |= param_flag_await;
    }
    make_node(function_declaration);
    assign_begin();
    expect_word(function);
-   if(optional('*')) {
-      function_flags |= function_flag_generator;
-      add_params |= param_flag_yield;
+   if(!(params & param_flag_vanilla_function)) {
+      if(optional('*')) {
+         function_flags |= function_flag_generator;
+         add_params |= param_flag_yield;
+      }
    }
    if((params & param_flag_default) && !exists_mask(mask_identifier)) {
       assign(id, nullptr);
@@ -1106,7 +1135,7 @@ method_definition_t* parse_method_only_definition(parser_state_t* state, parser_
    assign(flags, property_flags);
    return_node();
 }
-method_definition_t* parse_method_definition(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+method_definition_t* parse_method_definition(parser_state_t* state, parser_tree_state_t* tree_state, uint8_t method_flags, params_t params)
 {
    bool computed = false;
    //[NOTE] this criterion must be subject to review with grammar changes
@@ -1118,9 +1147,15 @@ method_definition_t* parse_method_definition(parser_state_t* state, parser_tree_
       //       ( UniqueFormalParameters[~Yield, ~Await] )
       //       { FunctionBody[~Yield, ~Await] }
       make_node(method_definition);
-      uint8_t flags = (computed ? property_flag_computed: flag_none);
-      uint8_t kind = (token_is(constructor) ? property_kind_constructor : property_kind_method);
+      uint8_t flags = (computed ? property_flag_computed : flag_none);
+      uint8_t kind = property_kind_method;
       parse(key, property_name);
+      assign(flags, flags); // this is needed for property_is
+      if(!(method_flags & method_flag_static) &&
+         property_key_is(constructor, node)
+      ){
+         kind = property_kind_constructor;
+      }
       if(exists('(')) {
          parse(value, method_function, YLD|AWT, NONE);
          flags |= property_flag_method;
@@ -1196,7 +1231,7 @@ void* parse_class_element_list(parser_state_t* state, parser_tree_state_t* tree_
          ensure_word(static);
          method_flags = method_flag_static;
       }
-      parse(method_definition);
+      parse_with_arg(method_flags, method_definition);
       node_as(method_definition, method_definition, md);
       md->begin = begin;
       md->flags |= method_flags;
@@ -1404,8 +1439,8 @@ void* parse_export_declaration(parser_state_t* state, parser_tree_state_t* tree_
       assign_begin();
       void* default_declaration = nullptr;
       if(exists_word(function) || exists_word(async)) {
-         optional_parse(function_declaration, YLD|AWT, DEF);
-         default_declaration = function_declaration;
+         optional_parse(hoistable_declaration, YLD|AWT, DEF);
+         default_declaration = hoistable_declaration;
       } else if(exists_word(class)) {
          optional_parse(class_declaration, YLD|AWT, DEF);
          default_declaration = class_declaration;
@@ -3033,6 +3068,15 @@ IfStatement[Yield, Await, Return]:
    if ( Expression[+In, ?Yield, ?Await] ) Statement[?Yield, ?Await, ?Return]
       else Statement[?Yield, ?Await, ?Return]
    if ( Expression[+In, ?Yield, ?Await] ) Statement[?Yield, ?Await, ?Return]
+Annex B.3.4: https://tc39.es/ecma262/#sec-functiondeclarations-in-ifstatement-statement-clauses
+   IfStatement[Yield, Await, Return]:
+   if ( Expression[+In, ?Yield, ?Await] ) FunctionDeclaration[?Yield, ?Await, ~Default]
+      else Statement[?Yield, ?Await, ?Return]
+   if ( Expression[+In, ?Yield, ?Await] ) Statement[?Yield, ?Await, ?Return]
+      else FunctionDeclaration[?Yield, ?Await, ~Default]
+   if ( Expression[+In, ?Yield, ?Await] ) FunctionDeclaration[?Yield, ?Await, ~Default]
+      else FunctionDeclaration[?Yield, ?Await, ~Default]
+   if ( Expression[+In, ?Yield, ?Await] ) FunctionDeclaration[?Yield, ?Await, ~Default]
 */
 void* parse_if_statement(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
 {
@@ -3040,9 +3084,17 @@ void* parse_if_statement(parser_state_t* state, parser_tree_state_t* tree_state,
    ensure_word(if); expect('(');
       parse(test, expression, RET, IN);
    expect(')');
-   parse(consequent, statement);
+   if(allow_annex() && exists_word(function)) {
+      parse(consequent, hoistable_declaration, DEF, param_flag_vanilla_function);
+   } else {
+      parse(consequent, statement);
+   }
    if(optional_word(else)) {
-      parse(alternate, statement);
+      if(allow_annex() && exists_word(function)) {
+         parse(alternate, hoistable_declaration, DEF, param_flag_vanilla_function);
+      } else {
+         parse(alternate, statement);
+      }
    } else {
       assign(alternate, nullptr);
    }
@@ -3377,14 +3429,20 @@ LabelledStatement[Yield, Await, Return]:
 LabelledItem[Yield, Await, Return]:
    Statement[?Yield, ?Await, ?Return]
    FunctionDeclaration[?Yield, ?Await, ~Default]
+Static Semantics:
+   Regular: https://tc39.es/ecma262/#sec-labelled-statements-static-semantics-early-errors
+      LabelledItem: FunctionDeclaration
+         It is a Syntax Error if any source text matches this rule.
+   Annex B.3.4: https://tc39.es/ecma262/#sec-labelled-function-declarations
+      LabelledItem: FunctionDeclaration
+         It is a Syntax Error if any strict mode source code matches this rule.
 */
 void* parse_labeled_statement(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
 {
    make_node(labeled_statement);
    parse(label, label_identifier, RET, NONE); expect(':');
-   optional_parse(function_declaration, DEF|RET, NONE);
-   if(function_declaration) {
-      assign(body, function_declaration);
+   if(allow_annex() && exists_word(function)) {
+      parse(body, hoistable_declaration, DEF|RET, param_flag_vanilla_function);
    } else {
       parse(body, statement);
    }
@@ -3474,7 +3532,7 @@ void* parse_declaration(parser_state_t* state, parser_tree_state_t* tree_state, 
 {
    switch(state->token->id) {
       case rw_async: // fallthrough
-      case rw_function: passon_parsed(function_declaration, DEF, NONE);
+      case rw_function: passon_parsed(hoistable_declaration, DEF, NONE);
       case rw_class: passon_parsed(class_declaration, DEF, NONE);
       case rw_let: passon_parsed(let_variable_statement, DEF, IN);
       case rw_const: passon_parsed(const_variable_statement);
@@ -3617,10 +3675,10 @@ program_t* parse_module(parser_state_t* state, parser_tree_state_t* tree_state, 
 #undef add_to_list
 #undef list_head
 
-parser_result_t parse(char_t const* source_begin, char_t const* source_end, bool is_module)
+parser_result_t parse(char_t const* source_begin, char_t const* source_end, bool is_module, uint32_t params)
 {
    size_t source_length = source_end - source_begin;
-   scan_result_t result = tokenize(source_begin, source_end);
+   scan_result_t result = tokenize(source_begin, source_end, params);
    if_debug(if(result.return_value == 1) print_string("tokenization successful\n");)
    if_debug(print_string("parsing begins\n");)
    parser_state_t state = {
@@ -3640,9 +3698,9 @@ parser_result_t parse(char_t const* source_begin, char_t const* source_end, bool
    //printf("%p begin: %zu end: %zu\n", state.tokens, (state.tokens + 1)->begin, (state.tokens + 1)->end);
    program_t* program = nullptr;
    if(is_module) {
-      program = parse_module(&state, &tree_state, 0);
+      program = parse_module(&state, &tree_state, params);
    } else {
-      program = parse_script(&state, &tree_state, 0);
+      program = parse_script(&state, &tree_state, params);
    }
    //printf("%p begin: %zu end: %zu\n", state.tokens, (state.tokens + 1)->begin, (state.tokens + 1)->end);
    //printf("length = %d\n", program->end - program->begin);

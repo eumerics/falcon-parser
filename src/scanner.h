@@ -114,6 +114,14 @@ inline_spec int scan_string_literal(scan_state_t* const state)
          } else if(c == '\r') {
             if(++code == end) return 0;
             if(*code == '\n') ++code;
+         } else if((state->params & param_flag_annex) && c >= '0' && c <= '9'){
+            if(c >= '8') ++code;
+            else if(c >= '4') {
+               if(++code != end && *code >= '0' && *code <= '7') ++code;
+            } else {
+               if(++code != end && *code >= '0' && *code <= '7')
+               if(++code != end && *code >= '0' && *code <= '7') ++code;
+            }
          } else {
             ++code;
          }
@@ -791,7 +799,7 @@ inline_spec int scan_identifier(scan_state_t* const state)
    #define debug_wrap(_token_name, _token_type, _code) _code
 #endif
 
-wasm_export scan_result_t tokenize(char_t const* const code_begin, char_t const* const code_end)
+wasm_export scan_result_t tokenize(char_t const* const code_begin, char_t const* const code_end, uint32_t params)
 {
    if_verbose( begin_group("tokenization"); )
    start_clock();
@@ -811,11 +819,13 @@ wasm_export scan_result_t tokenize(char_t const* const code_begin, char_t const*
       .in_regexp_context = 1,
       .template_level = 0,
       .parenthesis_level = 0,
-      .template_parenthesis_offset = 0
+      .template_parenthesis_offset = 0,
+      .params = params
    };
-   int errored = 0;
+   int errored = 0, was_comment = 0, is_comment = 0;
    scan_state_t* const state = &_state;
    while(state->code < code_end) {
+      is_comment = 0;
       state->current_token_flags = token_flag_none;
       char_t current = *(state->code);
       char_t next = (state->code + 1 < state->code_end ? *(state->code + 1) : 0);
@@ -833,6 +843,7 @@ wasm_export scan_result_t tokenize(char_t const* const code_begin, char_t const*
             while(++state->code < code_end && (*state->code == ' ' || *state->code == '\t'));
             //make_token(state, tkn_whitespace, mask_none, precedence_none);
             state->current_token_flags = state->token_flags;
+            is_comment = was_comment;
          );
       } else if(current == '\r' || current == '\n') {
          debug_wrap("newline", terminator,
@@ -855,6 +866,10 @@ wasm_export scan_result_t tokenize(char_t const* const code_begin, char_t const*
       } else if(current == '/') {
          if(next == '/' || next == '*') {
             debug_wrap("comment", comment,
+               is_comment = 1;
+               if(was_comment) {
+                  state->current_token_flags |= state->token_flags & token_flag_newline;
+               }
                if(!scan_comment(state)) { errored = 1; break; }
             );
          } else if(state->in_regexp_context) {
@@ -874,6 +889,7 @@ wasm_export scan_result_t tokenize(char_t const* const code_begin, char_t const*
          );
       }
       state->token_flags = state->current_token_flags;
+      was_comment = is_comment;
    }
    if(errored) {
       //printf("\nparse failed at %ld\n", string - begin);

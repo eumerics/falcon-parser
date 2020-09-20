@@ -45,7 +45,7 @@ elements_t characters2 = {0, 0, 0, 0, 0, 0, 0, 0, 0};
    #define _print_parse_descent(type, remove_filter, add_filter) { \
       uint32_t new_params = make_params(remove_filter, add_filter); \
       printf( \
-         "%*s=> %s " color_bold_bright_black("(%s%s%s%s%s%s%s%s )") " [%d]\n", \
+         "%*s=> %s " color_bold_bright_black("(%s%s%s%s%s%s%s%s%s%s )") " [%d]\n", \
          (state->depth % 60), "", #type, \
          (new_params & param_flag_await ? " await" : ""), \
          (new_params & param_flag_default ? " default" : ""), \
@@ -55,6 +55,8 @@ elements_t characters2 = {0, 0, 0, 0, 0, 0, 0, 0, 0};
          (new_params & cover_flag_initializer ? " cover-init" : ""), \
          (new_params & cover_flag_parameters ? " cover-params" : ""), \
          (new_params & param_flag_for_binding ? " for-binding" : ""), \
+         (new_params & param_flag_annex ? " annex" : ""), \
+         (new_params & param_flag_strict_mode ? " strict" : ""), \
          state->depth \
       ); \
       fflush(stdout); \
@@ -142,10 +144,11 @@ int main(int argc, char* argv[])
             parser_result_t result;
             clock_t cbegin = clock();
             uint64_t begin = __rdtsc();
+            uint32_t params = param_flag_annex;
             for(int it = 0; it < iterations; ++it) {
                //result = tokenize(source, source + file_size);
                //free(result.tokens);
-               result = parse(source, source + file_size, is_module);
+               result = parse(source, source + file_size, is_module, params);
                if(it != iterations - 1) parser_free(&result.state);
             }
             uint64_t end = __rdtsc();

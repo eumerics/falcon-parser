@@ -422,6 +422,7 @@ uint32_t const cover_flag_parameters = 0x00040000; // both a param and state fla
 uint32_t const param_flag_for_binding = 0x00080000;
 uint32_t const param_flag_annex = 0x00100000;
 uint32_t const param_flag_strict_mode = 0x00200000;
+uint32_t const param_flag_vanilla_function = 0x0040000;
 uint32_t const param_flags_to_reset_on_assign = cover_flag_initializer | cover_flag_parameters;
 /*
 uint32_t const cover_flag_array = 0x00010000;

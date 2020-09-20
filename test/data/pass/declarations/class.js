@@ -82,3 +82,8 @@ class NonEmpty {
 
    ; // empty element
 }
+class Constructor
+{
+   "constructor"(){}
+   ["constructor"](){}
+}

@@ -13,15 +13,24 @@ if(is_node) {
       return new Uint8Array(bytes);
    }
 }
+/*
+const color_escape_code = {
+   red: 31, green: 32, magenta: 35, cyan: 36, black: 90
+};
+function colored_log(color, message) {
+   console.log(`%c${message}`, `color: ${color}`);
+}
+*/
+const color_escape_code = {
+   red: 31, green: 32, magenta: 35, cyan: 36, black: 90
+};
+let colored_log;
 if(is_node) {
-   const color_escape_code = {
-      red: 31, green: 32, magenta: 35, cyan: 36, black: 90
-   };
-   function colored_log(color, message) {
+   colored_log = function(color, message) {
       console.log(`\x1b[1;${color_escape_code[color]}m${message}\x1b[0m`);
    }
 } else if(is_electron) {
-   function colored_log(color, message) {
+   colored_log = function(color, message) {
       console.log(`%c${message}`, `color: ${color}`);
    }
 }
@@ -530,7 +539,9 @@ const env = {
          ['param_flag_yield', 'yield'],
          ['cover_flag_initializer', 'cover-init'],
          ['cover_flag_parameters', 'cover-params'],
-         ['param_flag_for_binding', 'for-binding']
+         ['param_flag_for_binding', 'for-binding'],
+         ['param_flag_annex', 'annex'],
+         ['param_flag_strict_mode', 'strict']
       ];
       title += ' (';
       for(const [flag, label] of flags) {
@@ -596,10 +607,11 @@ export class Parser {
       this.code = {pointer: index, view: code_view, utf8_view: code_utf8_view};
    }
    parse_code(is_module) {
+      let params = Parser.constants.param_flag_annex;
       let result_size = 4096; //[BUG] large enough for now to not worry about actual size
       let result_pointer = Parser.instance.exports.malloc(result_size);
       let begin = this.code.pointer, end = begin + this.code.view.byteLength;
-      Parser.instance.exports.parse(result_pointer, begin, end, is_module);
+      Parser.instance.exports.parse(result_pointer, begin, end, is_module, params);
       let result = new Uint32Array(Parser.memory.buffer, result_pointer, result_size/4);
       this.parse_result = {value: result, pointer: result_pointer};
    }
@@ -643,7 +655,8 @@ export class Parser {
    }
    static map_constants() {
       Parser.constants = {};
-      const array = new Uint8Array(Parser.instance.exports.memory.buffer);
+      const array08 = new Uint8Array(Parser.instance.exports.memory.buffer);
+      const array32 = new Uint32Array(Parser.instance.exports.memory.buffer);
       for(let key in Parser.instance.exports) {
          if(key.startsWith('pnt_') ||
             key.startsWith('rw_') ||
@@ -651,7 +664,11 @@ export class Parser {
             key.match('_kind_') ||
             key.match('_flag_')
          ){
-            Parser.constants[key] = array[Parser.instance.exports[key].value];
+            if(key.startsWith('param_flag')) {
+               Parser.constants[key] = array32[Parser.instance.exports[key].value/4];
+            } else {
+               Parser.constants[key] = array08[Parser.instance.exports[key].value];
+            }
          }
       }
    }

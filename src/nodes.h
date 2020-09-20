@@ -31,6 +31,7 @@ typedef struct {
    uint32_t template_level;
    uint32_t parenthesis_level;
    uint32_t template_parenthesis_offset;
+   uint32_t params;
 } scan_state_t;
 
 typedef struct {

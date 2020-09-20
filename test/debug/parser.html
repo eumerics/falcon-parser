@@ -13,7 +13,7 @@
          ({Parser, ...Interface} = await import('../../src/interface.js'));
          await Parser.load_wasm('../../dist/parser.wasm');
          parser = new Parser;
-         program = await parser.parse_file('../data/pass/expressions/assignment.js');
+         //program = await parser.parse_file('../data/pass/expressions/assignment.js');
       })();
    </script>
 </body>
