@@ -17,6 +17,7 @@ typedef struct {
       };
       uint32_t aggregated_id;
    };
+   void* detail;
 } token_t;
 
 typedef struct {
@@ -56,8 +57,17 @@ typedef struct {
 typedef identifier_t literal_t;
 typedef struct {
    embed_parse_node();
+   char_t const* compiled_begin;
+   char_t const* compiled_end;
+} string_literal_t;
+typedef struct {
+   embed_parse_node();
    uint8_t flags_length;
 } regexp_literal_t;
+typedef struct {
+   char_t const* begin;
+   char_t const* end;
+} compiled_string_t;
 
 // expressions
 typedef struct {
@@ -95,7 +105,9 @@ typedef struct {
 typedef struct {
    embed_parse_node();
    uint8_t flags;
-   token_t* token;
+   //token_t* token;
+   char_t const* compiled_begin;
+   char_t const* compiled_end;
 } template_element_t;
 
 typedef struct {

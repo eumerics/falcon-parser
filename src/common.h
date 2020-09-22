@@ -3,6 +3,7 @@
 
 #include <uchar.h>
 #include <stdint.h>
+#include <stddef.h>
 
 #define nullptr 0
 

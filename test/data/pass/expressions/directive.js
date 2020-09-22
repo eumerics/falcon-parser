@@ -6,3 +6,7 @@ function f() {
    "";
    "c";
 }
+
+function g() {
+   "\r";
+}

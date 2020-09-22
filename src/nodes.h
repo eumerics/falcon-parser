@@ -1,6 +1,19 @@
 #ifndef _NODES_H_
 #define _NODES_H_
 
+typedef struct _memory_page_t {
+   uint8_t* buffer;
+   size_t available;
+   size_t allocated;
+   struct _memory_page_t* next;
+} memory_page_t;
+
+typedef struct {
+   memory_page_t* head;
+   memory_page_t* current;
+   size_t page_count;
+} memory_state_t;
+
 typedef struct _parse_list_node_t {
    void* parse_node;
    struct _parse_list_node_t* next;
@@ -32,6 +45,7 @@ typedef struct {
    uint32_t parenthesis_level;
    uint32_t template_parenthesis_offset;
    uint32_t params;
+   memory_state_t* memory;
 } scan_state_t;
 
 typedef struct {
@@ -39,18 +53,6 @@ typedef struct {
    size_t token_count;
    int return_value;
 } scan_result_t;
-
-typedef struct _memory_page_t {
-   uint8_t* buffer;
-   struct _memory_page_t* next;
-} memory_page_t;
-
-typedef struct {
-   memory_page_t* head;
-   memory_page_t* current;
-   size_t available;
-   size_t page_count;
-} memory_state_t;
 
 typedef struct {
    parse_node_list_state_t spread;
@@ -70,7 +72,7 @@ typedef struct {
    uint8_t expected_token_id;
    uint16_t expected_mask;
    char const* error_message;
-   memory_state_t memory;
+   memory_state_t* memory;
    parse_aggregator_t aggregator;
 } parser_state_t;
 
@@ -84,5 +86,31 @@ typedef struct {
    scan_result_t token_result;
    int return_value;
 } parser_result_t;
+
+#define max(a, b) ((a) > (b) ? (a) : (b))
+void* parser_malloc_impl(memory_state_t* const memory, size_t size)
+{
+   size_t const page_size = 1 << 12; // 4kB
+   size_t const remainder = (size % 4); // align to 4-bytes
+   size += (remainder == 0 ? 0 : 4 - remainder);
+   memory_page_t* current = memory->current;
+   if(current == nullptr || current->available < size) {
+      current = (memory_page_t*) malloc(sizeof(memory_page_t));
+      current->buffer = (uint8_t*) malloc(max(size, page_size));
+      current->available = current->allocated = max(size, page_size);
+      current->next = nullptr;
+      ++memory->page_count;
+      if(memory->head == nullptr) {
+         memory->head = current;
+      } else {
+         memory->current->next = current;
+      }
+      memory->current = current;
+   }
+   size_t offset = (current->allocated - current->available);
+   current->available -= size;
+   return current->buffer + offset;
+}
+#define parser_malloc(size) parser_malloc_impl(state->memory, size)
 
 #endif //_NODES_H_

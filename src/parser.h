@@ -17,46 +17,20 @@
 #define INIT cover_flag_initializer
 #define PARAM cover_flag_parameters
 
-void* parser_malloc_impl(parser_state_t* state, size_t size)
-{
-   size_t const page_size = 1 << 12; // 4kB
-   size_t const remainder = (size % 4); // align to 4-bytes
-   size += (remainder == 0 ? 0 : 4 - remainder);
-   if(state->memory.available < size) {
-      memory_page_t* current = (memory_page_t*) malloc(sizeof(memory_page_t));
-      current->buffer = (uint8_t*) malloc(page_size);
-      current->next = nullptr;
-      state->memory.available = page_size;
-      state->memory.page_count++;
-      if(state->memory.head == nullptr) {
-         state->memory.head = current;
-      } else {
-         state->memory.current->next = current;
-      }
-      state->memory.current = current;
-   }
-   size_t offset = (page_size - state->memory.available);
-   state->memory.available -= size;
-   return state->memory.current->buffer + offset;
-}
-
 void parser_free(parser_state_t* state)
 {
    free(state->tokens);
-   memory_page_t* current = state->memory.head;
+   memory_page_t* current = state->memory->head;
    while(current != nullptr) {
       free(current->buffer);
       memory_page_t* to_free = current;
       current = current->next;
       free(to_free);
    }
-   state->memory.head = nullptr;
-   state->memory.current = nullptr;
-   state->memory.available = 0;
-   state->memory.page_count = 0;
+   state->memory->head = nullptr;
+   state->memory->current = nullptr;
+   state->memory->page_count = 0;
 }
-
-#define parser_malloc(size) parser_malloc_impl(state, size)
 
 #define set_error(x) state->error_message = error_##x##_message;
 #define return_error(x, value) { set_error(x); return value; }
@@ -403,8 +377,8 @@ inline_spec bool _property_key_is(parser_state_t* state, property_t* property, c
    size_t begin, end;
    if(key->type == pnt_identifier) {
       begin = key->begin; end = key->end;
-   } else if(key->type == pnt_literal) {
-      if(!(property->flags & property_flag_computed) && node_as(literal, key)->token_id == tkn_string_literal) {
+   } else if(key->type == pnt_string_literal) {
+      if(!(property->flags & property_flag_computed)) {
          begin = key->begin + 1; end = key->end - 1;
       } else {
          return false;
@@ -473,10 +447,19 @@ inline_spec literal_t* parse_literal(parser_state_t* state, parser_tree_state_t*
    ensure_mask(mask_literal);
    return_node();
 }
-inline_spec literal_t* parse_string_literal(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+inline_spec string_literal_t* parse_string_literal(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
 {
-   make_node(literal);
-   assign(token_id, current_token_id);
+   make_node(string_literal);
+   //assign(token_id, current_token_id);
+   token_t* token = state->token;
+   if(token->detail != nullptr) {
+      compiled_string_t* compiled_string = (compiled_string_t*)(token->detail);
+      node->compiled_begin = compiled_string->begin;
+      node->compiled_end = compiled_string->end;
+   } else {
+      node->compiled_begin = nullptr;
+      node->compiled_end = nullptr;
+   }
    ensure(tkn_string_literal);
    return_node();
 }
@@ -509,7 +492,9 @@ inline_spec void* parse_property_name(parser_state_t* state, parser_tree_state_t
 {
    if(exists_mask(mask_idname)) {
       passon_parsed(identifier_name);
-   } else if(exists(tkn_string_literal) || exists(tkn_numeric_literal)) {
+   } else if(exists(tkn_string_literal)) {
+      passon_parsed(string_literal);
+   } else if(exists(tkn_numeric_literal)) {
       passon_parsed(literal);
    } else {
       passon_parsed(computed_property_name);
@@ -1703,7 +1688,15 @@ void* parse_template_literal(parser_state_t* state, parser_tree_state_t* tree_st
       bool is_tail = exists('`');
       make_node(template_element);
       assign_begin();
-      assign(token, token);
+      if(token->detail != nullptr) {
+         compiled_string_t* compiled_string = (compiled_string_t*)(token->detail);
+         node->compiled_begin = compiled_string->begin;
+         node->compiled_end = compiled_string->end;
+      } else {
+         node->compiled_begin = nullptr;
+         node->compiled_end = nullptr;
+      }
+      //assign(token, token);
       assign(flags, (is_tail ? template_flag_tail : flag_none));
       //add_to_list(completed_node());
       add_to_named_list(quasis, completed_node());
@@ -2161,8 +2154,8 @@ void* parse_primary_expression(parser_state_t* state, parser_tree_state_t* tree_
       case rw_this: passon_parsed(this_expression);
       case tkn_identifier: passon_parsed(identifier_reference);
       case rw_null: case rw_true: case rw_false:
-      case tkn_numeric_literal:
-      case tkn_string_literal: passon_parsed(literal);
+      case tkn_numeric_literal: passon_parsed(literal);
+      case tkn_string_literal: passon_parsed(string_literal);
       case tkn_regexp_literal: passon_parsed(regexp_literal);
       //case '[': passon_parsed(array_literal);
       case '[': passon_parsed(cover_array_assignment);
@@ -3678,7 +3671,10 @@ program_t* parse_module(parser_state_t* state, parser_tree_state_t* tree_state, 
 parser_result_t parse(char_t const* source_begin, char_t const* source_end, bool is_module, uint32_t params)
 {
    size_t source_length = source_end - source_begin;
-   scan_result_t result = tokenize(source_begin, source_end, params);
+   memory_state_t memory_state = {
+      .head = nullptr, .current = nullptr, .page_count = 0
+   };
+   scan_result_t result = tokenize(source_begin, source_end, &memory_state, params);
    if_debug(if(result.return_value == 1) print_string("tokenization successful\n");)
    if_debug(print_string("parsing begins\n");)
    parser_state_t state = {
@@ -3689,7 +3685,7 @@ parser_result_t parse(char_t const* source_begin, char_t const* source_end, bool
       .expected_mask = 0,
       .error_message = nullptr,
       .depth = 0,
-      .memory = {.head = nullptr, .current = nullptr, .available = 0, .page_count = 0}
+      .memory = &memory_state
    };
    parser_tree_state_t tree_state = {.flags = 0};
    //init_named_list(state.aggregator.array.spread);

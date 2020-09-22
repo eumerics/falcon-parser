@@ -185,15 +185,16 @@ uint8_t const rwp_get = 0, rwp_of = 0, rwp_set = 0, rwp_target = 0;
 uint8_t const node_group_none = 0x00;
 //uint8_t const node_group_expression = 0x01;
 //uint8_t const node_group_statement = 0x02;
-//uint8_t const node_group_cover_grammar = 0x04;
+uint8_t const node_group_literal = 0x04;
 uint8_t const node_group_offending_cover_grammar = 0x20;
 uint8_t const node_group_assignment_target = 0x40;
 uint8_t const node_group_lhs_production = 0x80;
 
-#define NONE   node_group_none
-#define LHS    node_group_lhs_production
-#define ASSIGN node_group_assignment_target
-#define COVER  node_group_offending_cover_grammar
+#define NONE    node_group_none
+#define LHS     node_group_lhs_production
+#define ASSIGN  node_group_assignment_target
+#define COVER   node_group_offending_cover_grammar
+#define LITERAL node_group_literal
 
 // dummy node types
 uint8_t const pnt_parse_list_node = 0;
@@ -204,18 +205,20 @@ uint8_t const png_program = NONE;
 uint8_t const pnt_identifier = 2;
 uint8_t const png_identifier = LHS | ASSIGN;
 uint8_t const pnt_literal = 3;
-uint8_t const png_literal = LHS;
-uint8_t const pnt_regexp_literal = 4;
+uint8_t const png_literal = LHS | LITERAL;
+uint8_t const pnt_string_literal = 4;
+uint8_t const png_string_literal = LHS | LITERAL;
+uint8_t const pnt_regexp_literal = 7;
 uint8_t const png_regexp_literal = LHS;
-uint8_t const pnt_array_expression = 5;
+uint8_t const pnt_array_expression = 8;
 uint8_t const png_array_expression = LHS | ASSIGN;
-uint8_t const pnt_object_expression = 6;
+uint8_t const pnt_object_expression = 9;
 uint8_t const png_object_expression = LHS | ASSIGN | COVER;
-uint8_t const pnt_template_literal = 7;
+uint8_t const pnt_template_literal = 10;
 uint8_t const png_template_literal = LHS;
 
 // expressions
-uint8_t const expression_base = 0x10;
+uint8_t const expression_base = 0x20;
 uint8_t const pnt_this_expression = expression_base + 0;
 uint8_t const png_this_expression = LHS;
 uint8_t const pnt_property = expression_base + 1;
@@ -285,7 +288,7 @@ uint8_t const png_binding_assignment = NONE;
 uint8_t const pnt_initialized_name = expression_base + 32;
 uint8_t const png_initialized_name = NONE;
 
-uint8_t const clause_base = 0x08;
+uint8_t const clause_base = 0x10;
 uint8_t const pnt_catch_clause = clause_base + 0;
 uint8_t const png_catch_clause = NONE;
 uint8_t const pnt_case_clause = clause_base + 1;
@@ -304,7 +307,7 @@ uint8_t const pnt_template_element = clause_base + 7;
 uint8_t const png_template_element = NONE;
 
 // statements
-uint8_t const statement_base = 0x40;
+uint8_t const statement_base = 0x50;
 uint8_t const pnt_block_statement = statement_base + 0;
 uint8_t const png_block_statement = NONE;
 uint8_t const pnt_empty_statement = statement_base + 1;
@@ -349,7 +352,7 @@ uint8_t const png__statement = NONE;
 */
 
 // declarations
-uint8_t const declaration_base = 0x60;
+uint8_t const declaration_base = 0x70;
 uint8_t const pnt_variable_declaration = declaration_base + 0;
 uint8_t const png_variable_declaration = NONE;
 uint8_t const pnt_variable_declarator = declaration_base + 1;
@@ -376,7 +379,7 @@ uint8_t const pnt_export_specifier = declaration_base + 11;
 uint8_t const png_export_specifier = NONE;
 
 // patterns
-uint8_t const pattern_base = 0x80;
+uint8_t const pattern_base = 0x90;
 uint8_t const pnt_assignment_pattern = pattern_base + 0;
 uint8_t const png_assignment_pattern = NONE;
 

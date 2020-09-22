@@ -293,6 +293,20 @@ export class Node {
 
    get_value() { return Parser.decoder.decode(this.buffer_view.code.subarray(this.begin, this.end)); }
    decode(begin, end) { return Parser.decoder.decode(this.buffer_view.code.subarray(begin, end)); }
+   get_compiled_value(strip_length) {
+      const type = 'u32';
+      const compiled_begin = this.buffer_view[type][(this.pointer + 12) / sizeof[type]];
+      const compiled_end = this.buffer_view[type][(this.pointer + 16) / sizeof[type]];
+      if(!compiled_begin) {
+         return Parser.decoder.decode(
+            this.buffer_view.code.subarray(this.begin + strip_length, this.end - strip_length)
+         );
+      } else {
+         return Parser.decoder.decode(
+            this.buffer_view.u08.subarray(compiled_begin, compiled_end)
+         );
+      }
+   }
 
    get type() { return this.constructor.name; }
    get type_id() { return this.buffer_view.u08[this.pointer + 8]; }
@@ -356,6 +370,11 @@ export class Literal extends Expression {
    get raw() { return this.get_value(); }
 }
 add_enumerables(Literal, ['value', 'raw']);
+export class StringLiteral extends Literal {
+   get value() { return this.get_compiled_value(1); }
+   get raw() { return this.get_value(); }
+}
+change_node_type(StringLiteral, 'Literal');
 //Literal.prototype.enumerables = Array.from(Node.prototype.enumerables).concat(['value', 'raw']);
 export class RegExpLiteral extends Literal {
    get regex() {
@@ -383,6 +402,7 @@ export class TemplateLiteral extends Expression {}
 
 export class TemplateElement extends Node {
    get value() {
+      /*
       const type = 'u32';
       const offset = 12;
       const prop_offset = (this.pointer + offset) / sizeof[type];
@@ -392,7 +412,8 @@ export class TemplateElement extends Node {
       const begin = this.buffer_view[type][token_offset];
       const end = this.buffer_view[type][token_offset + 1];
       const token_string = this.decode(begin, end);
-      return {raw: token_string, cooked: token_string};
+      */
+      return {raw: this.get_value().replace(/\r\n?/g, '\n'), cooked: this.get_compiled_value(0)};
    }
 }
 //TemplateElement.prototype.enumerables = Array.from(Node.prototype.enumerables).concat(['value']);
@@ -678,6 +699,7 @@ export class Parser {
       constructors[constants.pnt_program] = Program;
       constructors[constants.pnt_identifier] = Identifier;
       constructors[constants.pnt_literal] = Literal;
+      constructors[constants.pnt_string_literal] = StringLiteral;
       constructors[constants.pnt_regexp_literal] = RegExpLiteral;
 
       constructors[constants.pnt_this_expression] = ThisExpression;
