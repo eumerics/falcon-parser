@@ -52,6 +52,14 @@ inline_spec int is_identifier_start(char_t c)
    char_t l = c | 0x20; // lower
    return (l >= 'a' && l <= 'z') || c == '$' || c == '_';
 }
+inline_spec int is_line_terminator(char_t c)
+{
+   #if defined(UTF16)
+      return (c == '\r' || c == '\n' || c == 0x2028 || c == 0x2029);
+   #else
+      return (c == '\r' || c == '\n');
+   #endif
+}
 
 inline_spec void make_char_token(scan_state_t* state, uint8_t const id)
 {
@@ -315,40 +323,32 @@ inline_spec int scan_numeric_literal(scan_state_t* const state)
    char_t const* const begin = state->code;
    char_t const* const end = state->code_end;
    char_t const* code = state->code;
-   if(*code == '0') {
-      if(++code == end) goto _make_numeric_token;
-      char_t lower = *code | 0x20;
-      char_t const* digit_begin = code + 1;
-      if(lower == 'x') { // hexadecimal number
-         while(++code < end && is_hex(*code));
-      } else if(lower == 'b') {
-         while(++code < end && is_binary(*code));
-      } else if(lower == 'o') {
-         while(++code < end && is_octal(*code));
-      } else {
-         goto decimal;
-      }
-      if(code == digit_begin) return 0;
-      if(code == end) goto _make_numeric_token;
-      // https://tc39.es/ecma262/#sec-literals-numeric-literals
-      // The SourceCharacter immediately following a NumericLiteral
-      // must not be an IdentifierStart or DecimalDigit
-      if(is_identifier_start(*code) || is_decimal(*code)) return 0;
-      goto _make_numeric_token;
-   }
-decimal:
+   char_t c = *code;
    // parse the integer part
-   if(*code != '.') {
-      do {
-         if(!is_decimal(*code)) break;
-      } while(++code < end);
-      if(code == end) goto _make_numeric_token;
+   if(c == '0') {
+      if(++code == end) goto _make_numeric_token;
+      char_t c = *code;
+      if((state->params & param_flag_annex) && (c >= '0' && c <= '7')) {
+         while(++code < end && (*code >= '0' && *code <= '7'));
+      } else {
+         char_t lower = *code | 0x20;
+         char_t const* digit_begin = code + 1;
+         if(lower == 'x') { // hexadecimal number
+            while(++code < end && is_hex(*code));
+         } else if(lower == 'b') {
+            while(++code < end && is_binary(*code));
+         } else if(lower == 'o') {
+            while(++code < end && is_octal(*code));
+         }
+         if(code == digit_begin) return 0;
+      }
+   } else if(c >= '1' && c <= '9') {
+      while(++code < end && is_decimal(*code));
    }
+   if(code == end) goto _make_numeric_token;
    // parse the decimal part
    if(*code == '.') {
-      while(++code < end) {
-         if(!is_decimal(*code)) break;
-      }
+      while(++code < end && is_decimal(*code));
       if(code - begin == 1) return 0; // . must follow atleast a digit
       if(code == end) goto _make_numeric_token;
    }
@@ -357,14 +357,15 @@ decimal:
       if(code + 1 == end) return 0;
       char_t c = *(code + 1);
       if(c == '+' || c == '-') ++code;
-      int decimal_digits = 0;
-      while(++code < end) {
-         if(!is_decimal(*code)) break;
-         ++decimal_digits;
-      }
-      if(decimal_digits == 0) return 0;
-      goto _make_numeric_token;
+      char_t const* const exponent_begin = code + 1;
+      while(++code < end && is_decimal(*code));
+      if(code == exponent_begin) return 0;
+      if(code == end) goto _make_numeric_token;
    }
+   // https://tc39.es/ecma262/#sec-literals-numeric-literals
+   // The SourceCharacter immediately following a NumericLiteral
+   // must not be an IdentifierStart or DecimalDigit
+   if(is_identifier_start(*code) || is_decimal(*code)) return 0;
 _make_numeric_token:
    state->code = code;
    make_token(state, begin, tkn_numeric_literal, mask_literal, precedence_none, nullptr);
@@ -423,10 +424,7 @@ inline_spec int scan_comment(scan_state_t* const state)
    char_t type = *(++code);
    if(type == '/') {
       while(++code != end) {
-         char_t current = *code;
-         if(current == '\n' || current == '\r') {
-            goto _make_comment_token;
-         }
+         if(is_line_terminator(*code)) goto _make_comment_token;
       }
    } else {
       while(++code != end) {
@@ -436,11 +434,7 @@ inline_spec int scan_comment(scan_state_t* const state)
             if(*(code + 1) == '/') {
                code += 2; goto _make_comment_token;
             }
-      #if defined(UTF16)
-         } else if(c == '\r' || c == '\n' || c == 0x2028 || c == 0x2029) {
-      #else
-         } else if(c == '\r' || c == '\n') {
-      #endif
+         } else if(is_line_terminator(c)) {
             state->current_token_flags |= token_flag_newline;
          }
       }
@@ -1017,6 +1011,7 @@ wasm_export scan_result_t tokenize(char_t const* const code_begin, char_t const*
             if(!scan_identifier(state)) { errored = 1; break; }
          );
       } else if(current == ' ' || current == '\t') {
+         // [TODO] 0x09, 0x0C, 0xA0, \uFEFF, Unicode Space_Separator
          debug_wrap("space", whitespace,
             while(++state->code < code_end && (*state->code == ' ' || *state->code == '\t'));
             //make_token(state, tkn_whitespace, mask_none, precedence_none, nullptr);

@@ -48,3 +48,4 @@ for(let {a, b: [c = 3], d} of {});
 //for(var x = 1 in []); //legacy
 //for(var [x, y] = [1, 2] in []);
 //for(var x = 1 in []; false; );
+//for (x=>x in y;;);

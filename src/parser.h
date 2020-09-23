@@ -1527,11 +1527,17 @@ void* parse_object_literal(parser_state_t* state, parser_tree_state_t* tree_stat
    start_list();
    ensure('{');
    while(!exists('}')) {
-      // first resolve all productions that start with Identifier or IdentifierName
-      //[NOTE] this criterion must be subject to review with grammar changes
-      //    this criterion is valid as of ECMA2020
-      if(offset_lookahead(1, ':') || offset_lookahead(1, '(') || exists('['))
-      {
+      if(exists(pnct_spread)) {
+         // ... AssignmentExpression[+In, ?Yield, ?Await]
+         make_node(spread_element);
+         ensure(pnct_spread);
+         parse(argument, assignment_expression, NONE, IN);
+         add_to_list(completed_node());
+      } else if(offset_lookahead(1, ':') || offset_lookahead(1, '(') || exists('[')) {
+         // first resolve all productions that start with Identifier or IdentifierName
+         //[NOTE] this criterion must be subject to review with grammar changes
+         //    this criterion is valid as of ECMA2020
+         //
          // PropertyDefinitionList[Yield, Await]:
          //    PropertyName[?Yield, ?Await]
          //       : AssignmentExpression[+In, ?Yield, ?Await]
@@ -1558,12 +1564,6 @@ void* parse_object_literal(parser_state_t* state, parser_tree_state_t* tree_stat
          }
          assign(kind, property_kind_init);
          assign(flags, flags);
-         add_to_list(completed_node());
-      } else if(exists(pnct_spread)) {
-         // ... AssignmentExpression[+In, ?Yield, ?Await]
-         make_node(spread_element);
-         ensure(pnct_spread);
-         parse(argument, assignment_expression, NONE, IN);
          add_to_list(completed_node());
       } else if(offset_lookahead(1, ',') || offset_lookahead(1, '}')) {
          //[NOTE] this criterion must be subject to review with grammar changes

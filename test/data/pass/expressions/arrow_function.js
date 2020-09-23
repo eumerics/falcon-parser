@@ -24,3 +24,5 @@ let o = (a, [b, c], d, {e, f}, g, ...h) => {
 let p = (a = 1, [b = 2, c, {d = 3, e}], {f = 3, g}) => {
    return {a, b, c, d, e, f, g};
 };
+
+//({...(obj)}) => x;
