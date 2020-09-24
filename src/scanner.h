@@ -7,6 +7,12 @@
 #include "common.h"
 #include "constants.h"
 #include "nodes.h"
+#include "messages.h"
+#include "unicode/id_start.h"
+#include "unicode/id_continue.h"
+
+#define set_error(x) state->error_message = error_##x##_message;
+#define return_error(x, value) { set_error(x); return value; }
 
 #if defined(timing) || defined(profile)
    #define start_clock(x) \
@@ -47,11 +53,135 @@ inline_spec int is_hex(char_t h)
    char_t hl = h | 0x20; // lower case h
    return ((h >= '0' & h <= '9') | (hl >= 'a' & hl <= 'f'));
 }
-inline_spec int is_identifier_start(char_t c)
+uint32_t compile_unicode_escape_sequence(scan_state_t* state)
 {
+   int is_code_point = 0, min_hex_chars = 0, max_hex_chars = 0;
+   if(*++state->code != 'u') return_error(expecting_unicode_sequence, 0);
+   if(*(state->code + 1) == '{') {
+      is_code_point = 1, ++state->code;
+      min_hex_chars = 1, max_hex_chars = (uint32_t)(-1);
+   } else {
+      min_hex_chars = max_hex_chars = 4;
+   }
+   uint32_t value = 0;
+   for(uint32_t i = 0; i < max_hex_chars; ++i) {
+      char_t c = *++state->code, cl = c | 0x20;
+      //print_number(c);
+      value <<= 4;
+      if(c >= '0' && c <= '9'){ value |= (c - '0'); continue; }
+      if(cl >= 'a' && cl <= 'f'){ value |= 10 + (cl - 'a'); continue; }
+      if(i < min_hex_chars) { return_error(not_enough_hexdigits, 0); }
+      else { --state->code; value >>= 4; break; }
+   }
+   if(is_code_point && (*++state->code != '}')) return_error(missing_unicode_closing, 0);
+   ++state->code;
+   return value;
+}
+uint32_t compile_unicode_code_point(scan_state_t* state)
+{
+   char_t const* const begin = state->code;
+   uint32_t value;
+   if(*state->code == '\\') {
+      value = compile_unicode_escape_sequence(state);
+      if(state->error_message) return 0;
+   } else {
+      value = *state->code++;
+   }
+   if((value & 0xdc00) == 0xdc00) {
+      state->code = begin;
+      return_error(missing_leading_surrogate, 0);
+   }
+   if((value & 0xd800) == 0xd800) {
+      char_t const* const begin = state->code;
+      uint32_t trailing_value;
+      if(*state->code == '\\') {
+         trailing_value = compile_unicode_escape_sequence(state);
+         if(state->error_message) return 0;
+      } else if(state->code < state->code_end){
+         trailing_value = *state->code++;
+      } else {
+         return_error(missing_trailing_surrogate, 0);
+      }
+      if((trailing_value & 0xdc00) != 0xdc00) {
+         state->code = begin;
+         return_error(missing_trailing_surrogate, 0);
+      }
+      value = (value & 0x3ff) << 10 | (trailing_value & 0x3ff);
+      value += 0x10000;
+   }
+   return value;
+}
+inline_spec int is_ascii_identifier_start(char_t c)
+{
+   //print_string("id-start"); print_number(c);
    char_t l = c | 0x20; // lower
    return (l >= 'a' && l <= 'z') || c == '$' || c == '_';
 }
+inline_spec int scan_ascii_identifier_start(scan_state_t* state, char_t c)
+{
+   if(is_ascii_identifier_start(c)) { ++state->code; return 1; }
+   return 0;
+}
+inline_spec int scan_unicode_identifier_start_helper(scan_state_t* state, char_t c)
+{
+   //print_string("id-start-helper"); print_number(c);
+   if(!(c == '\\' || (c & 0xffffff80))) return 0;
+   uint32_t value = compile_unicode_code_point(state);
+   if(state->error_message) return 0;
+   return is_unicode_id_start(value);
+}
+inline_spec int is_unicode_identifier_start_helper(scan_state_t* state, char_t c)
+{
+   char_t const* const begin = state->code;
+   int return_value = scan_unicode_identifier_start_helper(state, c);
+   state->code = begin;
+   return return_value;
+}
+inline_spec int is_ascii_identifier_continue(char_t c)
+{
+   //print_string("id-continue"); print_number(c);
+   char_t l = c | 0x20; // lower
+   return (l >= 'a' && l <= 'z') || c == '$' || c == '_' || (c >= '0' && c <= '9');
+}
+inline_spec int scan_ascii_identifier_continue(scan_state_t* state, char_t c)
+{
+   if(is_ascii_identifier_continue(c)) { ++state->code; return 1; }
+   return 0;
+}
+inline_spec int scan_unicode_identifier_continue_helper(scan_state_t* state, char_t c)
+{
+   //print_string("id-continue-helper"); print_number(c);
+   char_t const* const begin = state->code;
+   if(!(c == '\\' || (c & 0xffffff80))) return 0;
+   uint32_t value = compile_unicode_code_point(state);
+   if(state->error_message) return 0;
+   // ZWNJ: 0x200c, ZWJ: 0x200d
+   if(value == 0x200c || value == 0x200d || is_unicode_id_continue(value)) {
+      return 1;
+   } else {
+      state->code = begin;
+      return 0;
+   }
+}
+inline_spec int is_unicode_identifier_continue_helper(scan_state_t* state, char_t c)
+{
+   char_t const* const begin = state->code;
+   int return_value = scan_unicode_identifier_continue_helper(state, c);
+   state->code = begin;
+   return return_value;
+}
+#define scan_identifier_start(c) ( \
+   scan_ascii_identifier_start(state, c) || \
+   scan_unicode_identifier_start_helper(state, c) \
+)
+#define scan_identifier_continue(c) ( \
+   scan_ascii_identifier_continue(state, c) || \
+   scan_unicode_identifier_continue_helper(state, c) \
+)
+#define is_identifier_start(c) ( \
+   is_ascii_identifier_start(c) || \
+   is_unicode_identifier_start_helper(state, c) \
+)
 inline_spec int is_line_terminator(char_t c)
 {
    #if defined(UTF16)
@@ -181,7 +311,7 @@ compiled_string_t* compile_string(
                   }
                }
                uint32_t hex = 0;
-               for(int i = 0; i < max_hex_chars; ++i) {
+               for(uint32_t i = 0; i < max_hex_chars; ++i) {
                   char_t c = *++code, cl = c | 0x20;
                   hex <<= 4;
                   if(c >= '0' && c <= '9'){ hex |= (c - '0'); continue; }
@@ -933,24 +1063,47 @@ inline_spec int scan_identifier(scan_state_t* const state)
 {
    char_t const* const begin = state->code;
    char_t const* const end = state->code_end;
-   char_t const* code = state->code;
-   while(++code < end) {
-      char_t c = *code;
-      char_t cl = c | 0x20;
-      int is_valid =
-         (cl >= 'a' && cl <= 'z') ||
-         (c >= '0' && c <= '9') ||
-         c == '$' || c == '_'
-      ;
-      if(!is_valid) break;
+   int has_escape_sequence = (*state->code == '\\');
+   if((*state->code & 0xffffff80) == 0 && !has_escape_sequence) ++state->code;
+   else scan_identifier_start(*state->code);
+   while(state->code < end) {
+      has_escape_sequence |= (*state->code == '\\');
+      if(!scan_identifier_continue(*state->code)) break;
    }
-   state->code = code;
-   uint32_t reserved_word_id = is_reserved(state, begin, *begin, code - begin);
+   if(state->error_message) return 0;
+   compiled_string_t* compiled_identifier = nullptr;
+   char_t const* identifier_begin;
+   ptrdiff_t identifier_length;
+   if(has_escape_sequence) {
+      char_t* identifier_code = parser_malloc((state->code - begin) * sizeof(char_t));
+      identifier_begin = identifier_code;
+      char_t const* const saved_code = state->code;
+      state->code = begin;
+      while(state->code < saved_code) {
+         uint32_t code_point = compile_unicode_code_point(state);
+         if(code_point & 0xffff0000) {
+            code_point -= 0x10000;
+            *(identifier_code + 1) = (0b110111 << 10) | (code_point & 0x3ff); code_point >>= 10;
+            *(identifier_code + 0) = (0b110110 << 10) | (code_point & 0x3ff); code_point >>= 10;
+            identifier_code += 2;
+         } else {
+            *identifier_code++ = code_point;
+         }
+      }
+      identifier_length = identifier_code - identifier_begin;
+      compiled_identifier = parser_malloc(sizeof(compiled_string_t));
+      compiled_identifier->begin = identifier_begin;
+      compiled_identifier->end = identifier_code;
+   } else {
+      identifier_begin = begin;
+      identifier_length = state->code - begin;
+   }
+   uint32_t reserved_word_id = is_reserved(state, identifier_begin, *identifier_begin, identifier_length);
    if(reserved_word_id == 0) {
-      make_token(state, begin, tkn_identifier, mask_identifier, precedence_none, nullptr);
+      make_token(state, begin, tkn_identifier, mask_identifier, precedence_none, compiled_identifier);
       if_verbose(print_string("identifier: "));
    } else {
-      make_aggregated_token(state, begin, reserved_word_id, nullptr);
+      make_aggregated_token(state, begin, reserved_word_id, compiled_identifier);
       if_verbose(print_string("reserved_word: "));
       state->in_regexp_context = 1;
    }
@@ -992,7 +1145,8 @@ wasm_export scan_result_t tokenize(char_t const* const code_begin, char_t const*
       .parenthesis_level = 0,
       .template_parenthesis_offset = 0,
       .params = params,
-      .memory = memory_state
+      .memory = memory_state,
+      .error_message = nullptr
    };
    int errored = 0, was_comment = 0, is_comment = 0;
    scan_state_t* const state = &_state;
@@ -1001,11 +1155,10 @@ wasm_export scan_result_t tokenize(char_t const* const code_begin, char_t const*
       state->current_token_flags = token_flag_none;
       char_t current = *(state->code);
       char_t next = (state->code + 1 < state->code_end ? *(state->code + 1) : 0);
-      char_t lower = current | 0x20;
       //printf("%d %d\n", state->template_level, state->parenthesis_level);
       if(current == '`' || (state->template_level != 0 && current == '}' && state->template_level + state->template_parenthesis_offset == state->parenthesis_level)) {
          if(!scan_template_literal(state)) { errored = 1; break; }
-      } else if((lower >= 'a' && lower <= 'z') || current == '$' || current == '_') {
+      } else if(is_identifier_start(current)) {
          debug_wrap("", identifier,
             state->in_regexp_context = 0;
             if(!scan_identifier(state)) { errored = 1; break; }
@@ -1018,9 +1171,9 @@ wasm_export scan_result_t tokenize(char_t const* const code_begin, char_t const*
             state->current_token_flags = state->token_flags;
             is_comment = was_comment;
          );
-      } else if(current == '\r' || current == '\n') {
+      } else if(is_line_terminator(current)) {
          debug_wrap("newline", terminator,
-            while(++state->code < code_end && (*state->code == '\r' || *state->code == '\n'));
+            while(++state->code < code_end && is_line_terminator(*state->code));
             //make_token(state, tkn_terminator, mask_none, precedence_none, nullptr);
             state->current_token_flags |= token_flag_newline;
          );
@@ -1066,6 +1219,8 @@ wasm_export scan_result_t tokenize(char_t const* const code_begin, char_t const*
       was_comment = is_comment;
    }
    if(errored) {
+      if_debug(print_string("tokenization failed\n"););
+      if_debug(if(state->error_message) print_string(state->error_message););
       //printf("\nparse failed at %ld\n", string - begin);
       return (scan_result_t){
          .tokens = state->token_begin,
@@ -1073,6 +1228,7 @@ wasm_export scan_result_t tokenize(char_t const* const code_begin, char_t const*
          .return_value = 0
       };
    } else {
+      if_debug(print_string("tokenization successful\n"););
       make_token(state, state->code, tkn_eot, 0, precedence_none, nullptr);
       if_verbose( end_group(); )
       print_elapsed_time("tokenization");

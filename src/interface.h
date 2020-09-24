@@ -52,9 +52,13 @@ typedef struct {
 // parser node
 typedef struct {
    embed_parse_node();
-   uint8_t token_id;
+   char_t const* compiled_begin;
+   char_t const* compiled_end;
 } identifier_t;
-typedef identifier_t literal_t;
+typedef struct {
+   embed_parse_node();
+   uint8_t token_id;
+} literal_t;
 typedef struct {
    embed_parse_node();
    char_t const* compiled_begin;

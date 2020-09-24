@@ -46,6 +46,7 @@ typedef struct {
    uint32_t template_parenthesis_offset;
    uint32_t params;
    memory_state_t* memory;
+   char const* error_message;
 } scan_state_t;
 
 typedef struct {

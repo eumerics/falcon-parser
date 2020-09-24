@@ -52,18 +52,22 @@ import {Parser} from '../src/interface.js';
             console.log(elapsed, acorn_elpased, meriyah_elpased);
          } else {
             let program = await parser.parse_file(args.f);
-            const acorn = await import('acorn');
-            const options = {ecmaVersion: 2020, sourceType: is_module ? 'module' : 'script'};
-            const fs = await import('fs');
-            const script = fs.readFileSync(args.f).toString();
-            const acorn_result = acorn.parse(script, options);
-            const {object_diff} = await import('./object_diff.js');
-            const source = JSON.parse(JSON.stringify(program));
-            const target = JSON.parse(JSON.stringify(acorn_result));
-            fs.writeFileSync('../.ignore/log1', JSON.stringify(source, null, '   '));
-            fs.writeFileSync('../.ignore/log2', JSON.stringify(target, null, '   '));
-            const diff = object_diff(source, target);
-            console.log(JSON.stringify(diff, null, '   '));
+            if(args.c) {
+               const acorn = await import('acorn');
+               const options = {ecmaVersion: 2020, sourceType: is_module ? 'module' : 'script'};
+               const fs = await import('fs');
+               const script = fs.readFileSync(args.f).toString();
+               const acorn_result = acorn.parse(script, options);
+               const {object_diff} = await import('./object_diff.js');
+               const source = JSON.parse(JSON.stringify(program));
+               const target = JSON.parse(JSON.stringify(acorn_result));
+               fs.writeFileSync('../.ignore/log1', JSON.stringify(source, null, '   '));
+               fs.writeFileSync('../.ignore/log2', JSON.stringify(target, null, '   '));
+               const diff = object_diff(source, target);
+               console.log(JSON.stringify(diff, null, '   '));
+            } else {
+               console.log(JSON.stringify(program, null, '   '));
+            }
             //console.log(JSON.stringify(result.program, null, ' '));
          }
       }

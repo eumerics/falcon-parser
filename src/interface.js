@@ -336,7 +336,10 @@ export class ModuleDeclaration extends Node {}
 export class SpreadElement extends Node {}
 export class RestElement extends Node {}
 
-export class Identifier extends Expression {}
+export class Identifier extends Expression {
+   get name() { return this.get_compiled_value(0); }
+}
+add_enumerables(Identifier, ['name']);
 
 export class Literal extends Expression {
    token_to_value(token_id){
@@ -526,8 +529,9 @@ const env = {
       //console.log(string);
    },
    */
+   log_number: function(number) { console.log(String.fromCharCode(number), number.toString(16)); },
    log_string: function(pointer, length) {
-      if(length < 32) {
+      if(length < 256) {
          console.log(
             Parser.utf8_decoder.decode(new Uint8Array(Parser.memory.buffer, pointer, length))
          );
@@ -868,7 +872,7 @@ export class Parser {
 
       define_interface(SpreadElement, {nodes: {argument: 12}});
       define_interface(RestElement, {nodes: {argument: 12}});
-      define_interface(Identifier, {bind_value: 'name'});
+      //define_interface(Identifier, {bind_value: 'name'});
       define_interface(ArrayExpression, {lists: {elements: 12}});
       define_interface(ObjectExpression, {lists: {properties: 16}});
       define_interface(TemplateLiteral, {lists: {quasis: 12, expressions: 16}});

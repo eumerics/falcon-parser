@@ -27,6 +27,7 @@ elements_t characters1 = {0, 0, 0, 0, 0, 0, 0, 0, 0};
 elements_t characters2 = {0, 0, 0, 0, 0, 0, 0, 0, 0};
 
 #define print_string(x) printf(x)
+#define print_number(x) printf("%x", x)
 #ifdef verbose
    #define profile
 #endif

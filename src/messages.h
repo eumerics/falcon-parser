@@ -1,3 +1,6 @@
+#ifndef _MESSAGES_H_
+#define _MESSAGES_H_
+
 char const* const unknown_token = "unknown token";
 char const* parse_token_name[256] = {unknown_token};
 
@@ -18,6 +21,11 @@ define_error(0x0006, unexpected_await, "await is valid only in async functions a
 define_error(0x0007, missing_binding_initializer, "missing initializer in a destructuring declaration");
 define_error(0x0008, missing_const_initializer, "missing initializer in a const declaration");
 define_error(0x0009, missing_import_specifier, "missing import specifier");
+define_error(0x000a, expecting_unicode_sequence, "expecting unicode escape sequence");
+define_error(0x000b, not_enough_hexdigits, "not enough hex digits in unicode escape sequence");
+define_error(0x000c, missing_unicode_closing, "missing closing parenthesis in unicode escape sequence");
+define_error(0x000d, missing_leading_surrogate, "UTF16 coding error; missing leading surrogate");
+define_error(0x000e, missing_trailing_surrogate, "UTF16 coding error; missing trailing surrogate");
 
 define_error(0x1000, missing_assignment_or_binding_flag,
    "internal-error: change flags must have one of assignment or binding flag"
@@ -28,3 +36,5 @@ define_error(0x1001, is_not_a_property_node,
 define_error(0x1002, null_node_in_change_types,
    "internal-error: null node encounted while changing node types of cover grammar"
 );
+
+#endif //_MESSAGES_H_

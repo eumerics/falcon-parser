@@ -32,9 +32,6 @@ void parser_free(parser_state_t* state)
    state->memory->page_count = 0;
 }
 
-#define set_error(x) state->error_message = error_##x##_message;
-#define return_error(x, value) { set_error(x); return value; }
-
 #define word(name) rw_##name
 #define token_matches(word) ( \
    strncmp_impl( \
@@ -80,6 +77,17 @@ void parser_free(parser_state_t* state)
 #define assign_operator() \
    node->operator_id = state->token->id; \
    node->operator = state->token;
+#define assign_token() { \
+   token_t* token = state->token; \
+   if(token->detail != nullptr) { \
+      compiled_string_t* compiled_string = (compiled_string_t*)(token->detail); \
+      node->compiled_begin = compiled_string->begin; \
+      node->compiled_end = compiled_string->end; \
+   } else { \
+      node->compiled_begin = nullptr; \
+      node->compiled_end = nullptr; \
+   } \
+}
 
 #define allow_annex() ((params & param_flag_annex) && !(params & param_flag_strict_mode))
 
@@ -422,23 +430,23 @@ RegularExpressionLiteral
 */
 inline_spec identifier_t* parse_identifier(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
 {
-   make_node(identifier); ensure_mask(mask_identifier); return_node();
+   make_node(identifier); assign_token(); ensure_mask(mask_identifier); return_node();
 }
 inline_spec identifier_t* parse_identifier_reference(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
 {
-   make_node(identifier); ensure_mask(mask_identifier); return_node();
+   make_node(identifier); assign_token(); ensure_mask(mask_identifier); return_node();
 }
 inline_spec identifier_t* parse_binding_identifier(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
 {
-   make_node(identifier); ensure_mask(mask_identifier); return_node();
+   make_node(identifier); assign_token(); ensure_mask(mask_identifier); return_node();
 }
 inline_spec identifier_t* parse_label_identifier(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
 {
-   make_node(identifier); ensure_mask(mask_identifier); return_node();
+   make_node(identifier); assign_token(); ensure_mask(mask_identifier); return_node();
 }
 inline_spec identifier_t* parse_identifier_name(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
 {
-   make_node(identifier); ensure_mask(mask_idname); return_node();
+   make_node(identifier); assign_token(); ensure_mask(mask_idname); return_node();
 }
 inline_spec literal_t* parse_literal(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
 {
@@ -450,16 +458,7 @@ inline_spec literal_t* parse_literal(parser_state_t* state, parser_tree_state_t*
 inline_spec string_literal_t* parse_string_literal(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
 {
    make_node(string_literal);
-   //assign(token_id, current_token_id);
-   token_t* token = state->token;
-   if(token->detail != nullptr) {
-      compiled_string_t* compiled_string = (compiled_string_t*)(token->detail);
-      node->compiled_begin = compiled_string->begin;
-      node->compiled_end = compiled_string->end;
-   } else {
-      node->compiled_begin = nullptr;
-      node->compiled_end = nullptr;
-   }
+   assign_token();
    ensure(tkn_string_literal);
    return_node();
 }
@@ -3675,7 +3674,6 @@ parser_result_t parse(char_t const* source_begin, char_t const* source_end, bool
       .head = nullptr, .current = nullptr, .page_count = 0
    };
    scan_result_t result = tokenize(source_begin, source_end, &memory_state, params);
-   if_debug(if(result.return_value == 1) print_string("tokenization successful\n");)
    if_debug(print_string("parsing begins\n");)
    parser_state_t state = {
       .buffer = source_begin,
