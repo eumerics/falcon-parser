@@ -454,12 +454,19 @@ inline_spec int scan_numeric_literal(scan_state_t* const state)
    char_t const* const end = state->code_end;
    char_t const* code = state->code;
    char_t c = *code;
+   int decimal_like = 0;
    // parse the integer part
    if(c == '0') {
       if(++code == end) goto _make_numeric_token;
       char_t c = *code;
-      if((state->params & param_flag_annex) && (c >= '0' && c <= '7')) {
-         while(++code < end && (*code >= '0' && *code <= '7'));
+      //[TODO] octal compilation
+      if((state->params & param_flag_annex) && (c >= '0' && c <= '9')) {
+         decimal_like = c & 0x08; // '8' = 0x38, '9' = 0x39
+         while(++code < end){
+            char_t c = *code;
+            if(c < '0' || c > '9') break;
+            decimal_like |= c & 0x08;
+         };
       } else {
          char_t lower = *code | 0x20;
          char_t const* digit_begin = code + 1;
@@ -469,13 +476,19 @@ inline_spec int scan_numeric_literal(scan_state_t* const state)
             while(++code < end && is_binary(*code));
          } else if(lower == 'o') {
             while(++code < end && is_octal(*code));
+         } else {
+            decimal_like = 1;
          }
          if(code == digit_begin) return 0;
       }
    } else if(c >= '1' && c <= '9') {
+      decimal_like = 1;
       while(++code < end && is_decimal(*code));
+   } else {
+      decimal_like = 1;
    }
    if(code == end) goto _make_numeric_token;
+   if(!decimal_like) goto _verify_and_make_numeric_token;
    // parse the decimal part
    if(*code == '.') {
       while(++code < end && is_decimal(*code));
@@ -492,6 +505,7 @@ inline_spec int scan_numeric_literal(scan_state_t* const state)
       if(code == exponent_begin) return 0;
       if(code == end) goto _make_numeric_token;
    }
+_verify_and_make_numeric_token:
    // https://tc39.es/ecma262/#sec-literals-numeric-literals
    // The SourceCharacter immediately following a NumericLiteral
    // must not be an IdentifierStart or DecimalDigit

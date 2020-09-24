@@ -347,7 +347,7 @@ export class Literal extends Expression {
          case Parser.constants.rw_null: return null;
          case Parser.constants.rw_true: return true;
          case Parser.constants.rw_false: return false;
-         case Parser.constants.tkn_numeric_literal: return Number(this.get_value());
+         case Parser.constants.tkn_numeric_literal: return Number(this.get_value().replace(/^(0[0-7]+)$/, '0o$1'));
          //[BUG] temporary fix to get parsed values
          case Parser.constants.tkn_string_literal: return eval(this.get_value());
       }

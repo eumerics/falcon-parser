@@ -22,3 +22,9 @@
 
 // legacy octal
 00, 007, 0123;
+// legacy decimal like
+08, 09.0;
+/*
+// negative
+07.0, 0b01.0
+*/
