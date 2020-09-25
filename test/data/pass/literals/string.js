@@ -14,8 +14,8 @@
 // LineContinuation
 '\
 ', '\ ', ' '; // line and paragraph separators
-/*
+///*
 // legacy octal
 '\0', '\1', '\2', '\3', '\4', '\5', '\6', '\7';
 '\00', '\77', '\000', '\377';
-*/
+//*/

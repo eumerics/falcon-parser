@@ -1,0 +1,10 @@
+# Extracted from https://www.unicode.org/Public/UCD/latest/ucd/Scripts.txt
+# There is no section for Space_Separator, the following entries are collated
+
+0020          ; Common # Zs       SPACE
+00A0          ; Common # Zs       NO-BREAK SPACE
+1680          ; Ogham  # Zs       OGHAM SPACE MARK
+2000..200A    ; Common # Zs  [11] EN QUAD..HAIR SPACE
+202F          ; Common # Zs       NARROW NO-BREAK SPACE
+205F          ; Common # Zs       MEDIUM MATHEMATICAL SPACE
+3000          ; Common # Zs       IDEOGRAPHIC SPACE

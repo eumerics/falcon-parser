@@ -26,6 +26,10 @@ define_error(0x000b, not_enough_hexdigits, "not enough hex digits in unicode esc
 define_error(0x000c, missing_unicode_closing, "missing closing parenthesis in unicode escape sequence");
 define_error(0x000d, missing_leading_surrogate, "UTF16 coding error; missing leading surrogate");
 define_error(0x000e, missing_trailing_surrogate, "UTF16 coding error; missing trailing surrogate");
+define_error(0x000f, surrogate_in_identifier,
+   "Unicode character in an identifier must not be a surrogate. "
+   "Instead of specifying a surrogate pair, use unicode escape sequence format \\u{xxxxx}."
+);
 
 define_error(0x1000, missing_assignment_or_binding_flag,
    "internal-error: change flags must have one of assignment or binding flag"

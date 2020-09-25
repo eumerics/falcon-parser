@@ -73,11 +73,13 @@ uint32_t compile_unicode_escape_sequence(scan_state_t* state)
       if(i < min_hex_chars) { return_error(not_enough_hexdigits, 0); }
       else { --state->code; value >>= 4; break; }
    }
-   if(is_code_point && (*++state->code != '}')) return_error(missing_unicode_closing, 0);
+   if(is_code_point && *++state->code != '}') {
+      return_error(missing_unicode_closing, 0);
+   }
    ++state->code;
    return value;
 }
-uint32_t compile_unicode_code_point(scan_state_t* state)
+uint32_t compile_unicode_code_point(scan_state_t* state, int for_identifier)
 {
    char_t const* const begin = state->code;
    uint32_t value;
@@ -87,11 +89,16 @@ uint32_t compile_unicode_code_point(scan_state_t* state)
    } else {
       value = *state->code++;
    }
-   if((value & 0xdc00) == 0xdc00) {
+   //print_number(value);
+   if(for_identifier && ((value & 0xf800) == 0xd800)) {
+      state->code = begin;
+      return_error(surrogate_in_identifier, 0);
+   }
+   if((value & 0xfc00) == 0xdc00) {
       state->code = begin;
       return_error(missing_leading_surrogate, 0);
    }
-   if((value & 0xd800) == 0xd800) {
+   if((value & 0xfc00) == 0xd800) {
       char_t const* const begin = state->code;
       uint32_t trailing_value;
       if(*state->code == '\\') {
@@ -125,10 +132,15 @@ inline_spec int scan_ascii_identifier_start(scan_state_t* state, char_t c)
 inline_spec int scan_unicode_identifier_start_helper(scan_state_t* state, char_t c)
 {
    //print_string("id-start-helper"); print_number(c);
+   char_t const* const begin = state->code;
    if(!(c == '\\' || (c & 0xffffff80))) return 0;
-   uint32_t value = compile_unicode_code_point(state);
+   uint32_t value = compile_unicode_code_point(state, 1);
+   //print_number(value);
    if(state->error_message) return 0;
-   return is_unicode_id_start(value);
+   if(!is_unicode_id_start(value)) {
+      state->code = begin; return 0;
+   }
+   return 1;
 }
 inline_spec int is_unicode_identifier_start_helper(scan_state_t* state, char_t c)
 {
@@ -153,8 +165,9 @@ inline_spec int scan_unicode_identifier_continue_helper(scan_state_t* state, cha
    //print_string("id-continue-helper"); print_number(c);
    char_t const* const begin = state->code;
    if(!(c == '\\' || (c & 0xffffff80))) return 0;
-   uint32_t value = compile_unicode_code_point(state);
+   uint32_t value = compile_unicode_code_point(state, 1);
    if(state->error_message) return 0;
+   //print_number(value);
    // ZWNJ: 0x200c, ZWJ: 0x200d
    if(value == 0x200c || value == 0x200d || is_unicode_id_continue(value)) {
       return 1;
@@ -182,6 +195,10 @@ inline_spec int is_unicode_identifier_continue_helper(scan_state_t* state, char_
    is_ascii_identifier_start(c) || \
    is_unicode_identifier_start_helper(state, c) \
 )
+inline_spec int is_common_line_terminator(char_t c)
+{
+   return (c == '\r' || c == '\n');
+}
 inline_spec int is_line_terminator(char_t c)
 {
    #if defined(UTF16)
@@ -190,7 +207,6 @@ inline_spec int is_line_terminator(char_t c)
       return (c == '\r' || c == '\n');
    #endif
 }
-
 inline_spec void make_char_token(scan_state_t* state, uint8_t const id)
 {
    size_t offset = state->code - state->code_begin;
@@ -757,7 +773,7 @@ inline_spec int scan_punctuator(scan_state_t* const state)
       }
    }
    {
-      //[3] ? ?.
+      //[3] ? ?. [TODO] [lookahead ∉ DecimalDigit]
       if(c1 == '?') {
          if(c2 == '.') { return_scan(pnct_optional, mask_none, precedence_none, 2); }
          else { return_scan(c1, mask_none, precedence_none, 1); }
@@ -1073,18 +1089,51 @@ inline_spec uint32_t is_reserved(scan_state_t const* const state, char_t const* 
    #undef return_comparison_with_vec3
 }
 
-inline_spec int scan_identifier(scan_state_t* const state)
+inline_spec int scan_ascii_identifier(scan_state_t* const state)
 {
    char_t const* const begin = state->code;
    char_t const* const end = state->code_end;
-   int has_escape_sequence = (*state->code == '\\');
-   if((*state->code & 0xffffff80) == 0 && !has_escape_sequence) ++state->code;
-   else scan_identifier_start(*state->code);
+   while(++state->code < end && is_ascii_identifier_continue(*state->code));
+   uint32_t reserved_word_id = is_reserved(state, begin, *begin, state->code - begin);
+   if(reserved_word_id == 0) {
+      make_token(state, begin, tkn_identifier, mask_identifier, precedence_none, nullptr);
+      if_verbose(print_string("identifier: "));
+   } else {
+      make_aggregated_token(state, begin, reserved_word_id, nullptr);
+      if_verbose(print_string("reserved_word: "));
+      state->in_regexp_context = 1;
+   }
+   return 1;
+}
+
+int scan_identifier(scan_state_t* const state)
+{
+   // logic for scanning a non-ascii identifier is a bit complex for two reasons
+   // 1) we have to account for a possible continuation of a previously scanned
+   //    ascii identifier which could be an incomplete scan of an identifier
+   // 2) this function is invoked as a possible identifier scan, we have to
+   //    first ascertain a identifier scan and gracefully return in order to
+   //    consider other possible scans
+   token_t* token = (state->token > state->token_begin ? state->token - 1 : nullptr);
+   // if previous token is a possible continuation we roll back current token
+   int can_continue = token && (state->code_begin + token->end == state->code) && (token->group & mask_idname);
+   char_t const* const begin = (can_continue ? state->code_begin + token->begin : state->code);
+   char_t const* const end = state->code_end;
+   int has_escape_sequence = 0;
+   if(begin == state->code) {
+      has_escape_sequence = (*state->code == '\\');
+      if(!scan_identifier_start(*state->code)) return 0;
+   }
+   int has_continuation = 0;
    while(state->code < end) {
       has_escape_sequence |= (*state->code == '\\');
-      if(!scan_identifier_continue(*state->code)) break;
+      if(!scan_identifier_continue(*state->code)) {
+         if(can_continue && !has_continuation) { return 0; }
+         if(state->error_message) return 0;
+         break;
+      }
+      has_continuation = 1;
    }
-   if(state->error_message) return 0;
    compiled_string_t* compiled_identifier = nullptr;
    char_t const* identifier_begin;
    ptrdiff_t identifier_length;
@@ -1094,7 +1143,7 @@ inline_spec int scan_identifier(scan_state_t* const state)
       char_t const* const saved_code = state->code;
       state->code = begin;
       while(state->code < saved_code) {
-         uint32_t code_point = compile_unicode_code_point(state);
+         uint32_t code_point = compile_unicode_code_point(state, 1);
          if(code_point & 0xffff0000) {
             code_point -= 0x10000;
             *(identifier_code + 1) = (0b110111 << 10) | (code_point & 0x3ff); code_point >>= 10;
@@ -1112,6 +1161,7 @@ inline_spec int scan_identifier(scan_state_t* const state)
       identifier_begin = begin;
       identifier_length = state->code - begin;
    }
+   if(can_continue) --state->token;
    uint32_t reserved_word_id = is_reserved(state, identifier_begin, *identifier_begin, identifier_length);
    if(reserved_word_id == 0) {
       make_token(state, begin, tkn_identifier, mask_identifier, precedence_none, compiled_identifier);
@@ -1136,6 +1186,86 @@ inline_spec int scan_identifier(scan_state_t* const state)
 #else
    #define debug_wrap(_token_name, _token_type, _code) _code
 #endif
+
+inline_spec int is_common_whitespace(char_t const c)
+{
+   return (c == ' ' || c == '\t');
+}
+int is_whitespace(char_t const c)
+{
+   uint16_t const line_tabulation = 0x000B; // <VT>
+   uint16_t const form_feed = 0x000C; // <FF>
+   uint16_t const no_break_space = 0x00A0; // <NBSP>
+   uint16_t const zero_width_no_break_space = 0xFEFF; // <ZWNBSP>
+   // Whitespace - <USP>
+   uint16_t const ogham_space_mark = 0x1680; // <USP>
+   // 2000..200A    ; Common # Zs  [11] EN QUAD..HAIR SPACE
+   uint16_t const en_quad = 0x2000;
+   uint16_t const hair_space = 0x200A;
+   uint16_t const narrow_no_break_space = 0x202F; // <USP>
+   uint16_t const medium_mathematics_space = 0x205F; // <USP>
+   uint16_t const ideographic_space = 0x3000; // <USP>
+
+   if(c >= en_quad && c <= hair_space) return 1;
+   switch(c) {
+      case ' ':
+      case '\t':
+      case line_tabulation:
+      case form_feed:
+      case no_break_space:
+      case zero_width_no_break_space:
+      case ogham_space_mark:
+      case narrow_no_break_space:
+      case medium_mathematics_space:
+      case ideographic_space: return 1;
+      default: return 0;
+   }
+}
+
+int tokenize_uncommon(scan_state_t* state)
+{
+   // Newline
+   uint16_t const line_separator = 0x2028; // <LS>
+   uint16_t const paragraph_separator = 0x2029; // <PS>
+
+   char_t c = *state->code;
+   if(c == '\\' || (c & 0xffffff80)) {
+      //if_debug(print_string("continuing identifier\n"));
+      if(scan_identifier(state)) return 1;
+      if(state->error_message) return 0;
+   }
+   if(c == line_separator || c == paragraph_separator) {
+      //if_debug(print_string("continuing newline\n"));
+      token_t* token = (state->token > state->token_begin ? state->token - 1 : nullptr);
+      int can_continue = token && (state->code_begin + token->end == state->code) && (token->id & tkn_terminator);
+      char_t const* const begin = (can_continue ? state->code_begin + token->begin : state->code);
+      char_t const* const code_end = state->code_end;
+      while(++state->code < code_end && is_line_terminator(*state->code));
+      //if(can_continue) --state->token;
+      //make_token(state, begin, tkn_terminator, mask_none, precedence_none, nullptr);
+      state->current_token_flags |= token_flag_newline;
+   } else if(is_whitespace(c)) {
+      token_t* token = (state->token > state->token_begin ? state->token - 1 : nullptr);
+      int can_continue = token && (state->code_begin + token->end == state->code) && (token->id & tkn_whitespace);
+      char_t const* const begin = (can_continue ? state->code_begin + token->begin : state->code);
+      char_t const* const code_end = state->code_end;
+      while(++state->code < code_end && is_whitespace(*state->code));
+      //if(can_continue) --state->token;
+      //make_token(state, begin, tkn_whitespace, mask_none, precedence_none, nullptr);
+      state->current_token_flags = state->token_flags;
+      //[TODO] is_comment = was_comment;
+   } else return 0;
+   return 1;
+   // Comment - Nothing to handle
+   // CommonToken::Punctuator - Nothing to handle
+   // CommonToken::NumericLiteral - Nothing to handle
+   // CommonToken::StringLiteral - Nothing to handle
+   // CommonToken::Template - Nothing to handle
+   // DivPunctuator - Nothing to handle
+   // RightBracePunctuator - Nothing to handle
+   // RegularExpressionLiteral - Nothing to handle
+   // TemplateSubstitutionTail - Nothing to handle
+}
 
 wasm_export scan_result_t tokenize(char_t const* const code_begin, char_t const* const code_end, memory_state_t* const memory_state, uint32_t params)
 {
@@ -1170,30 +1300,25 @@ wasm_export scan_result_t tokenize(char_t const* const code_begin, char_t const*
       char_t current = *(state->code);
       char_t next = (state->code + 1 < state->code_end ? *(state->code + 1) : 0);
       //printf("%d %d\n", state->template_level, state->parenthesis_level);
-      if(current == '`' || (state->template_level != 0 && current == '}' && state->template_level + state->template_parenthesis_offset == state->parenthesis_level)) {
-         if(!scan_template_literal(state)) { errored = 1; break; }
-      } else if(is_identifier_start(current)) {
+      if(is_ascii_identifier_start(current)) {
          debug_wrap("", identifier,
             state->in_regexp_context = 0;
-            if(!scan_identifier(state)) { errored = 1; break; }
+            if(!scan_ascii_identifier(state)) { errored = 1; break; }
          );
-      } else if(current == ' ' || current == '\t') {
-         // [TODO] 0x09, 0x0C, 0xA0, \uFEFF, Unicode Space_Separator
+      } else if(is_common_whitespace(current)) {
          debug_wrap("space", whitespace,
-            while(++state->code < code_end && (*state->code == ' ' || *state->code == '\t'));
-            //make_token(state, tkn_whitespace, mask_none, precedence_none, nullptr);
+            while(++state->code < code_end && is_common_whitespace(*state->code));
+            //make_token(state, begin, tkn_whitespace, mask_none, precedence_none, nullptr);
             state->current_token_flags = state->token_flags;
             is_comment = was_comment;
          );
-      } else if(is_line_terminator(current)) {
+      } else if(is_common_line_terminator(current)) {
          debug_wrap("newline", terminator,
-            while(++state->code < code_end && is_line_terminator(*state->code));
-            //make_token(state, tkn_terminator, mask_none, precedence_none, nullptr);
+            while(++state->code < code_end && is_common_line_terminator(*state->code));
+            //make_token(state, begin, tkn_terminator, mask_none, precedence_none, nullptr);
             state->current_token_flags |= token_flag_newline;
          );
-      } else if((current >= '0' && current <= '9') ||
-         (current == '.' && (next >= '0' && next <= '9'))
-      ){
+      } else if(is_decimal(current) || (current == '.' && is_decimal(next))) {
          debug_wrap("number", numeric_literal,
             state->in_regexp_context = 0;
             if(!scan_numeric_literal(state)) { errored = 1; break; }
@@ -1223,10 +1348,15 @@ wasm_export scan_result_t tokenize(char_t const* const code_begin, char_t const*
                if(!scan_punctuator(state)) { errored = 1; break; }
             );
          }
+      } else if(current == '`' || (state->template_level != 0 && current == '}' && state->template_level + state->template_parenthesis_offset == state->parenthesis_level)) {
+         if(!scan_template_literal(state)) { errored = 1; break; }
       } else {
          debug_wrap("punctuator", punctuator,
-            state->in_regexp_context = (current == ')' || current == ']' ? 0 : 1);
-            if(!scan_punctuator(state)) { errored = 1; break; }
+            if(scan_punctuator(state)) {
+               state->in_regexp_context = (current == ')' || current == ']' ? 0 : 1);
+            } else if(!tokenize_uncommon(state)){
+               errored = 1; break;
+            }
          );
       }
       state->token_flags = state->current_token_flags;
