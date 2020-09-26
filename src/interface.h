@@ -235,6 +235,7 @@ typedef struct {
    void* callee;
    void* arguments;
 } call_expression_t;
+typedef call_expression_t covered_call_expression_t;
 
 typedef struct {
    embed_parse_node();

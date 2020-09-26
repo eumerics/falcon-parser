@@ -268,6 +268,8 @@ void parser_free(parser_state_t* state)
 #define set_change_flag_to(type, flags) \
    ((flags & change_mask_group) | change_flag_##type)
 
+#define current_token() state->token
+#define next_token() (state->token + 1)
 #define current_token_id state->token->id
 #define token_length() (state->token->end - state->token->begin)
 #define raw_char(offset) (state->buffer[state->token->begin + offset])
@@ -2045,7 +2047,7 @@ bool change_binding_node_types(parse_list_node_t* list_node, bool for_assignment
    return true;
 }
 */
-void* parse_covered_parenthesized_expression(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_covering_parenthesized_expression(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
 {
    size_t count = 0;
    token_t* trailing_comma = nullptr;
@@ -2081,7 +2083,7 @@ void* parse_covered_parenthesized_expression(parser_state_t* state, parser_tree_
    assign(expressions, raw_list_head());
    expression_t* expression = completed_node();
    expect(')');
-   if(!exists(pnct_arrow)) {
+   if(!exists(pnct_arrow) || exists_newline()) {
       //[TODO] generate error message
       if(count == 0 || trailing_comma != nullptr || first_cover != nullptr) {
          passon(nullptr);
@@ -2095,12 +2097,17 @@ void* parse_covered_parenthesized_expression(parser_state_t* state, parser_tree_
       return_node();
    } else {
       // [TODO] reuse memory used for expression list
-      if(count == 0) passon(&empty_list);
-      uint8_t change_flags = change_flag_array_binding;
-      if(!change_node_types(state, expression->expressions, change_flags)) {
-         passon(nullptr);
+      if(count != 0) {
+         uint8_t change_flags = change_flag_array_binding;
+         if(!change_node_types(state, expression->expressions, change_flags)) {
+            passon(nullptr);
+         }
       }
-      passon(expression->expressions);
+      //passon(expression->expressions);
+      make_node(parenthesized_expression);
+      assign_begin();
+      assign(expression, expression);
+      return_node();
    }
 }
 /*
@@ -2163,7 +2170,7 @@ void* parse_primary_expression(parser_state_t* state, parser_tree_state_t* tree_
       case rw_class: passon_parsed(class_expression);
       case '`': passon_parsed(template_literal, TAG, NONE);
       //case '(': passon_parsed(parenthesized_expression);
-      case '(': passon_parsed(covered_parenthesized_expression);
+      case '(': passon_parsed(covering_parenthesized_expression);
       case rw_function: passon_parsed(function_expression, YLD|AWT, NONE);
       case rw_async: {
          if(!exists_offset_newline(1) && offset_lookahead(1, word(function))) {
@@ -2347,6 +2354,35 @@ void* parse_member_expression(parser_state_t* state, parser_tree_state_t* tree_s
  * CallMemberExpression[Yield, Await]:
  *    MemberExpression[?Yield, ?Await] Arguments[?Yield, ?Await]
  */
+ void* continue_with_call_expression(parser_state_t* state, parser_tree_state_t* tree_state, void* callee, size_t begin, uint8_t flag, params_t params);
+ void* parse_covering_call_only_expression(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+ {
+    save_begin();
+    if(exists_word(async) && offset_lookahead(1, '(') && !exists_offset_newline(1)) {
+       make_node(call_expression);
+       parse(callee, identifier_reference);
+       assign(flags, flag_none);
+       list_parse(arguments, arguments_list, NONE, PARAM);
+       complete_node();
+       if(exists(pnct_arrow) && !exists_newline()) {
+          set_node_type_of(node, covered_call_expression);
+          change_node_types(state, node->arguments, change_flag_array_binding);
+          passon(node);
+       } else {
+          //[TODO] account of offending cover grammar
+          if(exists('(')) {
+             continue_with(call_expression, node, begin, flag_none);
+             passon(call_expression);
+          } else if(exists('[') || exists('.') || exists('`')) {
+             continue_with(member_expression, node, begin, flag_none);
+             passon(member_expression);
+          } else {
+             passon(node);
+          }
+       }
+    }
+    passon(nullptr);
+ }
 void* parse_call_only_expression(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
 {
    if(exists_word(super)) {
@@ -2367,7 +2403,8 @@ void* parse_call_only_expression(parser_state_t* state, parser_tree_state_t* tre
       expect(')');
       return_node();
    } else {
-      passon(nullptr);
+      passon_parsed(covering_call_only_expression);
+      //passon(nullptr);
    }
 }
 void* continue_with_call_expression(parser_state_t* state, parser_tree_state_t* tree_state, void* callee, size_t begin, uint8_t flag, params_t params)
@@ -2400,7 +2437,6 @@ void* parse_call_expression(parser_state_t* state, parser_tree_state_t* tree_sta
    continue_with(call_expression, member_expression, begin, flag_none);
    passon(call_expression);
 }
-
 /*
  * NewExpression[Yield, Await]:
  *    MemberExpression[?Yield, ?Await]
@@ -2781,6 +2817,7 @@ void* continue_with_arrow_function(
    parser_state_t* state, parser_tree_state_t* tree_state,
    arrow_function_expression_t* node, size_t begin, params_t add_params, params_t params
 ){
+   if(exists_newline()) passon(nullptr);
    ensure(pnct_arrow);
    if(exists('{')) {
       parse(body, function_body_container, YLD|AWT, add_params);
@@ -2878,7 +2915,7 @@ void* parse_assignment_expression(parser_state_t* state, parser_tree_state_t* tr
    save_begin();
    if((params & param_flag_yield) && exists_word(yield)) {
       passon_parsed(yield_expression, YLD, NONE);
-   } else {
+   }/* else {
       size_t offset = (exists_word(async) ? 1 : 0);
       if((offset_lookahead(offset + 1, pnct_arrow) &&
           ((state->token + offset + 0)->group & mask_identifier)) ||
@@ -2886,15 +2923,33 @@ void* parse_assignment_expression(parser_state_t* state, parser_tree_state_t* tr
       ){
          passon_parsed(arrow_function);
       } else {
-         assign_parsed(conditional_expression, expression);
       }
+   }*/
+   bool has_async = exists_word(async) && !exists_offset_newline(1);
+   token_t* token = next_token();
+   assign_parsed(conditional_expression, expression);
+   if(has_async && current_token() == token && offset_lookahead(1, pnct_arrow) && !exists_offset_newline(1)) {
+      assign_parsed(conditional_expression, expression);
    }
-   if(exists(pnct_arrow)) {
+   if(exists(pnct_arrow) && !exists_newline()) {
       make_node(arrow_function_expression);
       assign_begin();
-      assign(flags, flag_none);
-      assign(params, (expression == &empty_list ? nullptr : expression));
-      continue_with(arrow_function, node, begin, 0);
+      if(node_type(expression) == pnt_parenthesized_expression) {
+         node_as(parenthesized_expression, expression, pe);
+         node_as(expression, pe->expression, expr);
+         assign(params, expr->expressions);
+      } else if(node_type(expression) == pnt_identifier) {
+         start_list(); add_to_list(expression);
+         assign(params, raw_list_head());
+      } else if(node_type(expression) == pnt_covered_call_expression) {
+         node_as(covered_call_expression, expression, ce);
+         assign(params, ce->arguments);
+      } else {
+         passon(nullptr);
+      }
+      assign(flags, (has_async ? function_flag_async : flag_none));
+      params_t add_params = (has_async ? param_flag_await : flag_none);
+      continue_with(arrow_function, node, begin, add_params);
       passon(arrow_function);
    }
    if(!node_is_a(lhs_production, expression) || !exists_mask(mask_assign_ops)) {

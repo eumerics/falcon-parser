@@ -59,12 +59,15 @@ import {Parser} from '../src/interface.js';
                const script = fs.readFileSync(args.f).toString();
                const acorn_result = acorn.parse(script, options);
                const {object_diff} = await import('./object_diff.js');
-               const source = JSON.parse(JSON.stringify(program));
-               const target = JSON.parse(JSON.stringify(acorn_result));
+               let sb = new Date; const s = JSON.stringify(program); let se = new Date - sb;
+               let tb = new Date; const t = JSON.stringify(acorn_result); let te = new Date - tb;
+               const source = JSON.parse(s);
+               const target = JSON.parse(t);
                fs.writeFileSync('../.ignore/log1', JSON.stringify(source, null, '   '));
                fs.writeFileSync('../.ignore/log2', JSON.stringify(target, null, '   '));
                const diff = object_diff(source, target);
                console.log(JSON.stringify(diff, null, '   '));
+               //console.log('stringification times', se, Parser.to_json_time, Parser.list_time, te);
             } else {
                console.log(JSON.stringify(program, null, '   '));
             }

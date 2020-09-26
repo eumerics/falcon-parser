@@ -252,7 +252,9 @@ function define_interface(Class, type_info, type_name)
                if(this.pointer === this._cached_pointer) return this._cached_node;
                const prop_offset = (this.pointer + offset) / sizeof[type];
                const list_node_pointer = this.buffer_view[type][prop_offset];
+               let begin = new Date;
                this._cached_node = _list_to_array(this, list_node_pointer);
+               Parser.list_time += new Date - begin;
                this._cached_pointer = list_node_pointer;
                return this._cached_node;
             }
@@ -318,10 +320,12 @@ export class Node {
    set end(value) { this.buffer_view.u32[this.pointer/4 + 1] = value; }
 
    toJSON() {
+      let begin = new Date;
       let enumerable_object = {};
       for(const property of this.enumerables || []) {
          enumerable_object[property] = this[property];
       }
+      Parser.to_json_time += new Date - begin;
       return enumerable_object;
    }
 }
@@ -718,6 +722,7 @@ export class Parser {
       constructors[constants.pnt_tagged_template_expression] = TaggedTemplateExpression;
       constructors[constants.pnt_new_expression] = NewExpression;
       constructors[constants.pnt_call_expression] = CallExpression;
+      constructors[constants.pnt_covered_call_expression] = CallExpression;
       constructors[constants.pnt_chain_expression] = ChainExpression;
       constructors[constants.pnt_update_expression] = UpdateExpression;
       constructors[constants.pnt_unary_expression] = UnaryExpression;
@@ -1072,3 +1077,5 @@ export class Parser {
       group_end();
    }
 }
+Parser.to_json_time = 0;
+Parser.list_time = 0;
