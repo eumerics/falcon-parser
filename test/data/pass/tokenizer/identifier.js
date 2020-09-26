@@ -8,6 +8,8 @@ a‌, À‌, ἀ‌, 𝛃‌; // invisible ZWJ as IdentifierPart
 a‍, À‍, ἀ‍, 𝛃‍; // invisible ZWNJ as IdentifierPart
 aÀἀ𝛃‌‍aÀἀ𝛃‌‍;
 
+𞸊, 𞸋, 𞸊𞸋; // surrogates (only valid as characters, not escape sequences)
+
 // unicode escaped versions of above tests
 \u0061, \u00c0, \u1f00, \u{1d6c3};
 \u0061\u0061, \u0061\u00c0, \u0061\u1f00, \u0061\u{1d6c3};

@@ -53,8 +53,9 @@ inline_spec int is_hex(char_t h)
    char_t hl = h | 0x20; // lower case h
    return ((h >= '0' & h <= '9') | (hl >= 'a' & hl <= 'f'));
 }
-uint32_t compile_unicode_escape_sequence(scan_state_t* state)
+uint32_t compile_unicode_escape_sequence(scan_state_t* state, int for_identifier)
 {
+   char_t const* const begin = state->code;
    int is_code_point = 0, min_hex_chars = 0, max_hex_chars = 0;
    if(*++state->code != 'u') return_error(expecting_unicode_sequence, 0);
    if(*(state->code + 1) == '{') {
@@ -76,6 +77,10 @@ uint32_t compile_unicode_escape_sequence(scan_state_t* state)
    if(is_code_point && *++state->code != '}') {
       return_error(missing_unicode_closing, 0);
    }
+   if(for_identifier && ((value & 0xf800) == 0xd800)) {
+      state->code = begin;
+      return_error(surrogate_in_identifier, 0);
+   }
    ++state->code;
    return value;
 }
@@ -84,16 +89,18 @@ uint32_t compile_unicode_code_point(scan_state_t* state, int for_identifier)
    char_t const* const begin = state->code;
    uint32_t value;
    if(*state->code == '\\') {
-      value = compile_unicode_escape_sequence(state);
+      value = compile_unicode_escape_sequence(state, for_identifier);
       if(state->error_message) return 0;
    } else {
       value = *state->code++;
    }
    //print_number(value);
+   /*
    if(for_identifier && ((value & 0xf800) == 0xd800)) {
       state->code = begin;
       return_error(surrogate_in_identifier, 0);
    }
+   */
    if((value & 0xfc00) == 0xdc00) {
       state->code = begin;
       return_error(missing_leading_surrogate, 0);
@@ -102,7 +109,7 @@ uint32_t compile_unicode_code_point(scan_state_t* state, int for_identifier)
       char_t const* const begin = state->code;
       uint32_t trailing_value;
       if(*state->code == '\\') {
-         trailing_value = compile_unicode_escape_sequence(state);
+         trailing_value = compile_unicode_escape_sequence(state, for_identifier);
          if(state->error_message) return 0;
       } else if(state->code < state->code_end){
          trailing_value = *state->code++;
@@ -355,19 +362,20 @@ compiled_string_t* compile_string(
                if(!for_template && (state->params & param_flag_annex) && c >= '0' && c <= '9') {
                   // legacy octal escape sequence
                   if(c >= '8') { *compiled++ = c; break; }
-                  char_t octal = c - '0';
+                  char_t value = c - '0';
                   char_t o = *(code + 1);
-                  if(!(o >= '0' && o <= '7')) { *compiled++ = octal; break; }
-                  octal = (octal << 3) | (o - '0');
+                  if(!is_octal(o)) { *compiled++ = value; break; }
+                  value = (value << 3) | (o - '0');
                   ++code;
-                  if(c >= '4') break;
+                  if(c >= '4') { *compiled++ = value; break; }
                   o = *(code + 1);
-                  if(!(o >= '0' && o <= '7')) { *compiled++ = octal; break; }
-                  octal = (octal << 3) | (o - '0');
+                  if(!(o >= '0' && o <= '7')) { *compiled++ = value; break; }
+                  value = (value << 3) | (o - '0');
+                  *compiled++ = value;
                   ++code;
-               } else if(c == '0' && (*(code + 1) < '0' || *(code + 1) > '9')){
+               } else if(c == '0' && !is_decimal(*(code + 1))){
                   *compiled++ = 0;
-               } else if(c < '0' || c > '9'){
+               } else if(!is_decimal(c)){
                   *compiled++ = c;
                } else {
                   return 0;
@@ -680,8 +688,22 @@ inline_spec int scan_punctuator(scan_state_t* const state)
    char_t const* code = state->code;
    char_t c1 = *code;
    char_t c2 = (code + 1 < end ? *(code + 1) : 0);
+   state->in_regexp_context = 1;
    //[14] { } ( ) [ ] ; , : . === == => =
-   if(c1 == '(' || c1 == ')') return_scan(c1, mask_parentheses, precedence_none, 1);
+   if(c1 == '(') {
+      ++state->parenthesis_level;
+      return_scan(c1, mask_parentheses, precedence_none, 1);
+   }
+   if(c1 == ')') {
+      if(state->parenthesis_level == state->expect_statement_after_level) {
+         state->in_regexp_context = 1;
+         state->expect_statement_after_level = 0;
+      } else {
+         state->in_regexp_context = 0;
+      }
+      --state->parenthesis_level;
+      return_scan(c1, mask_parentheses, precedence_none, 1);
+   }
    if(c1 != c2) { // . => =
       if(c1 == '.') return_scan(c1, mask_none, precedence_none, 1);
       if(c1 == '=') {
@@ -697,15 +719,19 @@ inline_spec int scan_punctuator(scan_state_t* const state)
    }
    if(c1 == ';' || c1 == ',') return_scan(c1, mask_none, precedence_none, 1);
    if(c1 == '{') {
-      ++state->parenthesis_level;
+      ++state->curly_parenthesis_level;
       return_scan(c1, mask_parentheses | mask_let_inclusions, precedence_none, 1);
    }
    if(c1 == '}'){
-      --state->parenthesis_level;
+      --state->curly_parenthesis_level;
+      //state->in_regexp_context = (state->parenthesis_level == 0);
       return_scan(c1, mask_parentheses, precedence_none, 1);
    }
    if(c1 == '[') return_scan(c1, mask_parentheses | mask_let_inclusions, precedence_none, 1);
-   if(c1 == ']') return_scan(c1, mask_parentheses, precedence_none, 1);
+   if(c1 == ']') {
+      state->in_regexp_context = 0;
+      return_scan(c1, mask_parentheses, precedence_none, 1);
+   }
    if(c1 == ':') return_scan(c1, mask_none, precedence_none, 1);
    //[17] >>>= >>> ... <<= >>= &&= ||= **= ??= ++ -- << >> && || ** ??
    if(c1 == c2) {
@@ -726,8 +752,14 @@ inline_spec int scan_punctuator(scan_state_t* const state)
             case '|': return_scan(pnct_logical_or, mask_logical_ops, precedence_logical_or, 2);
             case '?': return_scan(pnct_logical_coalesce, mask_none, precedence_logical_coalesce, 2);
             // ++ --
-            case '+': return_scan(pnct_increment, mask_update_ops, precedence_none, 2);
-            case '-': return_scan(pnct_decrement, mask_update_ops, precedence_none, 2);
+            case '+': {
+               state->in_regexp_context = 0;
+               return_scan(pnct_increment, mask_update_ops, precedence_none, 2);
+            }
+            case '-': {
+               state->in_regexp_context = 0;
+               return_scan(pnct_decrement, mask_update_ops, precedence_none, 2);
+            }
             // <<
             case '<': return_scan(pnct_shift_left, mask_shift_ops | mask_binary_ops, precedence_shift, 2);
             // >>>= >>> >>
@@ -773,7 +805,7 @@ inline_spec int scan_punctuator(scan_state_t* const state)
       }
    }
    {
-      //[3] ? ?. [TODO] [lookahead ∉ DecimalDigit]
+      //[3] ? ?.
       if(c1 == '?') {
          if(c2 == '.') { return_scan(pnct_optional, mask_none, precedence_none, 2); }
          else { return_scan(c1, mask_none, precedence_none, 1); }
@@ -841,7 +873,7 @@ inline_spec int scan_template_characters(scan_state_t* const state)
                make_token(state, begin, tkn_template_string, mask_none, precedence_none, compiled_string);
                make_char_token(state, '$');
                make_char_token(state, '{');
-               ++state->parenthesis_level;
+               ++state->curly_parenthesis_level;
                state->in_template_expression = 1;
                if_debug(
                   print_string("template-chars: ");
@@ -873,7 +905,7 @@ inline_spec int scan_template_literal(scan_state_t* const state)
    char_t const* const end = state->code_end;
    if(*state->code == '`'){
       if(state->template_level == 0) {
-         state->template_parenthesis_offset = state->parenthesis_level;
+         state->template_parenthesis_offset = state->curly_parenthesis_level;
          ++state->template_level;
       } else if(state->in_template_expression){
          ++state->template_level;
@@ -887,7 +919,7 @@ inline_spec int scan_template_literal(scan_state_t* const state)
       if_verbose( print_string("template: `\n"); );
    } else {
       make_char_token(state, '}');
-      --state->parenthesis_level;
+      --state->curly_parenthesis_level;
       if_verbose( print_string("template: }\n"); );
    }
    while(state->template_level > 0 && state->code < end) {
@@ -924,7 +956,7 @@ inline_spec int is_reserved(char_t const* string, char_t first_char, int length)
 }
 */
 
-inline_spec uint32_t is_reserved(scan_state_t const* const state, char_t const* string, char_t const first_char, int const length)
+inline_spec uint32_t is_reserved(scan_state_t* const state, char_t const* string, char_t const first_char, int const length)
 {
    if(length == 0) return 0;
    #if defined(profile)
@@ -936,6 +968,20 @@ inline_spec uint32_t is_reserved(scan_state_t const* const state, char_t const* 
       #define _strncmp(kw) strncmp_impl(string, stringize(kw), strlen_impl(stringize(kw)))
    #endif
    #define _rwid(word) combine(rw_##word, rwg_##word, rwp_##word, state->token_flags)
+   #define return_if(string) if(!_strncmp(string)) return _rwid(string);
+   #define note_and_return_if(string) { \
+      if(!_strncmp(string)) { \
+         state->expect_statement_after_level = state->parenthesis_level + 1; \
+         return _rwid(string); \
+      } \
+   }
+   #define note_and_return_comparison_with(string) { \
+      if(!_strncmp(string)) { \
+         state->expect_statement_after_level = state->parenthesis_level + 1; \
+         return _rwid(string); \
+      } \
+      return 0; \
+   }
    #define return_comparison_with(string) return (_strncmp(string) == 0 ? _rwid(string) : 0);
    #define return_comparison_with_vec2(string1, string2) { \
       if(!_strncmp(string1)) return _rwid(string1); \
@@ -993,7 +1039,7 @@ inline_spec uint32_t is_reserved(scan_state_t const* const state, char_t const* 
             case 4: return_comparison_with(from);
             case 5: return_comparison_with(false);
             case 7: return_comparison_with(finally);
-            case 3: return_comparison_with(for);
+            case 3: note_and_return_comparison_with(for);
             case 8: return_comparison_with(function);
             default: return 0;
          }
@@ -1005,7 +1051,7 @@ inline_spec uint32_t is_reserved(scan_state_t const* const state, char_t const* 
       }
       case 'i': {
          switch(length) {
-            case 2: return_comparison_with_vec2(if, in);
+            case 2: note_and_return_if(if); return_comparison_with(in);
             case 6: return_comparison_with(import);
             case 9: return_comparison_with(interface);
             case 10: return_comparison_with_vec2(implements, instanceof);
@@ -1069,8 +1115,8 @@ inline_spec uint32_t is_reserved(scan_state_t const* const state, char_t const* 
       }
       case 'w': {
          switch(length) {
-            case 5: return_comparison_with(while);
-            case 4: return_comparison_with(with);
+            case 5: note_and_return_comparison_with(while);
+            case 4: note_and_return_comparison_with(with);
             default: return 0;
          }
       }
@@ -1287,6 +1333,8 @@ wasm_export scan_result_t tokenize(char_t const* const code_begin, char_t const*
       .in_regexp_context = 1,
       .template_level = 0,
       .parenthesis_level = 0,
+      .curly_parenthesis_level = 0,
+      .expect_statement_after_level = 0,
       .template_parenthesis_offset = 0,
       .params = params,
       .memory = memory_state,
@@ -1299,7 +1347,7 @@ wasm_export scan_result_t tokenize(char_t const* const code_begin, char_t const*
       state->current_token_flags = token_flag_none;
       char_t current = *(state->code);
       char_t next = (state->code + 1 < state->code_end ? *(state->code + 1) : 0);
-      //printf("%d %d\n", state->template_level, state->parenthesis_level);
+      //printf("%d %d\n", state->template_level, state->curly_parenthesis_level);
       if(is_ascii_identifier_start(current)) {
          debug_wrap("", identifier,
             state->in_regexp_context = 0;
@@ -1344,17 +1392,14 @@ wasm_export scan_result_t tokenize(char_t const* const code_begin, char_t const*
             );
          } else {
             debug_wrap("punctuator", punctuator,
-               state->in_regexp_context = 1;
                if(!scan_punctuator(state)) { errored = 1; break; }
             );
          }
-      } else if(current == '`' || (state->template_level != 0 && current == '}' && state->template_level + state->template_parenthesis_offset == state->parenthesis_level)) {
+      } else if(current == '`' || (state->template_level != 0 && current == '}' && state->template_level + state->template_parenthesis_offset == state->curly_parenthesis_level)) {
          if(!scan_template_literal(state)) { errored = 1; break; }
       } else {
          debug_wrap("punctuator", punctuator,
-            if(scan_punctuator(state)) {
-               state->in_regexp_context = (current == ')' || current == ']' ? 0 : 1);
-            } else if(!tokenize_uncommon(state)){
+            if(!scan_punctuator(state) && !tokenize_uncommon(state)){
                errored = 1; break;
             }
          );

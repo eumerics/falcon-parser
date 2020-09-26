@@ -1124,7 +1124,7 @@ method_definition_t* parse_method_definition(parser_state_t* state, parser_tree_
    bool computed = false;
    //[NOTE] this criterion must be subject to review with grammar changes
    //    this criterion is valid as of ECMA2020
-   if(offset_lookahead(1, '(') || (computed = exists('[')))
+   if((computed = exists('[')) || offset_lookahead(1, '('))
    {
       // MethodDefinition[Yield, Await]:
       //    PropertyName[?Yield, ?Await]

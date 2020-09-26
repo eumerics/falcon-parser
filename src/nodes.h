@@ -43,6 +43,8 @@ typedef struct {
    uint8_t in_regexp_context; // bool
    uint32_t template_level;
    uint32_t parenthesis_level;
+   uint32_t curly_parenthesis_level;
+   uint32_t expect_statement_after_level;
    uint32_t template_parenthesis_offset;
    uint32_t params;
    memory_state_t* memory;
