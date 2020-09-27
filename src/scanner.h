@@ -257,7 +257,7 @@ inline_spec void make_aggregated_token(
 // support i.e, 1 << (size(ptrdiff_t) * 8 - 1), for nearly all cases this
 // should not be a problem at all
 ptrdiff_t escaped_string_flag = (ptrdiff_t)(1) << (sizeof(ptrdiff_t)*8 - 1);
-inline_spec ptrdiff_t prescan_string_literal(char_t const* code, char_t const* const end)
+inline_spec ptrdiff_t prescan_string_literal(char_t const* code, char_t const* const end, params_t params)
 {
    char_t const* const begin = code;
    char_t const quote = *code;
@@ -280,7 +280,7 @@ inline_spec ptrdiff_t prescan_string_literal(char_t const* code, char_t const* c
 }
 compiled_string_t* compile_string(
    scan_state_t* const state, int for_template,
-   char_t const* const begin, char_t const* const end
+   char_t const* const begin, char_t const* const end, params_t params
 )
 {
    char_t const* code = begin - 1;
@@ -359,7 +359,7 @@ compiled_string_t* compile_string(
                break;
             }
             default: {
-               if(!for_template && (state->params & param_flag_annex) && c >= '0' && c <= '9') {
+               if(!for_template && (params & param_flag_annex) && c >= '0' && c <= '9') {
                   // legacy octal escape sequence
                   if(c >= '8') { *compiled++ = c; break; }
                   char_t value = c - '0';
@@ -389,23 +389,23 @@ compiled_string_t* compile_string(
    compiled_string->end = compiled;
    return compiled_string;
 }
-inline_spec int compile_string_literal(scan_state_t* const state)
+inline_spec int compile_string_literal(scan_state_t* const state, params_t params)
 {
    char_t const* const begin = state->code;
    char_t const* const end = state->code_end;
-   ptrdiff_t length_and_flag = prescan_string_literal(begin, end);
+   ptrdiff_t length_and_flag = prescan_string_literal(begin, end, params);
    if(length_and_flag == 0) return 0;
    void* compiled_string = nullptr;
    size_t length = (length_and_flag & ~escaped_string_flag);
    if(length_and_flag & escaped_string_flag) {
-      compiled_string = compile_string(state, 0, begin + 1, begin + length - 1);
+      compiled_string = compile_string(state, 0, begin + 1, begin + length - 1, params);
       if(compiled_string == nullptr) return 0;
    }
    state->code = begin + length;
    make_token(state, begin, tkn_string_literal, mask_literal, precedence_none, compiled_string);
    return 1;
 }
-inline_spec int scan_string_literal(scan_state_t* const state)
+inline_spec int scan_string_literal(scan_state_t* const state, params_t params)
 {
    char_t const* const begin = state->code;
    char_t const* const end = state->code_end;
@@ -435,7 +435,7 @@ inline_spec int scan_string_literal(scan_state_t* const state)
          } else if(c == '\r') {
             if(++code == end) return 0;
             if(*code == '\n') ++code;
-         } else if((state->params & param_flag_annex) && c >= '0' && c <= '9'){
+         } else if((params & param_flag_annex) && c >= '0' && c <= '9'){
             if(c >= '8') ++code;
             else if(c >= '4') {
                if(++code != end && *code >= '0' && *code <= '7') ++code;
@@ -471,7 +471,7 @@ _make_string_token:
    return 1;
 }
 
-inline_spec int scan_numeric_literal(scan_state_t* const state)
+inline_spec int scan_numeric_literal(scan_state_t* const state, params_t params)
 {
    //[TODO] spacing character _
    char_t const* const begin = state->code;
@@ -484,7 +484,7 @@ inline_spec int scan_numeric_literal(scan_state_t* const state)
       if(++code == end) goto _make_numeric_token;
       char_t c = *code;
       //[TODO] octal compilation
-      if((state->params & param_flag_annex) && (c >= '0' && c <= '9')) {
+      if((params & param_flag_annex) && (c >= '0' && c <= '9')) {
          decimal_like = c & 0x08; // '8' = 0x38, '9' = 0x39
          while(++code < end){
             char_t c = *code;
@@ -541,7 +541,7 @@ _make_numeric_token:
 }
 
 //[LIMITATION]: maximum number of allowed flags 1<<5 = 32.
-inline_spec int scan_regexp_literal(scan_state_t* const state)
+inline_spec int scan_regexp_literal(scan_state_t* const state, params_t params)
 {
    char_t const* const begin = state->code;
    char_t const* const end = state->code_end;
@@ -584,7 +584,7 @@ inline_spec int scan_regexp_literal(scan_state_t* const state)
    return 1;
 }
 
-inline_spec int scan_comment(scan_state_t* const state)
+inline_spec int scan_comment(scan_state_t* const state, params_t params)
 {
    char_t const* const begin = state->code;
    char_t const* const end = state->code_end;
@@ -675,7 +675,7 @@ inline_spec char_t scan_punctuator(char_t const* string, char_t const* end)
 // [57]
 #define combine(id, group, precedence, token_flags) \
    ((uint32_t)(token_flags)) | (((uint32_t)(precedence)) << 3) | (((uint32_t)(id)) << 8) | (((uint32_t)(group)) << 16)
-inline_spec int scan_punctuator(scan_state_t* const state)
+inline_spec int scan_punctuator(scan_state_t* const state, params_t params)
 {
    #define return_scan(id, group, precedence, length) { \
       code += length; \
@@ -837,7 +837,7 @@ _make_punctuator_token:
    #undef return_scan
 }
 
-inline_spec int scan_template_characters(scan_state_t* const state)
+inline_spec int scan_template_characters(scan_state_t* const state, params_t params)
 {
    char_t const* const begin = state->code;
    char_t const* const end = state->code_end;
@@ -848,7 +848,7 @@ inline_spec int scan_template_characters(scan_state_t* const state)
          case '`': {
             void* compiled_string = nullptr;
             if(needs_compilation) {
-               compiled_string = compile_string(state, 1, begin, state->code);
+               compiled_string = compile_string(state, 1, begin, state->code, params);
                if(compiled_string == nullptr) return 0;
             }
             make_token(state, begin, tkn_template_string, mask_none, precedence_none, compiled_string);
@@ -867,7 +867,7 @@ inline_spec int scan_template_characters(scan_state_t* const state)
             if(*(state->code + 1) == '{') {
                void* compiled_string = nullptr;
                if(needs_compilation) {
-                  compiled_string = compile_string(state, 1, begin, state->code);
+                  compiled_string = compile_string(state, 1, begin, state->code, params);
                   if(compiled_string == nullptr) return 0;
                }
                make_token(state, begin, tkn_template_string, mask_none, precedence_none, compiled_string);
@@ -898,7 +898,7 @@ inline_spec int scan_template_characters(scan_state_t* const state)
    return 0;
 }
 
-inline_spec int scan_template_literal(scan_state_t* const state)
+inline_spec int scan_template_literal(scan_state_t* const state, params_t params)
 {
    // the declartion below is purely for debugging
    char_t const* const begin = state->code;
@@ -922,10 +922,16 @@ inline_spec int scan_template_literal(scan_state_t* const state)
       --state->curly_parenthesis_level;
       if_verbose( print_string("template: }\n"); );
    }
+   /*
    while(state->template_level > 0 && state->code < end) {
       state->token_flags = state->current_token_flags;
-      if(!scan_template_characters(state)) return 0;
+      if(!scan_template_characters(state, params)) return 0;
       if(state->in_template_expression) break;
+   }
+   */
+   if(state->template_level > 0 && state->code < end) {
+      state->token_flags = state->current_token_flags;
+      if(!scan_template_characters(state, params)) return 0;
    }
    return 1;
 }
@@ -956,7 +962,7 @@ inline_spec int is_reserved(char_t const* string, char_t first_char, int length)
 }
 */
 
-inline_spec uint32_t is_reserved(scan_state_t* const state, char_t const* string, char_t const first_char, int const length)
+inline_spec uint32_t is_reserved(scan_state_t* const state, char_t const* string, char_t const first_char, int const length, params_t params)
 {
    if(length == 0) return 0;
    #if defined(profile)
@@ -1135,12 +1141,12 @@ inline_spec uint32_t is_reserved(scan_state_t* const state, char_t const* string
    #undef return_comparison_with_vec3
 }
 
-inline_spec int scan_ascii_identifier(scan_state_t* const state)
+inline_spec int scan_ascii_identifier(scan_state_t* const state, params_t params)
 {
    char_t const* const begin = state->code;
    char_t const* const end = state->code_end;
    while(++state->code < end && is_ascii_identifier_continue(*state->code));
-   uint32_t reserved_word_id = is_reserved(state, begin, *begin, state->code - begin);
+   uint32_t reserved_word_id = is_reserved(state, begin, *begin, state->code - begin, params);
    if(reserved_word_id == 0) {
       make_token(state, begin, tkn_identifier, mask_identifier, precedence_none, nullptr);
       if_verbose(print_string("identifier: "));
@@ -1152,7 +1158,7 @@ inline_spec int scan_ascii_identifier(scan_state_t* const state)
    return 1;
 }
 
-int scan_identifier(scan_state_t* const state)
+int scan_identifier(scan_state_t* const state, params_t params)
 {
    // logic for scanning a non-ascii identifier is a bit complex for two reasons
    // 1) we have to account for a possible continuation of a previously scanned
@@ -1208,7 +1214,7 @@ int scan_identifier(scan_state_t* const state)
       identifier_length = state->code - begin;
    }
    if(can_continue) --state->token;
-   uint32_t reserved_word_id = is_reserved(state, identifier_begin, *identifier_begin, identifier_length);
+   uint32_t reserved_word_id = is_reserved(state, identifier_begin, *identifier_begin, identifier_length, params);
    if(reserved_word_id == 0) {
       make_token(state, begin, tkn_identifier, mask_identifier, precedence_none, compiled_identifier);
       if_verbose(print_string("identifier: "));
@@ -1268,7 +1274,7 @@ int is_whitespace(char_t const c)
    }
 }
 
-int tokenize_uncommon(scan_state_t* state)
+int scan_uncommon(scan_state_t* state, params_t params)
 {
    // Newline
    uint16_t const line_separator = 0x2028; // <LS>
@@ -1277,7 +1283,7 @@ int tokenize_uncommon(scan_state_t* state)
    char_t c = *state->code;
    if(c == '\\' || (c & 0xffffff80)) {
       //if_debug(print_string("continuing identifier\n"));
-      if(scan_identifier(state)) return 1;
+      if(scan_identifier(state, params)) return 1;
       if(state->error_message) return 0;
    }
    if(c == line_separator || c == paragraph_separator) {
@@ -1287,8 +1293,6 @@ int tokenize_uncommon(scan_state_t* state)
       char_t const* const begin = (can_continue ? state->code_begin + token->begin : state->code);
       char_t const* const code_end = state->code_end;
       while(++state->code < code_end && is_line_terminator(*state->code));
-      //if(can_continue) --state->token;
-      //make_token(state, begin, tkn_terminator, mask_none, precedence_none, nullptr);
       state->current_token_flags |= token_flag_newline;
    } else if(is_whitespace(c)) {
       token_t* token = (state->token > state->token_begin ? state->token - 1 : nullptr);
@@ -1296,10 +1300,8 @@ int tokenize_uncommon(scan_state_t* state)
       char_t const* const begin = (can_continue ? state->code_begin + token->begin : state->code);
       char_t const* const code_end = state->code_end;
       while(++state->code < code_end && is_whitespace(*state->code));
-      //if(can_continue) --state->token;
-      //make_token(state, begin, tkn_whitespace, mask_none, precedence_none, nullptr);
       state->current_token_flags = state->token_flags;
-      //[TODO] is_comment = was_comment;
+      state->is_comment = state->was_comment;
    } else return 0;
    return 1;
    // Comment - Nothing to handle
@@ -1313,10 +1315,84 @@ int tokenize_uncommon(scan_state_t* state)
    // TemplateSubstitutionTail - Nothing to handle
 }
 
+inline_spec int scan(scan_state_t* state, params_t params)
+{
+   int result = 0;
+   state->is_comment = 0;
+   state->current_token_flags = token_flag_none;
+   char_t current = *(state->code);
+   char_t next = (state->code + 1 < state->code_end ? *(state->code + 1) : 0);
+   //printf("%d %d\n", state->template_level, state->curly_parenthesis_level);
+   if(is_ascii_identifier_start(current)) {
+      debug_wrap("", identifier,
+         state->in_regexp_context = 0;
+         result = scan_ascii_identifier(state, params);
+      );
+   } else if(is_common_whitespace(current)) {
+      debug_wrap("space", whitespace,
+         if_debug(print_string("space"));
+         char_t const* const code_end = state->code_end;
+         while(++state->code < code_end && is_common_whitespace(*state->code));
+         //make_token(state, begin, tkn_whitespace, mask_none, precedence_none, nullptr);
+         state->current_token_flags = state->token_flags;
+         state->is_comment = state->was_comment;
+         result = 1;
+      );
+   } else if(is_common_line_terminator(current)) {
+      debug_wrap("newline", terminator,
+         char_t const* const code_end = state->code_end;
+         while(++state->code < code_end && is_common_line_terminator(*state->code));
+         //make_token(state, begin, tkn_terminator, mask_none, precedence_none, nullptr);
+         state->current_token_flags |= token_flag_newline;
+         result = 1;
+      );
+   } else if(is_decimal(current) || (current == '.' && is_decimal(next))) {
+      debug_wrap("number", numeric_literal,
+         state->in_regexp_context = 0;
+         result = scan_numeric_literal(state, params);
+      )
+   } else if(current == '\'' || current == '"') {
+      debug_wrap("string", string_literal,
+         state->in_regexp_context = 0;
+         //if(!scan_string_literal(state, params)) { errored = 1; break; }
+         result = compile_string_literal(state, params);
+      );
+   } else if(current == '/') {
+      if(next == '/' || next == '*') {
+         debug_wrap("comment", comment,
+            state->is_comment = 1;
+            if(state->was_comment) {
+               state->current_token_flags |= state->token_flags & token_flag_newline;
+            }
+            result = scan_comment(state, params);
+         );
+      } else if(state->in_regexp_context) {
+         debug_wrap("regexp", regexp_literal,
+            result = scan_regexp_literal(state, params);
+         );
+      } else {
+         debug_wrap("punctuator", punctuator,
+            result = scan_punctuator(state, params);
+         );
+      }
+   } else if(current == '`' || (state->template_level != 0 && current == '}' && state->template_level + state->template_parenthesis_offset == state->curly_parenthesis_level)) {
+      result = scan_template_literal(state, params);
+   } else {
+      debug_wrap("punctuator", punctuator,
+         result = scan_punctuator(state, params);
+      );
+      if(!result) {
+         result = scan_uncommon(state, params);
+      }
+   }
+   state->token_flags = state->current_token_flags;
+   state->was_comment = state->is_comment;
+   return result;
+}
+
 wasm_export scan_result_t tokenize(char_t const* const code_begin, char_t const* const code_end, memory_state_t* const memory_state, uint32_t params)
 {
    if_verbose( begin_group("tokenization"); )
-   start_clock();
    // additional eot token and 2 more dummy tokens for algorithmic convenience
    size_t predicted_tokens = ((code_end - code_begin) / 1) + 3 + 128;
    token_t* tokens = (token_t*) malloc(predicted_tokens * sizeof(token_t));
@@ -1331,83 +1407,21 @@ wasm_export scan_result_t tokenize(char_t const* const code_begin, char_t const*
       .current_token_flags = token_flag_none,
       .in_template_expression = 0,
       .in_regexp_context = 1,
+      .is_comment = 0,
+      .was_comment = 0,
       .template_level = 0,
       .parenthesis_level = 0,
       .curly_parenthesis_level = 0,
       .expect_statement_after_level = 0,
       .template_parenthesis_offset = 0,
-      .params = params,
       .memory = memory_state,
       .error_message = nullptr
    };
-   int errored = 0, was_comment = 0, is_comment = 0;
    scan_state_t* const state = &_state;
-   while(state->code < code_end) {
-      is_comment = 0;
-      state->current_token_flags = token_flag_none;
-      char_t current = *(state->code);
-      char_t next = (state->code + 1 < state->code_end ? *(state->code + 1) : 0);
-      //printf("%d %d\n", state->template_level, state->curly_parenthesis_level);
-      if(is_ascii_identifier_start(current)) {
-         debug_wrap("", identifier,
-            state->in_regexp_context = 0;
-            if(!scan_ascii_identifier(state)) { errored = 1; break; }
-         );
-      } else if(is_common_whitespace(current)) {
-         debug_wrap("space", whitespace,
-            while(++state->code < code_end && is_common_whitespace(*state->code));
-            //make_token(state, begin, tkn_whitespace, mask_none, precedence_none, nullptr);
-            state->current_token_flags = state->token_flags;
-            is_comment = was_comment;
-         );
-      } else if(is_common_line_terminator(current)) {
-         debug_wrap("newline", terminator,
-            while(++state->code < code_end && is_common_line_terminator(*state->code));
-            //make_token(state, begin, tkn_terminator, mask_none, precedence_none, nullptr);
-            state->current_token_flags |= token_flag_newline;
-         );
-      } else if(is_decimal(current) || (current == '.' && is_decimal(next))) {
-         debug_wrap("number", numeric_literal,
-            state->in_regexp_context = 0;
-            if(!scan_numeric_literal(state)) { errored = 1; break; }
-         )
-      } else if(current == '\'' || current == '"') {
-         debug_wrap("string", string_literal,
-            state->in_regexp_context = 0;
-            //if(!scan_string_literal(state)) { errored = 1; break; }
-            if(!compile_string_literal(state)) { errored = 1; break; }
-         );
-      } else if(current == '/') {
-         if(next == '/' || next == '*') {
-            debug_wrap("comment", comment,
-               is_comment = 1;
-               if(was_comment) {
-                  state->current_token_flags |= state->token_flags & token_flag_newline;
-               }
-               if(!scan_comment(state)) { errored = 1; break; }
-            );
-         } else if(state->in_regexp_context) {
-            debug_wrap("regexp", regexp_literal,
-               if(!scan_regexp_literal(state)) { errored = 1; break; }
-            );
-         } else {
-            debug_wrap("punctuator", punctuator,
-               if(!scan_punctuator(state)) { errored = 1; break; }
-            );
-         }
-      } else if(current == '`' || (state->template_level != 0 && current == '}' && state->template_level + state->template_parenthesis_offset == state->curly_parenthesis_level)) {
-         if(!scan_template_literal(state)) { errored = 1; break; }
-      } else {
-         debug_wrap("punctuator", punctuator,
-            if(!scan_punctuator(state) && !tokenize_uncommon(state)){
-               errored = 1; break;
-            }
-         );
-      }
-      state->token_flags = state->current_token_flags;
-      was_comment = is_comment;
-   }
-   if(errored) {
+   int result = 1;
+   start_clock();
+   while(state->code < code_end && (result = scan(state, params)));
+   if(result == 0) {
       if_debug(print_string("tokenization failed\n"););
       if_debug(if(state->error_message) print_string(state->error_message););
       //printf("\nparse failed at %ld\n", string - begin);

@@ -197,6 +197,7 @@ uint8_t const node_group_lhs_production = 0x80;
 #define LITERAL node_group_literal
 
 // dummy node types
+uint8_t const pnt_parse_node = 0;
 uint8_t const pnt_parse_list_node = 0;
 uint8_t const pnt_covered_parse_node = 0;
 

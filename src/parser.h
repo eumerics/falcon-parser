@@ -32,26 +32,71 @@ void parser_free(parser_state_t* state)
    state->memory->page_count = 0;
 }
 
+#define _get_3rd_arg(arg1, arg2, arg3, ...) arg3
+#define _get_4th_arg(arg1, arg2, arg3, arg4, ...) arg4
+#define _get_5th_arg(arg1, arg2, arg3, arg4, arg5, ...) arg5
+#define _get_6th_arg(arg1, arg2, arg3, arg4, arg5, arg6, ...) arg6
+#define _get_7th_arg(arg1, arg2, arg3, arg4, arg5, arg6, arg7, ...) arg7
+
 #define word(name) rw_##name
-#define token_matches(word) ( \
-   strncmp_impl( \
-      state->buffer + state->token->begin, \
-      stringize(word), \
-      strlen_impl(stringize(word)) \
-   ) == 0 \
-)
 #define precedence(operator) (operator->precedence & 0xf8)
-/*
-#define print_token() { \
-   size_t begin = state->token->begin; \
-   int length = state->token->end - begin; \
-   log_token("token: %.*s %x %x %d %d\n", length, state->buffer + begin, state->token->id, state->token->group, state->token->begin, state->token->end); \
+
+#define token_length(token) (token->end - token->begin)
+#define raw_char(token, offset) (state->buffer[token->begin + offset])
+#define token_is(name, token) ( \
+   (token->end - token->begin == strlen(#name)) && \
+   (strncmp_impl(state->buffer + token->begin, stringize(name), strlen(#name)) == 0) \
+)
+#define current_token() (state->token)
+#define offset_token(offset) (state->token + offset)
+#define previous_token() offset_token(-1)
+#define next_token() offset_token(1)
+#define current_token_id() (current_token()->id)
+#define current_token_length() (token_length(current_token()))
+#define current_token_is(name) token_is(name, current_token())
+
+#define consume_token() (++state->token)
+#ifdef verbose
+   #define log_and_consume_token() (print_token_consumption(), consume_token())
+#else
+   #define log_and_consume_token() consume_token()
+#endif
+#define next() log_and_consume_token()
+
+#define exists(token_id) (current_token()->id == token_id)
+#define exists_word(name) (current_token()->id == word(name))
+#define exists_mask(mask) (current_token()->group & mask)
+#define exists_newline() (current_token()->flags & token_flag_newline)
+#define exists_newline_ahead(offset) (next_token()->flags & token_flag_newline)
+#define optional(token_id) (current_token()->id == token_id ? (next(), 1) : 0)
+#define optional_word(name) (current_token()->id == word(name) ? (next(), 1) : 0)
+#define optional_mask(mask) (current_token()->group & mask ? (next(), 1) : 0)
+#define expect(token_id) { \
+   if(current_token()->id != token_id) { \
+      state->expected_token_id = token_id; \
+      passon(nullptr); \
+   } \
+   next(); \
 }
-*/
+#define expect_word(name) expect(word(name))
+#define expect_mask(mask) { \
+   if(!(current_token()->group & mask)) { \
+      state->expected_mask = mask; \
+      passon(nullptr); \
+   } \
+   next(); \
+}
+//#define ensure(token_id) if_else_debug(expect(token_id), next())
+//#define ensure_word(name) if_else_debug(expect_word(name), next())
+//#define ensure_mask(mask) if_else_debug(expect_mask(mask), next())
+#define ensure(token_id) expect(token_id)
+#define ensure_word(name) expect_word(name)
+#define ensure_mask(mask) expect_mask(mask)
+#define exists_ahead(token_id) (next_token()->id == token_id)
 
 #define initialize_node(node_type) \
    print_make_node(node_type); \
-   node->begin = state->token->begin; \
+   node->begin = current_token()->begin; \
    node->type = pnt_##node_type; \
    node->group = png_##node_type;
 #define make_node(node_type) \
@@ -63,22 +108,27 @@ void parser_free(parser_state_t* state)
    typedef node_type##_t parent_node_t; \
    node_type##_t* node = (node_type##_t*) parser_malloc(sizeof(node_type##_t)); \
    initialize_node(node_type);
-#define complete_node() (node->end = (state->token - 1)->end)
+#define complete_node() (node->end = previous_token()->end)
 #define completed_node() (complete_node(), node)
-#define passon(node) { _print_parse_ascent(node); return node; }
 #define return_node() { complete_node(); passon(node); }
-#define save_begin() size_t begin = state->token->begin;
-#define save_end() size_t end = state->token->end;
+#define passon(node) { _print_parse_ascent(node); return node; }
+
+#define save_begin() size_t begin = current_token()->begin;
+#define save_end() size_t end = current_token()->end;
 #define assign_begin() node->begin = begin;
 #define assign_end() node->end = end;
 #define copy_begin(object) node->begin = ((parse_node_t*)(object))->begin;
 #define assign_begin_to(object) ((parse_node_t*)(object))->begin = begin;
 #define assign_end_to(object) ((parse_node_t*)(object))->end = end;
-#define assign_operator() \
-   node->operator_id = state->token->id; \
-   node->operator = state->token;
+#define assign(property, value) node->property = value;
+#define assign_to_parent(property, value) parent->property = value;
+#define assign_operator() { \
+   token_t* const token = current_token(); \
+   node->operator_id = token->id; \
+   node->operator = token; \
+}
 #define assign_token() { \
-   token_t* token = state->token; \
+   token_t* const token = current_token(); \
    if(token->detail != nullptr) { \
       compiled_string_t* compiled_string = (compiled_string_t*)(token->detail); \
       node->compiled_begin = compiled_string->begin; \
@@ -89,48 +139,115 @@ void parser_free(parser_state_t* state)
    } \
 }
 
-#define allow_annex() ((params & param_flag_annex) && !(params & param_flag_strict_mode))
+inline_spec uint8_t node_type(void* node)
+{
+   return ((parse_node_t*)(node))->type;
+}
+#define type_equal(source, target) (((parse_node_t*)(source))->type ==  ((parse_node_t*)(target))->type)
+#define node_is_an(type, node) (((parse_node_t*)(node))->group & node_group_##type)
+#define node_is_a(type, node) node_is_an(type, node)
+#define node_has(type, node) node_is_an(type, node)
+#define node_type_is(node_type, node) (((parse_node_t*)(node))->type == pnt_##node_type)
+#define _node_as2(target, node) ((target##_t*)(node))
+#define _node_as3(target, node, var_name) \
+   if_verbose( if(pnt_##target != 0) assert(node_type_is(target, node), __FILE__, __LINE__); ) \
+   target##_t* var_name = (target##_t*)(node);
+#define _choose_node_as(...) _get_4th_arg(__VA_ARGS__, _node_as3, _node_as2, undefined, )
+#define node_as(...) _choose_node_as(__VA_ARGS__)(__VA_ARGS__)
+#define set_node_type_of(node, target_type) (((parse_node_t*)(node))->type = pnt_##target_type)
+// clear the exclusive group mask before assigning the desired flag
+#define set_change_flag_to(type, flags) \
+   ((flags & change_mask_group) | change_flag_##type)
 
-#define exists(token_id) (state->token->id == token_id)
-#define exists_word(name) (state->token->id == word(name))
-#define exists_mask(mask) (state->token->group & mask)
-#define exists_newline() (state->token->flags & token_flag_newline)
-#define exists_offset_newline(offset) ((state->token + offset)->flags & token_flag_newline)
-#ifdef verbose
-   #define optional(token_id) (\
-      (state->token->id == token_id ? (print_token_consumption(), ++state->token, 1) : 0) \
-   )
-   #define optional_word(name) (state->token->id == word(name) ? (print_token_consumption(), ++state->token, 1) : 0)
-   #define optional_mask(mask) (state->token->group & mask ? (print_token_consumption(), ++state->token, 1) : 0)
-#else
-   #define optional(token_id) (state->token->id == token_id ? (++state->token, 1) : 0)
-   #define optional_word(name) (state->token->id == word(name) ? (++state->token, 1) : 0)
-   #define optional_mask(mask) (state->token->group & mask ? (++state->token, 1) : 0)
-#endif
-#define next() print_token_consumption(); ++state->token;
-#define expect(token_id) { \
-   if(state->token->id != token_id) { \
-      state->expected_token_id = token_id; \
-      passon(nullptr); \
-   } \
-   print_token_consumption(); \
-   ++state->token; \
+
+#define _init_list(list) \
+   list.node_count = 0; \
+   list.head = nullptr; \
+   list.current = nullptr;
+#define _start_list(list_name) \
+   parse_node_list_state_t list_name = {0, nullptr, nullptr};
+#define start_list() _start_list(list_state)
+#define start_named_list(list) _start_list(list)
+#define init_named_list(list) _init_list(list)
+
+parse_list_node_t* make_list_node(parser_state_t* state, void* parse_node) {
+   parse_list_node_t* list_node =
+      (parse_list_node_t*) parser_malloc(sizeof(parse_list_node_t));
+   list_node->parse_node = parse_node;
+   list_node->next = nullptr;
+   return list_node;
 }
-#define expect_word(name) expect(word(name))
-#define expect_mask(mask) { \
-   if(!(state->token->group & mask)) { \
-      state->expected_mask = mask; \
-      passon(nullptr); \
+
+#define _add_to_list(list, parse_node) { \
+   parse_list_node_t* list_node = make_list_node(state, parse_node); \
+   if(list.current == nullptr) { \
+      list.head = list.current = list_node; \
+   } else { \
+      list.current->next = list_node; \
+      list.current = list_node; \
    } \
-   print_token_consumption(); \
-   ++state->token; \
+   ++list.node_count; \
 }
-//#define ensure(token_id) if_else_debug(expect(token_id), next())
-//#define ensure_word(name) if_else_debug(expect_word(name), next())
-//#define ensure_mask(mask) if_else_debug(expect_mask(mask), next())
-#define ensure(token_id) expect(token_id)
-#define ensure_word(name) expect_word(name)
-#define ensure_mask(mask) expect_mask(mask)
+#define add_to_list(parse_node) _add_to_list(list_state, parse_node)
+#define add_to_named_list(list, parse_node) _add_to_list(list, parse_node)
+
+#define _list_head(list) (list.head == nullptr ? (void*)(&empty_list) : (void*)(list.head))
+#define list_head() _list_head(list_state)
+#define named_list_head(list) _list_head(list)
+
+#define _raw_list_head(list) list.head
+#define raw_list_head() _raw_list_head(list_state)
+#define raw_named_list_head(list) _raw_list_head(list)
+
+#define is_a_directive(token) ( \
+   token->id == tkn_string_literal && \
+   (++token == state->token || (token->id == ';' && ++token == state->token)) \
+)
+#define is_use_strict(token) ( \
+   (token->end - token->begin - 2 == strlen("use strict")) && \
+   (strncmp_impl(state->buffer + token->begin + 1, stringize(use strict), strlen("use strict")) == 0) \
+)
+#define is_let_a_keyword() ( \
+   (params & param_flag_strict_mode) || \
+   (next_token()->group & (mask_let_inclusions | mask_identifier)) \
+)
+inline_spec bool is_an_assignment_target(void* node)
+{
+   //[TODO] strict mode exclusions of 'eval' and 'arguments'
+   if(node_type_is(parenthesized_expression, node)) {
+      node_as(parenthesized_expression, node, pe);
+      if(node_type_is(expression, pe->expression)) {
+         node_as(expression, pe->expression, expression);
+         node_as(parse_list_node, expression->expressions, list_node);
+         if(list_node->next != nullptr) return false;
+         return is_an_assignment_target(list_node->parse_node);
+      } else {
+         return is_an_assignment_target(pe->expression);
+      }
+   }
+   return node_is_an(assignment_target, node);
+}
+#define property_key_is(name, node) _property_key_is(state, node, stringize(name), strlen_impl(stringize(name)))
+inline_spec bool _property_key_is(parser_state_t* state, property_t* property, char_t const* name, size_t const length)
+{
+   if(property == nullptr) return false;
+   if(property->key == nullptr) return false;
+   parse_node_t* key = (parse_node_t*)(property->key);
+   size_t begin, end;
+   if(key->type == pnt_identifier) {
+      begin = key->begin; end = key->end;
+   } else if(key->type == pnt_string_literal) {
+      if(!(property->flags & property_flag_computed)) {
+         begin = key->begin + 1; end = key->end - 1;
+      } else {
+         return false;
+      }
+   } else {
+      return false;
+   }
+   return (strncmp_impl(state->buffer + begin, name, length) == 0);
+}
+#define allow_annex() ((params & param_flag_annex) && !(params & param_flag_strict_mode))
 
 // define parse with optional arguments
 #define make_params(remove_filter, add_filter) (params & ~(params_t)(remove_filter)) | ((params_t)(add_filter))
@@ -225,11 +342,6 @@ void parser_free(parser_state_t* state)
 #define _passon_parsed3(type, remove_filter, add_filter) { parse(type, remove_filter, add_filter); passon(type); }
 #define _passon_enparsed1(type) { enparse(type); passon(type); }
 #define _passon_enparsed3(type, remove_filter, add_filter) { enparse(type, remove_filter, add_filter); passon(type); }
-#define _get_3rd_arg(arg1, arg2, arg3, ...) arg3
-#define _get_4th_arg(arg1, arg2, arg3, arg4, ...) arg4
-#define _get_5th_arg(arg1, arg2, arg3, arg4, arg5, ...) arg5
-#define _get_6th_arg(arg1, arg2, arg3, arg4, arg5, arg6, ...) arg6
-#define _get_7th_arg(arg1, arg2, arg3, arg4, arg5, arg6, arg7, ...) arg7
 #define _choose_parse(...) _get_5th_arg(__VA_ARGS__, _parse4, _parse3, _parse2, _parse1, )
 #define parse(...) _choose_parse(__VA_ARGS__)(__VA_ARGS__)
 #define _choose_parse_with_arg(...) _get_6th_arg(__VA_ARGS__, _parse_with_arg5, _parse_with_arg4, _parse_with_arg3, _parse_with_arg2, undefined, )
@@ -264,140 +376,9 @@ void parser_free(parser_state_t* state)
    save_tree_flags(filter); \
    mask_tree_flags(filter);
 
-// clear the exclusive group mask before assigning the desired flag
-#define set_change_flag_to(type, flags) \
-   ((flags & change_mask_group) | change_flag_##type)
-
-#define current_token() state->token
-#define next_token() (state->token + 1)
-#define current_token_id state->token->id
-#define token_length() (state->token->end - state->token->begin)
-#define raw_char(offset) (state->buffer[state->token->begin + offset])
-#define token_is(name) ( \
-   (state->token->end - state->token->begin == strlen(#name)) && \
-   (strncmp_impl(state->buffer + state->token->begin, stringize(name), strlen(#name)) == 0) \
-)
-#define shift(property, value) node->property = value;
-#define assign(property, value) node->property = value;
-#define assign_to_parent(property, value) parent->property = value;
-
-#define lookahead(token_id) ((state->token + 0)->id == token_id)
-#define offset_lookahead(offset, token_id) ((state->token + offset)->id == token_id)
-#define negative_lookahead(token_id) (state->token->id != token_id)
-#define offset_negative_lookahead(offset, token_id) ((state->token + offset)->id != token_id)
-#define negative_lookahead2(token_id1, token_id2) \
-   !(state->token->id == token_id1 && (state->token + 1)->id == token_id2)
-
-#define is(node, target) (((parse_node_t*)(node))->type ==  pnt_##target)
-#define type_equal(source, target) (((parse_node_t*)(source))->type ==  ((parse_node_t*)(target))->type)
-//#define reduces_to(node, target) (((parse_node_t*)(node))->type <=  pnt_##target)
-//#define reduces_from(node, target) (((parse_node_t*)(node))->type >=  pnt_##target)
-#define as(node, var_name, target) target##_t* var_name = (target##_t*)(node);
-
-#define _init_list(list) \
-   list.node_count = 0; \
-   list.head = nullptr; \
-   list.current = nullptr;
-#define _start_list(list_name) \
-   parse_node_list_state_t list_name = {0, nullptr, nullptr};
-#define start_list() _start_list(list_state)
-#define start_named_list(list) _start_list(list)
-#define init_named_list(list) _init_list(list)
-
-parse_list_node_t* make_list_node(parser_state_t* state, void* parse_node) {
-   parse_list_node_t* list_node =
-      (parse_list_node_t*) parser_malloc(sizeof(parse_list_node_t));
-   list_node->parse_node = parse_node;
-   list_node->next = nullptr;
-   return list_node;
-}
-
-#define _add_to_list(list, parse_node) { \
-   parse_list_node_t* list_node = make_list_node(state, parse_node); \
-   if(list.current == nullptr) { \
-      list.head = list.current = list_node; \
-   } else { \
-      list.current->next = list_node; \
-      list.current = list_node; \
-   } \
-   ++list.node_count; \
-}
-#define add_to_list(parse_node) _add_to_list(list_state, parse_node)
-#define add_to_named_list(list, parse_node) _add_to_list(list, parse_node)
-
-#define _list_head(list) (list.head == nullptr ? (void*)(&empty_list) : (void*)(list.head))
-#define list_head() _list_head(list_state)
-#define named_list_head(list) _list_head(list)
-
-#define _raw_list_head(list) list.head
-#define raw_list_head() _raw_list_head(list_state)
-#define raw_named_list_head(list) _raw_list_head(list)
-
 void* parse_expression(parser_state_t* state, parser_tree_state_t* tree_state, params_t params);
 void* parse_assignment_expression(parser_state_t* state, parser_tree_state_t* tree_state, params_t params);
 void* parse_lhs_expression(parser_state_t* state, parser_tree_state_t* tree_state, params_t params);
-
-#define is_a_directive(token) ( \
-   token->id == tkn_string_literal && \
-   (++token == state->token || (token->id == ';' && ++token == state->token)) \
-)
-#define is_let_a_keyword() ( \
-   (params & param_flag_strict_mode) || \
-   ((state->token + 1)->group & (mask_let_inclusions | mask_identifier)) \
-)
-#define node_is_an(type, node) (((parse_node_t*)(node))->group & node_group_##type)
-#define node_is_a(type, node) node_is_an(type, node)
-#define node_has(type, node) node_is_an(type, node)
-#define node_type_is(node_type, node) (((parse_node_t*)(node))->type == pnt_##node_type)
-#define _node_as2(target, node) ((target##_t*)(node))
-#define _node_as3(target, node, var_name) \
-   if_verbose( if(pnt_##target != 0) assert(node_type_is(target, node), __FILE__, __LINE__); ) \
-   target##_t* var_name = (target##_t*)(node);
-#define _choose_node_as(...) _get_4th_arg(__VA_ARGS__, _node_as3, _node_as2, undefined, )
-#define node_as(...) _choose_node_as(__VA_ARGS__)(__VA_ARGS__)
-#define set_node_type_of(node, target_type) (((parse_node_t*)(node))->type = pnt_##target_type)
-
-inline_spec uint8_t node_type(void* node)
-{
-   return ((parse_node_t*)(node))->type;
-}
-
-inline_spec bool is_an_assignment_target(void* node)
-{
-   //[TODO] strict mode exclusions of 'eval' and 'arguments'
-   if(node_type_is(parenthesized_expression, node)) {
-      node_as(parenthesized_expression, node, pe);
-      if(node_type_is(expression, pe->expression)) {
-         node_as(expression, pe->expression, expression);
-         node_as(parse_list_node, expression->expressions, list_node);
-         if(list_node->next != nullptr) return false;
-         return is_an_assignment_target(list_node->parse_node);
-      } else {
-         return is_an_assignment_target(pe->expression);
-      }
-   }
-   return node_is_an(assignment_target, node);
-}
-#define property_key_is(name, node) _property_key_is(state, node, stringize(name), strlen_impl(stringize(name)))
-inline_spec bool _property_key_is(parser_state_t* state, property_t* property, char_t const* name, size_t const length)
-{
-   if(property == nullptr) return false;
-   if(property->key == nullptr) return false;
-   parse_node_t* key = (parse_node_t*)(property->key);
-   size_t begin, end;
-   if(key->type == pnt_identifier) {
-      begin = key->begin; end = key->end;
-   } else if(key->type == pnt_string_literal) {
-      if(!(property->flags & property_flag_computed)) {
-         begin = key->begin + 1; end = key->end - 1;
-      } else {
-         return false;
-      }
-   } else {
-      return false;
-   }
-   return (strncmp_impl(state->buffer + begin, name, length) == 0);
-}
 
 #define parse_semicolon() { \
    if(exists(';')) { \
@@ -453,7 +434,7 @@ inline_spec identifier_t* parse_identifier_name(parser_state_t* state, parser_tr
 inline_spec literal_t* parse_literal(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
 {
    make_node(literal);
-   assign(token_id, current_token_id);
+   assign(token_id, current_token_id());
    ensure_mask(mask_literal);
    return_node();
 }
@@ -467,7 +448,7 @@ inline_spec string_literal_t* parse_string_literal(parser_state_t* state, parser
 inline_spec regexp_literal_t* parse_regexp_literal(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
 {
    make_node(regexp_literal);
-   assign(flags_length, state->token->flags_length);
+   assign(flags_length, current_token()->flags_length);
    ensure(tkn_regexp_literal);
    return_node();
 }
@@ -531,19 +512,24 @@ void* parse_statement_list_with_end_token(parser_state_t* state, parser_tree_sta
    passon(list_head());
 }
 void* parse_directive_statement_list_with_end_token(
-   parser_state_t* state, parser_tree_state_t* tree_state, uint8_t end_token, params_t params
+   parser_state_t* state, parser_tree_state_t* tree_state, uint8_t end_token_id, params_t params
 ){
    bool look_for_directive = true;
-   token_t* token = state->token;
    start_list();
-   while(!exists(end_token)) {
+   while(!exists(end_token_id)) {
       optional_parse(declaration, RET, NONE);
       if(declaration) {
          add_to_list(declaration);
+         look_for_directive = false;
       } else {
+         token_t* token = state->token;
+         token_t* literal = token;
          parse(statement);
          add_to_list(statement);
          if(look_for_directive && is_a_directive(token)) {
+            if(!(params & param_flag_strict_mode) && is_use_strict(token)) {
+               params |= param_flag_strict_mode;
+            }
             set_node_type_of(statement, directive);
          } else {
             look_for_directive = false;
@@ -596,7 +582,6 @@ ModuleItem:
 inline_spec void* parse_module_body(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
 {
    bool look_for_directive = true;
-   token_t* token = state->token;
    start_list();
    while(!exists(tkn_eot)) {
       if(exists_word(import)) {
@@ -609,10 +594,15 @@ inline_spec void* parse_module_body(parser_state_t* state, parser_tree_state_t* 
          optional_parse(declaration, YLD|AWT|RET, NONE);
          if(declaration) {
             add_to_list(declaration);
+            look_for_directive = false;
          } else {
+            token_t* token = state->token;
             parse(statement, YLD|AWT|RET, NONE);
             add_to_list(statement);
             if(look_for_directive && is_a_directive(token)) {
+               if(!(params & param_flag_strict_mode) && is_use_strict(token)) {
+                  params |= param_flag_strict_mode;
+               }
                set_node_type_of(statement, directive);
             } else {
                look_for_directive = false;
@@ -715,7 +705,7 @@ void* parse_object_binding_pattern(parser_state_t* state, parser_tree_state_t* t
          // BindingProperty
          make_node(assignment_property);
          assign(kind, property_kind_init);
-         if(exists_mask(mask_identifier) && offset_negative_lookahead(1, ':')) {
+         if(exists_mask(mask_identifier) && !exists_ahead(':')) {
             // SingleNameBinding: BindingIdentifier Initializer_opt
             save_begin();
             parse(binding_identifier);
@@ -931,7 +921,7 @@ void* parse_hoistable_declaration(parser_state_t* state, parser_tree_state_t* tr
    save_begin();
    if(!(params & param_flag_vanilla_function)) {
       if(exists_word(async)) {
-         if(exists_offset_newline(1) || !offset_lookahead(1, word(function))) {
+         if(exists_newline_ahead() || !exists_ahead(word(function))) {
             passon(nullptr);
          }
          ensure_word(async);
@@ -1074,19 +1064,7 @@ method_definition_t* parse_method_only_definition(parser_state_t* state, parser_
    } else if(optional('*')) {
       function_flags |= function_flag_generator;
       param_flags |= param_flag_yield;
-   } /*else if(token_length() == 3 && raw_char(2) == 't' && raw_char(1) == 'e'){
-      if(raw_char(0) == 'g') {
-         is_get_set = is_get = true;
-         property_kind = property_kind_get;
-         property_flags &= ~property_flag_method;
-         property_flags |= method_flag_special; next();
-      } else if(raw_char(0) == 's') {
-         is_get_set = is_set = true;
-         property_kind = property_kind_set;
-         property_flags &= ~property_flag_method;
-         property_flags |= method_flag_special; next();
-      }
-   }*/ else {
+   } else {
       if(exists_word(get)) {
          is_get_set = is_get = true;
          property_kind = property_kind_get;
@@ -1126,7 +1104,7 @@ method_definition_t* parse_method_definition(parser_state_t* state, parser_tree_
    bool computed = false;
    //[NOTE] this criterion must be subject to review with grammar changes
    //    this criterion is valid as of ECMA2020
-   if((computed = exists('[')) || offset_lookahead(1, '('))
+   if((computed = exists('[')) || exists_ahead('('))
    {
       // MethodDefinition[Yield, Await]:
       //    PropertyName[?Yield, ?Await]
@@ -1212,7 +1190,7 @@ void* parse_class_element_list(parser_state_t* state, parser_tree_state_t* tree_
       // static is a valid method name in non-strict mode
       if(exists_word(static) && (
          (params & param_flag_strict_mode) ||
-         offset_negative_lookahead(1, '(')
+         !exists_ahead('(')
       )){
          ensure_word(static);
          method_flags = method_flag_static;
@@ -1328,7 +1306,7 @@ void* parse_import_declaration(parser_state_t* state, parser_tree_state_t* tree_
             ensure('{');
             while(!exists('}')) {
                make_node(import_specifier);
-               if(offset_lookahead(1, word(as))) {
+               if(exists_ahead(word(as))) {
                   parse(imported, identifier_name);
                   ensure_word(as);
                   parse(local, binding_identifier, YLD|AWT, NONE);
@@ -1534,7 +1512,7 @@ void* parse_object_literal(parser_state_t* state, parser_tree_state_t* tree_stat
          ensure(pnct_spread);
          parse(argument, assignment_expression, NONE, IN);
          add_to_list(completed_node());
-      } else if(offset_lookahead(1, ':') || offset_lookahead(1, '(') || exists('[')) {
+      } else if(exists_ahead(':') || exists_ahead('(') || exists('[')) {
          // first resolve all productions that start with Identifier or IdentifierName
          //[NOTE] this criterion must be subject to review with grammar changes
          //    this criterion is valid as of ECMA2020
@@ -1566,7 +1544,7 @@ void* parse_object_literal(parser_state_t* state, parser_tree_state_t* tree_stat
          assign(kind, property_kind_init);
          assign(flags, flags);
          add_to_list(completed_node());
-      } else if(offset_lookahead(1, ',') || offset_lookahead(1, '}')) {
+      } else if(exists_ahead(',') || exists_ahead('}')) {
          //[NOTE] this criterion must be subject to review with grammar changes
          //    this criterion is valid as of ECMA2020
          // IdentifierReference
@@ -1577,8 +1555,8 @@ void* parse_object_literal(parser_state_t* state, parser_tree_state_t* tree_stat
          assign(kind, property_kind_init);
          assign(flags, property_flag_shorthand);
          add_to_list(completed_node());
-      //} else if(offset_lookahead(1, '=') && (params & cover_flag_initializer)) {
-      } else if(offset_lookahead(1, '=')) {
+      //} else if(exists_ahead('=') && (params & cover_flag_initializer)) {
+      } else if(exists_ahead('=')) {
          save_begin();
          make_node(property);
          assign(kind, property_kind_init);
@@ -1680,12 +1658,8 @@ void* parse_template_literal(parser_state_t* state, parser_tree_state_t* tree_st
    ensure('`');
    while(true) {
       save_begin();
-      token_t* token = nullptr;
-      bool has_element = exists(tkn_template_string);
-      if(has_element) {
-         token = state->token;
-         ensure(tkn_template_string);
-      }
+      token_t* token = current_token();
+      ensure(tkn_template_string);
       bool is_tail = exists('`');
       make_node(template_element);
       assign_begin();
@@ -1755,41 +1729,6 @@ the differences in the elements are:
       ... DestructuringAssignmentTarget[?Yield, ?Await]
    DestructuringAssignmentTarget[Yield, Await]:
       LeftHandSideExpression[?Yield, ?Await]
-*/
-/*
-bool change_array_node_types(parse_list_node_t* list_node, bool for_assignment);
-bool change_object_node_types(parse_list_node_t* list_node, bool for_assignment);
-bool change_node_type(parse_node_t* node, bool for_assignment)
-{
-   if(node == nullptr) return false;
-   switch(node_type(node)) {
-      case pnt_assignment_pattern: break;
-      case pnt_assignment_expression: {
-         node_as(assignment_expression, node, ae);
-         if(ae->operator_id != '=') return false;
-         ae->type = pnt_assignment_pattern;
-         break;
-      }
-      case pnt_array_expression: {
-         node_as(array_expression, node, ae);
-         ae->type = pnt_array_assignment_pattern;
-         bool success = change_array_node_types(ae->elements, for_assignment);
-         if(!success) return false;
-         break;
-      }
-      case pnt_object_expression: {
-         node_as(object_expression, node, oe);
-         oe->type = pnt_object_assignment_pattern;
-         bool success = change_object_node_types(oe->properties, for_assignment);
-         if(!success) return false;
-         break;
-      }
-      default: {
-         if(!is_an_assignment_target(node)) return false;
-      }
-   }
-   return true;
-}
 */
 bool change_node_types(parser_state_t* state, parse_list_node_t* list_node, uint8_t flags);
 bool change_lhs_node_type(parser_state_t* state, void* node, uint8_t flags)
@@ -1907,29 +1846,6 @@ bool change_node_types(parser_state_t* state, parse_list_node_t* list_node, uint
    }
    return true;
 }
-/*
-bool change_array_node_types(parse_list_node_t* list_node, bool for_assignment)
-{
-   bool has_rest = false;
-   while(list_node != nullptr) {
-      parse_node_t* parse_node = (parse_node_t*)(list_node->parse_node);
-      if(parse_node != nullptr) {
-         // get the RestElement argument
-         if(parse_node->type == pnt_spread_element) {
-            if(has_rest) return false;
-            parse_node->type = pnt_rest_element;
-            as(parse_node, se, spread_element);
-            has_rest = true;
-            if(list_node->next != nullptr) return false;
-            parse_node = (parse_node_t*)(se->argument);
-         }
-         if(!change_node_type(parse_node, for_assignment)) return false;
-      }
-      list_node = (parse_list_node_t*)(list_node->next);
-   }
-   return true;
-}
-*/
 void* parse_cover_array_assignment(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
 {
    parse(array_literal);
@@ -1943,41 +1859,6 @@ void* parse_cover_array_assignment(parser_state_t* state, parser_tree_state_t* t
    }
    passon(array_literal);
 }
-/*
-bool change_object_node_types(parse_list_node_t* list_node, bool for_assignment)
-{
-   bool has_rest = false;
-   while(list_node != nullptr) {
-      parse_node_t* parse_node = (parse_node_t*)(list_node->parse_node);
-      switch(parse_node->type) {
-         case pnt_spread_element: {
-            if(has_rest) return false;
-            parse_node->type = pnt_rest_element;
-            as(parse_node, se, spread_element);
-            if(!is_an_assignment_target(se->argument)) return false;
-            // 12.15.7.1: Static Semantics: Early Errors
-            //    AssignmentRestProperty: ... DestructuringAssignmentTarget
-            // It is a Syntax Error if DestructuringAssignmentTarget is an
-            // ArrayLiteral or an ObjectLiteral
-            uint8_t argument_type = node_type(se->argument);
-            if(argument_type == pnt_array_expression ||
-               argument_type == pnt_object_expression
-            ) return false;
-            if(list_node->next != nullptr) return false;
-            has_rest = true;
-            break;
-         }
-         default: {
-            if(!node_type_is(property, parse_node)) return false;
-            as(parse_node, property, property);
-            if(!change_node_type(property->value, for_assignment)) return false;
-         }
-      }
-      list_node = (parse_list_node_t*)(list_node->next);
-   }
-   return true;
-}
-*/
 void* parse_cover_object_assignment(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
 {
    //save_and_mask_tree_flags(cover_flag_initializer);
@@ -2024,29 +1905,6 @@ void* parse_expression(parser_state_t* state, parser_tree_state_t* tree_state, p
    assign(expressions, raw_list_head());
    return_node();
 }
-/*
-bool change_binding_node_types(parse_list_node_t* list_node, bool for_assignment)
-{
-   bool has_rest = false;
-   while(list_node != nullptr) {
-      parse_node_t* parse_node = (parse_node_t*)(list_node->parse_node);
-      if(parse_node != nullptr) {
-         // get the RestElement argument
-         if(parse_node->type == pnt_spread_element) {
-            if(has_rest) return false;
-            parse_node->type = pnt_rest_element;
-            as(parse_node, se, spread_element);
-            has_rest = true;
-            if(list_node->next != nullptr) return false;
-            parse_node = (parse_node_t*)(se->argument);
-         }
-         if(!change_node_type(parse_node, for_assignment)) return false;
-      }
-      list_node = (parse_list_node_t*)(list_node->next);
-   }
-   return true;
-}
-*/
 void* parse_covering_parenthesized_expression(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
 {
    size_t count = 0;
@@ -2156,7 +2014,7 @@ ParenthesizedExpression[Yield, Await]:
 */
 void* parse_primary_expression(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
 {
-   switch(state->token->id) {
+   switch(current_token()->id) {
       case rw_this: passon_parsed(this_expression);
       case tkn_identifier: passon_parsed(identifier_reference);
       case rw_null: case rw_true: case rw_false:
@@ -2173,7 +2031,7 @@ void* parse_primary_expression(parser_state_t* state, parser_tree_state_t* tree_
       case '(': passon_parsed(covering_parenthesized_expression);
       case rw_function: passon_parsed(function_expression, YLD|AWT, NONE);
       case rw_async: {
-         if(!exists_offset_newline(1) && offset_lookahead(1, word(function))) {
+         if(!exists_newline_ahead() && exists_ahead(word(function))) {
             passon_parsed(function_expression, YLD|AWT, NONE);
          }
       } // fallthrough
@@ -2242,7 +2100,7 @@ void* parse_member_only_expression(parser_state_t* state, parser_tree_state_t* t
 {
    save_begin();
    void* object = nullptr;
-   switch(state->token->id) {
+   switch(current_token()->id) {
       case rw_super: {
          save_begin();
          make_node(super);
@@ -2251,11 +2109,11 @@ void* parse_member_only_expression(parser_state_t* state, parser_tree_state_t* t
          break;
       }
       case rw_new: {
-         if(offset_lookahead(1, '.')) {
+         if(exists_ahead('.')) {
             make_node(meta_property);
             parse(meta, identifier_name);
             ensure('.');
-            if(!token_matches(target)) passon(nullptr);
+            if(!current_token_is(target)) passon(nullptr);
             parse(property, identifier_name);
             object = completed_node();
          } else {
@@ -2275,7 +2133,7 @@ void* parse_member_only_expression(parser_state_t* state, parser_tree_state_t* t
          make_node(meta_property);
          parse(meta, identifier_name);
          expect('.');
-         if(!token_matches(meta)) passon(nullptr);
+         if(!current_token_is(meta)) passon(nullptr);
          parse(property, identifier_name);
          object = completed_node();
          break;
@@ -2358,7 +2216,7 @@ void* parse_member_expression(parser_state_t* state, parser_tree_state_t* tree_s
  void* parse_covering_call_only_expression(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
  {
     save_begin();
-    if(exists_word(async) && offset_lookahead(1, '(') && !exists_offset_newline(1)) {
+    if(exists_word(async) && exists_ahead('(') && !exists_newline_ahead()) {
        make_node(call_expression);
        parse(callee, identifier_reference);
        assign(flags, flag_none);
@@ -2386,7 +2244,7 @@ void* parse_member_expression(parser_state_t* state, parser_tree_state_t* tree_s
 void* parse_call_only_expression(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
 {
    if(exists_word(super)) {
-      if(offset_negative_lookahead(1, '(')) passon(nullptr);
+      if(!exists_ahead('(')) passon(nullptr);
       make_node(call_expression);
       {
          make_child_node(super);
@@ -2396,7 +2254,7 @@ void* parse_call_only_expression(parser_state_t* state, parser_tree_state_t* tre
       list_parse(arguments, arguments_list);
       return_node();
    } else if(exists_word(import)) {
-      if(offset_negative_lookahead(1, '.')) passon(nullptr);
+      if(!exists_ahead('.')) passon(nullptr);
       make_node(import_expression);
       ensure_word(import); expect('(');
          parse(source, assignment_expression, NONE, IN);
@@ -2446,7 +2304,7 @@ void* parse_call_expression(parser_state_t* state, parser_tree_state_t* tree_sta
 void* parse_new_expression(parser_state_t* state, parser_tree_state_t* tree_state, params_t params);
 void* parse_new_only_expression(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
 {
-   if(!exists_word(new) || offset_lookahead(1, '.')) passon(nullptr);
+   if(!exists_word(new) || exists_ahead('.')) passon(nullptr);
    make_node(new_expression);
    next();
    parse(expression, new_expression);
@@ -2545,7 +2403,7 @@ void* parse_update_expression(parser_state_t* state, parser_tree_state_t* tree_s
       }
       make_node(update_expression);
       assign_begin();
-      shift(argument, lhs_expression);
+      assign(argument, lhs_expression);
       assign_operator();
       ensure_mask(mask_update_ops);
       assign(flags, flag_none);
@@ -2601,13 +2459,13 @@ void* precedence_adjusted(binary_expression_t* node, bool is_right)
 {
    //printf("%d %d\n", node->type, ((parse_node_t*)(node->right))->type);
    if(!type_equal(node, node->right)) return node;
-   as(node->right, right, binary_expression);
+   node_as(binary_expression, node->right, right);
    //if(!reduces_to(node->right, logical_expression)) return node;
    // adjust justification and precedence operators
    int sign = precedence(node->operator) - precedence(right->operator);
    if((sign > 0) || (sign == 0 && is_right)) return node;
    //printf("swapping\n");
-   as(right->left, right_left, parse_node);
+   node_as(parse_node, right->left, right_left);
    node->end = right_left->end;
    right->begin = node->begin;
    node->right = right->left;
@@ -2638,7 +2496,7 @@ void* parse_exponentiation_expression(parser_state_t* state, parser_tree_state_t
    }
    make_node(binary_expression);
    assign_begin();
-   shift(left, update_expression);
+   assign(left, update_expression);
    assign_operator();
    ensure(pnct_exponentitation);
    parse(right, exponentiation_expression);
@@ -2657,7 +2515,7 @@ void* parse_binary_expression(parser_state_t* state, parser_tree_state_t* tree_s
    }
    make_node(binary_expression);
    assign_begin();
-   shift(left, exponentiation_expression);
+   assign(left, exponentiation_expression);
    assign_operator();
    ensure_mask(mask_binary_ops);
    parse(right, binary_expression);
@@ -2761,7 +2619,7 @@ void* parse_conditional_expression(parser_state_t* state, parser_tree_state_t* t
    if(!optional('?')) passon(short_circuit_expression);
    make_node(conditional_expression);
    assign_begin();
-   shift(test, short_circuit_expression);
+   assign(test, short_circuit_expression);
    parse(consequent, assignment_expression, NONE, IN);
    expect(':'); parse(alternate, assignment_expression);
    return_node();
@@ -2915,37 +2773,34 @@ void* parse_assignment_expression(parser_state_t* state, parser_tree_state_t* tr
    save_begin();
    if((params & param_flag_yield) && exists_word(yield)) {
       passon_parsed(yield_expression, YLD, NONE);
-   }/* else {
-      size_t offset = (exists_word(async) ? 1 : 0);
-      if((offset_lookahead(offset + 1, pnct_arrow) &&
-          ((state->token + offset + 0)->group & mask_identifier)) ||
-         (offset == 1 && offset_lookahead(offset, '('))
-      ){
-         passon_parsed(arrow_function);
-      } else {
-      }
-   }*/
-   bool has_async = exists_word(async) && !exists_offset_newline(1);
+   }
+   bool has_async = exists_word(async) && !exists_newline_ahead();
    token_t* token = next_token();
    assign_parsed(conditional_expression, expression);
-   if(has_async && current_token() == token && offset_lookahead(1, pnct_arrow) && !exists_offset_newline(1)) {
+   if(has_async && current_token() == token && exists_ahead(pnct_arrow) && !exists_newline_ahead()) {
       assign_parsed(conditional_expression, expression);
    }
    if(exists(pnct_arrow) && !exists_newline()) {
       make_node(arrow_function_expression);
       assign_begin();
-      if(node_type(expression) == pnt_parenthesized_expression) {
-         node_as(parenthesized_expression, expression, pe);
-         node_as(expression, pe->expression, expr);
-         assign(params, expr->expressions);
-      } else if(node_type(expression) == pnt_identifier) {
-         start_list(); add_to_list(expression);
-         assign(params, raw_list_head());
-      } else if(node_type(expression) == pnt_covered_call_expression) {
-         node_as(covered_call_expression, expression, ce);
-         assign(params, ce->arguments);
-      } else {
-         passon(nullptr);
+      switch(node_type(expression)) {
+         case pnt_parenthesized_expression: {
+            node_as(parenthesized_expression, expression, pe);
+            node_as(expression, pe->expression, expr);
+            assign(params, expr->expressions);
+            break;
+         }
+         case pnt_identifier: {
+            start_list(); add_to_list(expression);
+            assign(params, raw_list_head());
+            break;
+         }
+         case pnt_covered_call_expression: {
+            node_as(covered_call_expression, expression, ce);
+            assign(params, ce->arguments);
+            break;
+         }
+         default: passon(nullptr);
       }
       assign(flags, (has_async ? function_flag_async : flag_none));
       params_t add_params = (has_async ? param_flag_await : flag_none);
@@ -2957,7 +2812,7 @@ void* parse_assignment_expression(parser_state_t* state, parser_tree_state_t* tr
    }
    make_node(assignment_expression);
    assign_begin();
-   shift(left, expression);
+   assign(left, expression);
    assign_operator();
    ensure_mask(mask_assign_ops);
    if(!is_an_assignment_target(expression)) {
@@ -3255,15 +3110,15 @@ void* parse_for_statement(parser_state_t* state, parser_tree_state_t* tree_state
          (!exists_word(let) || is_let_a_keyword())
       ){
          is_declarator = true;
-         uint8_t declarator_id = current_token_id;
+         uint8_t declarator_id = current_token_id();
          make_node(variable_declaration);
          production = node;
          assign(kind, declarator_id);
          ensure_mask(mask_variable_declarator);
          parse_with_arg(declarator_id, declarations, lexical_binding_list, IN, param_flag_for_binding);
          complete_node();
-         as(node->declarations, declarations, parse_list_node);
-         as(declarations->parse_node, declarator, variable_declarator);
+         node_as(parse_list_node, node->declarations, declarations);
+         node_as(variable_declarator, declarations->parse_node, declarator);
          if((declarations->next == nullptr) && // has only one declartion
             (declarator->init == nullptr || // has no initializer
              allow_annex() && declarator_id == word(var)) // legacy initialization
@@ -3332,9 +3187,9 @@ void* parse_for_statement(parser_state_t* state, parser_tree_state_t* tree_state
       if(!exists(';')) {
          if(offset != 0) { // has variable declarator
             make_child_node(variable_declaration);
-            assign(kind, state->token->id);
+            assign(kind, current_token()->id);
             ensure_mask(mask_variable_declarator);
-            parse_with_arg(state->token->id, declarations, lexical_binding_list);
+            parse_with_arg(current_token()->id, declarations, lexical_binding_list);
             complete_node();
             assign_to_parent(init, node);
          } else {
@@ -3577,7 +3432,7 @@ HoistableDeclaration[Yield, Await, Default]:
 */
 void* parse_declaration(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
 {
-   switch(state->token->id) {
+   switch(current_token()->id) {
       case rw_async: // fallthrough
       case rw_function: passon_parsed(hoistable_declaration, DEF, NONE);
       case rw_class: passon_parsed(class_declaration, DEF, NONE);
@@ -3606,7 +3461,7 @@ Statement[Yield, Await, Return]:
 */
 void* parse_statement(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
 {
-   switch(state->token->id) {
+   switch(current_token()->id) {
       case '{': passon_parsed(block_statement);
       case rw_var: passon_parsed(var_variable_statement, RET, NONE);
       case ';': passon_parsed(empty_statement);
@@ -3626,16 +3481,15 @@ void* parse_statement(parser_state_t* state, parser_tree_state_t* tree_state, pa
       case rw_try: passon_parsed(try_statement);
       case rw_debugger: passon_parsed(debugger_statement);
       default: {
-         if(exists_mask(mask_identifier) && offset_lookahead(1, ':')) {
+         if(exists_mask(mask_identifier) && exists_ahead(':')) {
             passon_parsed(labeled_statement);
          } else if(exists_mask(mask_expression_exclusions)) {
             if(exists_word(async)) {
-               token_t* token = (state->token + 1);
-               if(token->id == word(function) && !(token->flags & token_flag_newline)) {
+               if(exists_ahead(word(function)) && !exists_newline_ahead()) {
                   passon(nullptr);
                }
             } else if(exists_word(let)) {
-               if(offset_lookahead(1, '[')) { passon(nullptr); }
+               if(exists_ahead('[')) { passon(nullptr); }
             } else {
                passon(nullptr);
             }
@@ -3713,7 +3567,6 @@ program_t* parse_module(parser_state_t* state, parser_tree_state_t* tree_state, 
 #undef offset_lookahead
 #undef negative_lookahead
 #undef offset_negative_lookahead
-#undef negative_lookahead2
 
 #undef is
 #undef as
