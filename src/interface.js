@@ -649,8 +649,8 @@ export class Parser {
       shared_memory.set(code_uint8_view, index);
       this.code = {pointer: index, view: code_view, utf8_view: code_utf8_view};
    }
-   parse_code(is_module) {
-      let params = Parser.constants.param_flag_annex;
+   parse_code(is_module, params) {
+      params = (params ? params : 0) | Parser.constants.param_flag_annex;
       let result_size = 4096; //[BUG] large enough for now to not worry about actual size
       let result_pointer = Parser.instance.exports.malloc(result_size);
       let begin = this.code.pointer, end = begin + this.code.view.byteLength;
@@ -672,10 +672,10 @@ export class Parser {
       this.program = new Program(buffer_view, this.parse_result.value[0]);
       return this.program;
    }
-   async parse_file(file_name, is_module) {
+   async parse_file(file_name, is_module, params) {
       await this.load_file(file_name);
       is_module = is_module ?? /\.module\.js$|\.mjs$/.test(file_name);
-      this.parse_code(is_module);
+      this.parse_code(is_module, params);
       return this.bind_parse_tree();
    }
    free() {

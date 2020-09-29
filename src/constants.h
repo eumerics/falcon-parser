@@ -395,6 +395,10 @@ uint8_t const property_kind_constructor = 0x05;
 
 uint8_t const flag_none = 0x00;
 //
+uint8_t const status_flag_incomplete = 0x00;
+uint8_t const status_flag_failed = 0x01;
+uint8_t const status_flag_complete = 0x02;
+//
 uint8_t const property_flag_method = 0x01;
 uint8_t const property_flag_shorthand = 0x02;
 uint8_t const property_flag_computed = 0x04;
@@ -428,6 +432,7 @@ uint32_t const param_flag_for_binding = 0x00080000;
 uint32_t const param_flag_annex = 0x00100000;
 uint32_t const param_flag_strict_mode = 0x00200000;
 uint32_t const param_flag_vanilla_function = 0x0040000;
+uint32_t const param_flag_streaming = 0x80000000;
 uint32_t const param_flags_to_reset_on_assign = cover_flag_initializer | cover_flag_parameters;
 /*
 uint32_t const cover_flag_array = 0x00010000;

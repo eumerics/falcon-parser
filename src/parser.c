@@ -146,6 +146,9 @@ int main(int argc, char* argv[])
             clock_t cbegin = clock();
             uint64_t begin = __rdtsc();
             uint32_t params = param_flag_annex;
+            if((argc > 2 && strcmp(argv[2], "-s") == 0) ||
+               (argc > 3 && strcmp(argv[3], "-s") == 0)
+            ) params |= param_flag_streaming;
             for(int it = 0; it < iterations; ++it) {
                //result = tokenize(source, source + file_size);
                //free(result.token_begin);
@@ -154,8 +157,8 @@ int main(int argc, char* argv[])
                else {
                   uint64_t end = __rdtsc();
                   clock_t cend = clock();
-                  if(!result.state.tokenization_failed) {
-                     if(!result.state.parsing_failed) {
+                  if(result.state.tokenization_status == status_flag_complete) {
+                     if(result.state.parsing_status == status_flag_complete) {
                         printf(color_bold_green("parsing successful") "\n");
                      } else {
                         printf(color_bold_red("parsing failed") "\n");

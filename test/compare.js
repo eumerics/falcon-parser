@@ -18,13 +18,14 @@ import {Parser} from '../src/interface.js';
       let parser = new Parser();
       if(args.f) {
          const is_module = /\.module\.js$|\.mjs$/.test(args.f);
+         const params = (args.s ? Parser.constants.param_flag_streaming: 0)
          if(args.b) {
             let result;
             await parser.load_file(args.f);
             let start = new Date;
             let iterations = args.i || 1000;
             for(let it = 0; it < iterations; ++it) {
-               parser.parse_code();
+               parser.parse_code(is_module, params);
                if(it != iterations - 1) parser.free();
             }
             const elapsed = (new Date - start) / iterations;
@@ -51,7 +52,7 @@ import {Parser} from '../src/interface.js';
             const meriyah_elpased = (new Date - start) / iterations;
             console.log(elapsed, acorn_elpased, meriyah_elpased);
          } else {
-            let program = await parser.parse_file(args.f);
+            let program = await parser.parse_file(args.f, is_module, params);
             if(args.c) {
                const acorn = await import('acorn');
                const options = {ecmaVersion: 2020, sourceType: is_module ? 'module' : 'script'};
@@ -61,12 +62,14 @@ import {Parser} from '../src/interface.js';
                const {object_diff} = await import('./object_diff.js');
                let sb = new Date; const s = JSON.stringify(program); let se = new Date - sb;
                let tb = new Date; const t = JSON.stringify(acorn_result); let te = new Date - tb;
-               const source = JSON.parse(s);
+               let spb = new Date; const source = JSON.parse(s); let spe = new Date - spb;
                const target = JSON.parse(t);
                fs.writeFileSync('../.ignore/log1', JSON.stringify(source, null, '   '));
                fs.writeFileSync('../.ignore/log2', JSON.stringify(target, null, '   '));
                const diff = object_diff(source, target);
                console.log(JSON.stringify(diff, null, '   '));
+               let vt = new Date; program.visit(); let visitation_time = new Date - vt;
+               //console.log('visitation', visitation_time, Parser.visitation_count, spe);
                //console.log('stringification times', se, Parser.to_json_time, Parser.list_time, te);
             } else {
                console.log(JSON.stringify(program, null, '   '));

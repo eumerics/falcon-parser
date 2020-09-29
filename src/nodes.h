@@ -56,8 +56,8 @@ typedef struct {
    token_t const* parse_token;
    uint32_t depth;
    // error state
-   uint8_t tokenization_failed;
-   uint8_t parsing_failed;
+   uint8_t tokenization_status;
+   uint8_t parsing_status;
    char const* error_message;
    uint8_t expected_token_id;
    uint16_t expected_mask;

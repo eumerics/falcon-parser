@@ -1390,6 +1390,25 @@ inline_spec int scan(parse_state_t* state, params_t params)
    return result;
 }
 
+int scan_next_token(parse_state_t* const state, uint32_t params)
+{
+   if(state->tokenization_status != status_flag_incomplete) return 0;
+   while(state->scan_token - state->parse_token < 2) {
+      if(state->code == state->code_end) {
+         make_token(state, state->code, tkn_eot, 0, precedence_none, nullptr);
+         state->tokenization_status = status_flag_complete;
+         if_debug(print_string("tokenization successful\n"););
+         return 1;
+      }
+      if(!scan(state, params)) {
+         state->tokenization_status = status_flag_failed;
+         if_debug(print_string("tokenization failed\n"););
+         return 0;
+      }
+   }
+   return 0;
+}
+
 wasm_export void tokenize(parse_state_t* const state, uint32_t params)
 {
    if_verbose( begin_group("tokenization"); )
@@ -1400,11 +1419,12 @@ wasm_export void tokenize(parse_state_t* const state, uint32_t params)
    if(result == 0) {
       if_debug(print_string("tokenization failed\n"););
       if_debug(if(state->error_message) print_string(state->error_message););
-      state->tokenization_failed = 1;
+      state->tokenization_status = status_flag_failed;
       //printf("\nparse failed at %ld\n", string - begin);
    } else {
       if_debug(print_string("tokenization successful\n"););
       make_token(state, state->code, tkn_eot, 0, precedence_none, nullptr);
+      state->tokenization_status = status_flag_complete;
       print_elapsed_time("tokenization");
    }
    if_verbose( end_group(); )

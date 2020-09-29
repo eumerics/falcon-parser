@@ -40,7 +40,8 @@
 #define current_token_length() (token_length(current_token()))
 #define current_token_is(name) token_is(name, current_token())
 
-#define consume_token() (++state->parse_token)
+//#define consume_token() (++state->parse_token)
+#define consume_token() (++state->parse_token, (params & param_flag_streaming) && scan_next_token(state, params))
 #ifdef verbose
    #define log_and_consume_token() (print_token_consumption(), consume_token())
 #else
@@ -3600,14 +3601,19 @@ parse_result_t parse(char_t const* code_begin, char_t const* code_end, bool is_m
       .parse_token = token_begin,
       .depth = 0,
       // error state
-      .tokenization_failed = 0,
-      .parsing_failed = 0,
+      .tokenization_status = status_flag_incomplete,
+      .parsing_status = status_flag_incomplete,
       .error_message = nullptr,
       .expected_token_id = 0,
       .expected_mask = 0,
    };
    parse_state_t* state = &_state;
-   tokenize(state, params);
+   if(params & param_flag_streaming) {
+      scan_next_token(state, params);
+      scan_next_token(state, params);
+   } else {
+      tokenize(state, params);
+   }
    if_debug(print_string("parsing begins\n");)
    parse_tree_state_t tree_state = {.flags = 0};
    //init_named_list(state.aggregator.array.spread);
@@ -3619,6 +3625,11 @@ parse_result_t parse(char_t const* code_begin, char_t const* code_end, bool is_m
       program = parse_module(state, &tree_state, params);
    } else {
       program = parse_script(state, &tree_state, params);
+   }
+   if(state->parse_token->id == tkn_eot) {
+      state->parsing_status = status_flag_complete;
+   } else {
+      state->parsing_status = status_flag_failed;
    }
    //printf("%p begin: %zu end: %zu\n", state.token_begin, (state.token_begin + 1)->begin, (state.token_begin + 1)->end);
    //printf("length = %d\n", program->end - program->begin);
