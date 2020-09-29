@@ -59,7 +59,7 @@ extern void log_assertion(char const* file_name, size_t length, size_t line_numb
    #define _print_parse_ascent(node) { --state->depth; log_parse_ascent(state->depth, node); }
    #define print_make_node(node_type) log_make_node(#node_type, strlen(#node_type), state->depth)
    #define print_token_consumption() \
-      log_token_consumption(state->buffer, state->token->begin, state->token->end, state->depth)
+      log_token_consumption(state->code_begin, state->parse_token->begin, state->parse_token->end, state->depth)
    #define begin_group(name) begin_group_impl(name, strlen(name))
    #define print_token(token, length) log_token(token, length)
 #else

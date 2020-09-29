@@ -293,6 +293,7 @@ export class Node {
       });
    }
 
+   //get_value() { return String.fromCharCode(...this.buffer_view.code.subarray(this.begin, this.end)); }
    get_value() { return Parser.decoder.decode(this.buffer_view.code.subarray(this.begin, this.end)); }
    decode(begin, end) { return Parser.decoder.decode(this.buffer_view.code.subarray(begin, end)); }
    get_compiled_value(strip_length) {
@@ -327,6 +328,19 @@ export class Node {
       }
       Parser.to_json_time += new Date - begin;
       return enumerable_object;
+   }
+   visit() {
+      for(const property of this.enumerables || []) {
+         const child = this[property];
+         if(child instanceof Node) {
+            child?.visit();
+         } else if(child instanceof Array) {
+            for(const node of child) node?.visit();
+         } else {
+            ++Parser.visitation_count;
+         }
+      }
+      ++Parser.visitation_count;
    }
 }
 Node.prototype.enumerables = ['type', 'start', 'end'];
@@ -1079,3 +1093,4 @@ export class Parser {
 }
 Parser.to_json_time = 0;
 Parser.list_time = 0;
+Parser.visitation_count = 0;

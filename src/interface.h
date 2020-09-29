@@ -46,7 +46,7 @@ typedef struct {
 // every covered parse node must have the following binary compatibility
 typedef struct {
    embed_parse_node();
-   token_t* first_cover;
+   token_t const* first_cover;
 } covered_parse_node_t;
 
 // parser node
@@ -93,7 +93,7 @@ typedef struct {
 } binding_assignment_t;
 typedef struct {
    embed_parse_node();
-   token_t* first_cover;
+   token_t const* first_cover;
    void* properties;
 } object_expression_t;
 // keep object_expression_t and object_pattern_t binary compatible
@@ -109,7 +109,7 @@ typedef struct {
 typedef struct {
    embed_parse_node();
    uint8_t flags;
-   //token_t* token;
+   //token_t const* token;
    char_t const* compiled_begin;
    char_t const* compiled_end;
 } template_element_t;
@@ -126,7 +126,7 @@ typedef property_t method_definition_t;
 
 typedef struct {
    embed_parse_node();
-   token_t* first_cover;
+   token_t const* first_cover;
    void* expression;
 } parenthesized_expression_t;
 
@@ -251,7 +251,7 @@ typedef struct {
    embed_parse_node();
    uint8_t flags;
    uint8_t operator_id;
-   token_t* operator;
+   token_t const* operator;
    void* argument;
 } update_expression_t;
 
@@ -259,7 +259,7 @@ typedef struct {
    embed_parse_node();
    uint8_t flags;
    uint8_t operator_id;
-   token_t* operator;
+   token_t const* operator;
    void* argument;
 } unary_expression_t;
 
@@ -271,7 +271,7 @@ typedef struct {
 typedef struct {
    embed_parse_node();
    uint8_t operator_id;
-   token_t* operator;
+   token_t const* operator;
    void* left;
    void* right;
 } binary_expression_t;
@@ -296,7 +296,7 @@ typedef struct {
    uint8_t operator_id;
    void* left;
    void* right;
-   token_t* operator;
+   token_t const* operator;
 } assignment_expression_t;
 // keep assignment_expression_t and assignment_pattern_t binary compatible
 // it makes life easier to convert their interpretations in cover expressions

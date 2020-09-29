@@ -31,12 +31,16 @@ struct error_node_t {} error_node;
 void* errptr = &error_node;
 
 typedef struct {
-   char_t const* code_begin;
-   char_t const* code_end;
+   memory_state_t* memory;
+   // code buffer
+   char_t const* const code_begin;
+   char_t const* const code_end;
    char_t const* code;
-   token_t* token_begin;
-   token_t* token_end;
-   token_t* token;
+   // token buffer
+   token_t const* const token_begin;
+   token_t const* const token_end;
+   token_t* scan_token;
+   // scanner flags
    uint8_t token_flags;
    uint8_t current_token_flags;
    uint8_t in_template_expression; // bool
@@ -48,48 +52,25 @@ typedef struct {
    uint32_t curly_parenthesis_level;
    uint32_t expect_statement_after_level;
    uint32_t template_parenthesis_offset;
-   memory_state_t* memory;
-   char const* error_message;
-} scan_state_t;
-
-typedef struct {
-   token_t* tokens;
-   size_t token_count;
-   int return_value;
-} scan_result_t;
-
-typedef struct {
-   parse_node_list_state_t spread;
-   parse_node_list_state_t assignment;
-   parse_node_list_state_t pattern;
-} aggregator_cover_array_assignment_t;
-
-typedef struct {
-   aggregator_cover_array_assignment_t array;
-} parse_aggregator_t;
-
-typedef struct {
-   char_t const* buffer;
-   token_t* tokens;
-   token_t* token;
+   // parser
+   token_t const* parse_token;
    uint32_t depth;
+   // error state
+   uint8_t tokenization_failed;
+   uint8_t parsing_failed;
+   char const* error_message;
    uint8_t expected_token_id;
    uint16_t expected_mask;
-   char const* error_message;
-   memory_state_t* memory;
-   parse_aggregator_t aggregator;
-} parser_state_t;
-
-typedef struct {
-   uint32_t flags;
-} parser_tree_state_t;
+} parse_state_t;
 
 typedef struct {
    program_t* program;
-   parser_state_t state;
-   scan_result_t token_result;
-   int return_value;
-} parser_result_t;
+   parse_state_t state;
+} parse_result_t;
+
+typedef struct {
+   uint32_t flags;
+} parse_tree_state_t;
 
 #define max(a, b) ((a) > (b) ? (a) : (b))
 void* parser_malloc_impl(memory_state_t* const memory, size_t size)
@@ -116,5 +97,20 @@ void* parser_malloc_impl(memory_state_t* const memory, size_t size)
    return current->buffer + offset;
 }
 #define parser_malloc(size) parser_malloc_impl(state->memory, size)
+
+void parser_free(parse_state_t* state)
+{
+   free((void *)(state->token_begin));
+   memory_page_t* current = state->memory->head;
+   while(current != nullptr) {
+      free(current->buffer);
+      memory_page_t* to_free = current;
+      current = current->next;
+      free(to_free);
+   }
+   state->memory->head = nullptr;
+   state->memory->current = nullptr;
+   state->memory->page_count = 0;
+}
 
 #endif //_NODES_H_

@@ -17,21 +17,6 @@
 #define INIT cover_flag_initializer
 #define PARAM cover_flag_parameters
 
-void parser_free(parser_state_t* state)
-{
-   free(state->tokens);
-   memory_page_t* current = state->memory->head;
-   while(current != nullptr) {
-      free(current->buffer);
-      memory_page_t* to_free = current;
-      current = current->next;
-      free(to_free);
-   }
-   state->memory->head = nullptr;
-   state->memory->current = nullptr;
-   state->memory->page_count = 0;
-}
-
 #define _get_3rd_arg(arg1, arg2, arg3, ...) arg3
 #define _get_4th_arg(arg1, arg2, arg3, arg4, ...) arg4
 #define _get_5th_arg(arg1, arg2, arg3, arg4, arg5, ...) arg5
@@ -42,20 +27,20 @@ void parser_free(parser_state_t* state)
 #define precedence(operator) (operator->precedence & 0xf8)
 
 #define token_length(token) (token->end - token->begin)
-#define raw_char(token, offset) (state->buffer[token->begin + offset])
+#define raw_char(token, offset) (state->code_begin[token->begin + offset])
 #define token_is(name, token) ( \
    (token->end - token->begin == strlen(#name)) && \
-   (strncmp_impl(state->buffer + token->begin, stringize(name), strlen(#name)) == 0) \
+   (strncmp_impl(state->code_begin + token->begin, stringize(name), strlen(#name)) == 0) \
 )
-#define current_token() (state->token)
-#define offset_token(offset) (state->token + offset)
+#define current_token() (state->parse_token)
+#define offset_token(offset) (state->parse_token + offset)
 #define previous_token() offset_token(-1)
 #define next_token() offset_token(1)
 #define current_token_id() (current_token()->id)
 #define current_token_length() (token_length(current_token()))
 #define current_token_is(name) token_is(name, current_token())
 
-#define consume_token() (++state->token)
+#define consume_token() (++state->parse_token)
 #ifdef verbose
    #define log_and_consume_token() (print_token_consumption(), consume_token())
 #else
@@ -123,12 +108,12 @@ void parser_free(parser_state_t* state)
 #define assign(property, value) node->property = value;
 #define assign_to_parent(property, value) parent->property = value;
 #define assign_operator() { \
-   token_t* const token = current_token(); \
+   token_t const* const token = current_token(); \
    node->operator_id = token->id; \
    node->operator = token; \
 }
 #define assign_token() { \
-   token_t* const token = current_token(); \
+   token_t const* const token = current_token(); \
    if(token->detail != nullptr) { \
       compiled_string_t* compiled_string = (compiled_string_t*)(token->detail); \
       node->compiled_begin = compiled_string->begin; \
@@ -144,13 +129,19 @@ inline_spec uint8_t node_type(void* node)
    return ((parse_node_t*)(node))->type;
 }
 #define type_equal(source, target) (((parse_node_t*)(source))->type ==  ((parse_node_t*)(target))->type)
+#define node_has_signature(source, type) ( \
+   node_type(source) == pnt_##type || ( \
+      node_type(source) == pnt_logical_expression && \
+      pnt_##type == pnt_binary_expression \
+   ) \
+)
 #define node_is_an(type, node) (((parse_node_t*)(node))->group & node_group_##type)
 #define node_is_a(type, node) node_is_an(type, node)
 #define node_has(type, node) node_is_an(type, node)
 #define node_type_is(node_type, node) (((parse_node_t*)(node))->type == pnt_##node_type)
 #define _node_as2(target, node) ((target##_t*)(node))
 #define _node_as3(target, node, var_name) \
-   if_verbose( if(pnt_##target != 0) assert(node_type_is(target, node), __FILE__, __LINE__); ) \
+   if_verbose( if(pnt_##target != 0) assert(node_has_signature(node, target), __FILE__, __LINE__); ) \
    target##_t* var_name = (target##_t*)(node);
 #define _choose_node_as(...) _get_4th_arg(__VA_ARGS__, _node_as3, _node_as2, undefined, )
 #define node_as(...) _choose_node_as(__VA_ARGS__)(__VA_ARGS__)
@@ -170,7 +161,7 @@ inline_spec uint8_t node_type(void* node)
 #define start_named_list(list) _start_list(list)
 #define init_named_list(list) _init_list(list)
 
-parse_list_node_t* make_list_node(parser_state_t* state, void* parse_node) {
+parse_list_node_t* make_list_node(parse_state_t* state, void* parse_node) {
    parse_list_node_t* list_node =
       (parse_list_node_t*) parser_malloc(sizeof(parse_list_node_t));
    list_node->parse_node = parse_node;
@@ -201,11 +192,11 @@ parse_list_node_t* make_list_node(parser_state_t* state, void* parse_node) {
 
 #define is_a_directive(token) ( \
    token->id == tkn_string_literal && \
-   (++token == state->token || (token->id == ';' && ++token == state->token)) \
+   (++token == state->parse_token || (token->id == ';' && ++token == state->parse_token)) \
 )
 #define is_use_strict(token) ( \
    (token->end - token->begin - 2 == strlen("use strict")) && \
-   (strncmp_impl(state->buffer + token->begin + 1, stringize(use strict), strlen("use strict")) == 0) \
+   (strncmp_impl(state->code_begin + token->begin + 1, stringize(use strict), strlen("use strict")) == 0) \
 )
 #define is_let_a_keyword() ( \
    (params & param_flag_strict_mode) || \
@@ -228,7 +219,7 @@ inline_spec bool is_an_assignment_target(void* node)
    return node_is_an(assignment_target, node);
 }
 #define property_key_is(name, node) _property_key_is(state, node, stringize(name), strlen_impl(stringize(name)))
-inline_spec bool _property_key_is(parser_state_t* state, property_t* property, char_t const* name, size_t const length)
+inline_spec bool _property_key_is(parse_state_t* state, property_t* property, char_t const* name, size_t const length)
 {
    if(property == nullptr) return false;
    if(property->key == nullptr) return false;
@@ -245,7 +236,7 @@ inline_spec bool _property_key_is(parser_state_t* state, property_t* property, c
    } else {
       return false;
    }
-   return (strncmp_impl(state->buffer + begin, name, length) == 0);
+   return (strncmp_impl(state->code_begin + begin, name, length) == 0);
 }
 #define allow_annex() ((params & param_flag_annex) && !(params & param_flag_strict_mode))
 
@@ -314,10 +305,10 @@ inline_spec bool _property_key_is(parser_state_t* state, property_t* property, c
    }
 #define _optional_parse1(type) _optional_parse3(type, NONE, NONE)
 #define _optional_parse3(type, remove_filter, add_filter) \
-   token_t* type##_start_token = state->token; \
+   token_t const* const type##_start_token = state->parse_token; \
    _print_parse_descent(type, remove_filter, add_filter); \
    void* type = parse_##type(state, tree_state, make_params(remove_filter, add_filter)); \
-   if(type == nullptr && state->token != type##_start_token) { \
+   if(type == nullptr && state->parse_token != type##_start_token) { \
       passon(nullptr); \
    }
 #define _try_parse1(type) _try_parse3(type, NONE, NONE)
@@ -376,9 +367,9 @@ inline_spec bool _property_key_is(parser_state_t* state, property_t* property, c
    save_tree_flags(filter); \
    mask_tree_flags(filter);
 
-void* parse_expression(parser_state_t* state, parser_tree_state_t* tree_state, params_t params);
-void* parse_assignment_expression(parser_state_t* state, parser_tree_state_t* tree_state, params_t params);
-void* parse_lhs_expression(parser_state_t* state, parser_tree_state_t* tree_state, params_t params);
+void* parse_expression(parse_state_t* state, parse_tree_state_t* tree_state, params_t params);
+void* parse_assignment_expression(parse_state_t* state, parse_tree_state_t* tree_state, params_t params);
+void* parse_lhs_expression(parse_state_t* state, parse_tree_state_t* tree_state, params_t params);
 
 #define parse_semicolon() { \
    if(exists(';')) { \
@@ -411,41 +402,41 @@ Literal:
    StringLiteral
 RegularExpressionLiteral
 */
-inline_spec identifier_t* parse_identifier(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+inline_spec identifier_t* parse_identifier(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    make_node(identifier); assign_token(); ensure_mask(mask_identifier); return_node();
 }
-inline_spec identifier_t* parse_identifier_reference(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+inline_spec identifier_t* parse_identifier_reference(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    make_node(identifier); assign_token(); ensure_mask(mask_identifier); return_node();
 }
-inline_spec identifier_t* parse_binding_identifier(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+inline_spec identifier_t* parse_binding_identifier(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    make_node(identifier); assign_token(); ensure_mask(mask_identifier); return_node();
 }
-inline_spec identifier_t* parse_label_identifier(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+inline_spec identifier_t* parse_label_identifier(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    make_node(identifier); assign_token(); ensure_mask(mask_identifier); return_node();
 }
-inline_spec identifier_t* parse_identifier_name(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+inline_spec identifier_t* parse_identifier_name(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    make_node(identifier); assign_token(); ensure_mask(mask_idname); return_node();
 }
-inline_spec literal_t* parse_literal(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+inline_spec literal_t* parse_literal(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    make_node(literal);
    assign(token_id, current_token_id());
    ensure_mask(mask_literal);
    return_node();
 }
-inline_spec string_literal_t* parse_string_literal(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+inline_spec string_literal_t* parse_string_literal(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    make_node(string_literal);
    assign_token();
    ensure(tkn_string_literal);
    return_node();
 }
-inline_spec regexp_literal_t* parse_regexp_literal(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+inline_spec regexp_literal_t* parse_regexp_literal(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    make_node(regexp_literal);
    assign(flags_length, current_token()->flags_length);
@@ -465,12 +456,12 @@ LiteralPropertyName:
 ComputedPropertyName[Yield, Await]:
    [ AssignmentExpression[+In, ?Yield, ?Await] ]
 */
-inline_spec void* parse_computed_property_name(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+inline_spec void* parse_computed_property_name(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    expect('['); parse(assignment_expression, NONE, IN); expect(']');
    passon(assignment_expression);
 }
-inline_spec void* parse_property_name(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+inline_spec void* parse_property_name(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    if(exists_mask(mask_idname)) {
       passon_parsed(identifier_name);
@@ -484,11 +475,11 @@ inline_spec void* parse_property_name(parser_state_t* state, parser_tree_state_t
 }
 
 // ====== STATEMENT LISTS ====== //
-void* parse_import_declaration(parser_state_t* state, parser_tree_state_t* tree_state, params_t params);
-void* parse_export_declaration(parser_state_t* state, parser_tree_state_t* tree_state, params_t params);
-void* parse_declaration(parser_state_t* state, parser_tree_state_t* tree_state, params_t params);
-void* parse_statement(parser_state_t* state, parser_tree_state_t* tree_state, params_t params);
-void* parse_var_variable_statement(parser_state_t* state, parser_tree_state_t* tree_state, params_t params);
+void* parse_import_declaration(parse_state_t* state, parse_tree_state_t* tree_state, params_t params);
+void* parse_export_declaration(parse_state_t* state, parse_tree_state_t* tree_state, params_t params);
+void* parse_declaration(parse_state_t* state, parse_tree_state_t* tree_state, params_t params);
+void* parse_statement(parse_state_t* state, parse_tree_state_t* tree_state, params_t params);
+void* parse_var_variable_statement(parse_state_t* state, parse_tree_state_t* tree_state, params_t params);
 /*
 StatementList[Yield, Await, Return]:
    StatementListItem[?Yield, ?Await, ?Return]
@@ -497,7 +488,7 @@ StatementListItem[Yield, Await, Return]:
    Statement[?Yield, ?Await, ?Return]
    Declaration[?Yield, ?Await]
 */
-void* parse_statement_list_with_end_token(parser_state_t* state, parser_tree_state_t* tree_state, uint8_t end_token, params_t params)
+void* parse_statement_list_with_end_token(parse_state_t* state, parse_tree_state_t* tree_state, uint8_t end_token, params_t params)
 {
    start_list();
    while(!exists(end_token)) {
@@ -512,7 +503,7 @@ void* parse_statement_list_with_end_token(parser_state_t* state, parser_tree_sta
    passon(list_head());
 }
 void* parse_directive_statement_list_with_end_token(
-   parser_state_t* state, parser_tree_state_t* tree_state, uint8_t end_token_id, params_t params
+   parse_state_t* state, parse_tree_state_t* tree_state, uint8_t end_token_id, params_t params
 ){
    bool look_for_directive = true;
    start_list();
@@ -522,8 +513,8 @@ void* parse_directive_statement_list_with_end_token(
          add_to_list(declaration);
          look_for_directive = false;
       } else {
-         token_t* token = state->token;
-         token_t* literal = token;
+         token_t const* token = state->parse_token;
+         token_t const* const literal = token;
          parse(statement);
          add_to_list(statement);
          if(look_for_directive && is_a_directive(token)) {
@@ -538,7 +529,7 @@ void* parse_directive_statement_list_with_end_token(
    }
    passon(list_head());
 }
-void* parse_case_clause_statement_list(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_case_clause_statement_list(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    start_list();
    while(!exists_word(case) && !exists_word(default) && !exists('}')) {
@@ -552,7 +543,7 @@ void* parse_case_clause_statement_list(parser_state_t* state, parser_tree_state_
    }
    passon(list_head());
 }
-void* parse_block_statement_list(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_block_statement_list(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    parse_with_arg('}', statement_list_with_end_token);
    passon(statement_list_with_end_token);
@@ -561,7 +552,7 @@ void* parse_block_statement_list(parser_state_t* state, parser_tree_state_t* tre
 ScriptBody:
    StatementList[~Yield, ~Await, ~Return]
 */
-inline_spec void* parse_script_body(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+inline_spec void* parse_script_body(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    parse_with_arg(tkn_eot, directive_statement_list_with_end_token, YLD|AWT|RET, NONE);
    passon(directive_statement_list_with_end_token);
@@ -579,7 +570,7 @@ ModuleItem:
    ExportDeclaration
    StatementListItem[~Yield, ~Await, ~Return]
 */
-inline_spec void* parse_module_body(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+inline_spec void* parse_module_body(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    bool look_for_directive = true;
    start_list();
@@ -596,7 +587,7 @@ inline_spec void* parse_module_body(parser_state_t* state, parser_tree_state_t* 
             add_to_list(declaration);
             look_for_directive = false;
          } else {
-            token_t* token = state->token;
+            token_t const* token = state->parse_token;
             parse(statement, YLD|AWT|RET, NONE);
             add_to_list(statement);
             if(look_for_directive && is_a_directive(token)) {
@@ -621,8 +612,8 @@ BindingElement[Yield, Await]:
 SingleNameBinding[Yield, Await]:
    BindingIdentifier[?Yield, ?Await] Initializer[+In, ?Yield, ?Await]opt
 */
-void* parse_binding_pattern(parser_state_t* state, parser_tree_state_t* tree_state, params_t params);
-void* parse_binding_element(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_binding_pattern(parse_state_t* state, parse_tree_state_t* tree_state, params_t params);
+void* parse_binding_element(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    /*
    make_node(assignment_property);
@@ -688,7 +679,7 @@ BindingProperty[Yield, Await]:
 SingleNameBinding[Yield, Await]:
    BindingIdentifier[?Yield, ?Await] Initializer[+In, ?Yield, ?Await]opt
 */
-void* parse_object_binding_pattern(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_object_binding_pattern(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    make_node(object_pattern);
    start_list();
@@ -753,7 +744,7 @@ BindingRestElement[Yield, Await]:
    ... BindingIdentifier[?Yield, ?Await]
    ... BindingPattern[?Yield, ?Await]
 */
-void* parse_binding_rest_element(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_binding_rest_element(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    make_node(rest_element);
    ensure(pnct_spread);
@@ -766,7 +757,7 @@ void* parse_binding_rest_element(parser_state_t* state, parser_tree_state_t* tre
    }
    return_node();
 }
-void* parse_array_binding_pattern(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_array_binding_pattern(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    make_node(array_pattern);
    start_list();
@@ -795,7 +786,7 @@ BindingPattern[Yield, Await]:
    ObjectBindingPattern[?Yield, ?Await]
    ArrayBindingPattern[?Yield, ?Await]
 */
-void* parse_binding_pattern(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_binding_pattern(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    if(exists('{')) {
       passon_parsed(object_binding_pattern);
@@ -826,11 +817,11 @@ FunctionRestParameter[Yield, Await]:
 FormalParameter[Yield, Await]:
    BindingElement[?Yield, ?Await]
 */
-void* parse_formal_parameter(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_formal_parameter(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    passon_parsed(binding_element);
 }
-void* parse_formal_parameter_list(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_formal_parameter_list(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    start_list();
    while(!exists(')')) {
@@ -846,11 +837,11 @@ void* parse_formal_parameter_list(parser_state_t* state, parser_tree_state_t* tr
    }
    passon(list_head());
 }
-void* parse_formal_parameters(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_formal_parameters(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    passon_parsed(formal_parameter_list);
 }
-void* parse_unique_formal_parameters(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_unique_formal_parameters(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    passon_parsed(formal_parameters);
 }
@@ -858,7 +849,7 @@ void* parse_unique_formal_parameters(parser_state_t* state, parser_tree_state_t*
 FunctionStatementList[Yield, Await]:
    StatementList[?Yield, ?Await, +Return]opt
 */
-inline_spec void* parse_function_statement_list(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+inline_spec void* parse_function_statement_list(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    parse_with_arg('}', directive_statement_list_with_end_token, NONE, RET);
    passon(directive_statement_list_with_end_token);
@@ -867,13 +858,13 @@ inline_spec void* parse_function_statement_list(parser_state_t* state, parser_tr
 FunctionBody[Yield, Await]:
    FunctionStatementList[?Yield, ?Await]
 */
-inline_spec void* parse_function_body(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+inline_spec void* parse_function_body(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    make_node(function_body);
    list_parse(body, function_statement_list);
    return_node();
 }
-inline_spec void* parse_function_body_container(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+inline_spec void* parse_function_body_container(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    make_node(block_statement);
    expect('{'); list_parse(body, function_statement_list); expect('}');
@@ -914,7 +905,7 @@ AsyncFunctionBody:
 AsyncGeneratorBody:
    FunctionBody[+Yield, +Await]
 */
-void* parse_hoistable_declaration(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_hoistable_declaration(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    params_t add_params = 0;
    uint8_t function_flags = flag_none;
@@ -966,7 +957,7 @@ AsyncGeneratorExpression:
    async [no LineTerminator here] function * BindingIdentifier[+Yield, +Await]opt
       ( FormalParameters[+Yield, +Await] ) { AsyncGeneratorBody }
 */
-void* parse_function_expression(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_function_expression(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    make_node(function_expression);
    params_t add_params = flag_none;
@@ -997,7 +988,7 @@ void* parse_function_expression(parser_state_t* state, parser_tree_state_t* tree
 PropertySetParameterList:
    FormalParameter[~Yield, ~Await]
 */
-inline_spec void* parse_property_set_parameter_list(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+inline_spec void* parse_property_set_parameter_list(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    start_list(); parse(formal_parameter);
    add_to_list(formal_parameter);
@@ -1031,7 +1022,7 @@ PropertySetParameterList:
 */
 // Partial production
 // ( UniqueFormalParameters[Yield, Await] ) { FunctionBody[?Yield, ?Await] }
-inline_spec void* parse_method_function(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+inline_spec void* parse_method_function(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    make_node(function_expression);
    assign(id, nullptr);
@@ -1043,13 +1034,13 @@ inline_spec void* parse_method_function(parser_state_t* state, parser_tree_state
    return_node();
 }
 /*
-inline_spec void* parse_method_function(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+inline_spec void* parse_method_function(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    if(exists('(')) passon_enparsed(method_function);
    passon(nullptr);
 }
 */
-method_definition_t* parse_method_only_definition(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+method_definition_t* parse_method_only_definition(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    bool is_get_set = false, is_get = false, is_set = false;
    uint8_t property_kind = property_kind_method;
@@ -1099,7 +1090,7 @@ method_definition_t* parse_method_only_definition(parser_state_t* state, parser_
    assign(flags, property_flags);
    return_node();
 }
-method_definition_t* parse_method_definition(parser_state_t* state, parser_tree_state_t* tree_state, uint8_t method_flags, params_t params)
+method_definition_t* parse_method_definition(parse_state_t* state, parse_tree_state_t* tree_state, uint8_t method_flags, params_t params)
 {
    bool computed = false;
    //[NOTE] this criterion must be subject to review with grammar changes
@@ -1139,7 +1130,7 @@ YieldExpression[In, Await]:
    yield [no LineTerminator here] AssignmentExpression[?In, +Yield, ?Await]
    yield [no LineTerminator here] * AssignmentExpression[?In, +Yield, ?Await]
 */
-void* parse_yield_expression(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_yield_expression(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    uint8_t yield_flags = flag_none;
    make_node(yield_expression)
@@ -1180,7 +1171,7 @@ ClassElement[Yield, Await]:
    static MethodDefinition[?Yield, ?Await]
    ;
 */
-void* parse_class_element_list(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_class_element_list(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    start_list();
    while(!exists('}')) {
@@ -1203,19 +1194,19 @@ void* parse_class_element_list(parser_state_t* state, parser_tree_state_t* tree_
    }
    passon(list_head());
 }
-void* parse_class_body(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_class_body(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    make_node(class_body);
    list_parse(body, class_element_list);
    return_node();
 }
-void* parse_class_body_container(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_class_body_container(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    make_node(class_body);
    expect('{'); list_parse(body, class_element_list); expect('}');
    return_node();
 }
-void* parse_class_declaration(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_class_declaration(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    make_node(class_declaration);
    expect_word(class);
@@ -1231,7 +1222,7 @@ void* parse_class_declaration(parser_state_t* state, parser_tree_state_t* tree_s
    parse(body, class_body_container);
    return_node();
 }
-void* parse_class_expression(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_class_expression(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    make_node(class_expression);
    expect_word(class);
@@ -1280,7 +1271,7 @@ ModuleSpecifier:
 ImportedBinding:
    BindingIdentifier[~Yield, ~Await]
 */
-void* parse_import_declaration(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_import_declaration(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    make_node(import_declaration);
    ensure_word(import);
@@ -1355,7 +1346,7 @@ ExportSpecifier:
    IdentifierName
    IdentifierName as IdentifierName
 */
-void* parse_export_declaration(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_export_declaration(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    save_begin();
    ensure_word(export);
@@ -1447,14 +1438,14 @@ Elision:
 SpreadElement[Yield, Await]:
    ... AssignmentExpression[+In, ?Yield, ?Await]
 */
-void* parse_spread_element(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_spread_element(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    make_node(spread_element);
    ensure(pnct_spread);
    parse(argument, assignment_expression, NONE, IN);
    return_node();
 }
-void* parse_array_literal(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_array_literal(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    make_node(array_expression);
    start_list();
@@ -1499,9 +1490,9 @@ CoverInitializedName[Yield, Await]:
 Initializer[In, Yield, Await]:
    = AssignmentExpression[?In, ?Yield, ?Await]
 */
-void* parse_object_literal(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_object_literal(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
-   void* first_cover = nullptr;
+   token_t const* first_cover = nullptr;
    make_node(object_expression);
    start_list();
    ensure('{');
@@ -1569,7 +1560,7 @@ void* parse_object_literal(parser_state_t* state, parser_tree_state_t* tree_stat
             assign_begin();
             assign(left, identifier_reference);
             if(first_cover != nullptr) {
-               first_cover = state->token;
+               first_cover = state->parse_token;
             }
             ensure('=');
             //mask_tree_flags(cover_flag_initializer);
@@ -1649,7 +1640,7 @@ TemplateMiddleList[Yield, Await, Tagged]:
    TemplateMiddleExpression[+In, ?Yield, ?Await]
    TemplateMiddleList[?Yield, ?Await, ?Tagged] TemplateMiddleExpression[+In, ?Yield, ?Await]
 */
-void* parse_template_literal(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_template_literal(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    make_node(template_literal);
    //start_list();
@@ -1658,7 +1649,7 @@ void* parse_template_literal(parser_state_t* state, parser_tree_state_t* tree_st
    ensure('`');
    while(true) {
       save_begin();
-      token_t* token = current_token();
+      token_t const* const token = current_token();
       ensure(tkn_template_string);
       bool is_tail = exists('`');
       make_node(template_element);
@@ -1730,8 +1721,8 @@ the differences in the elements are:
    DestructuringAssignmentTarget[Yield, Await]:
       LeftHandSideExpression[?Yield, ?Await]
 */
-bool change_node_types(parser_state_t* state, parse_list_node_t* list_node, uint8_t flags);
-bool change_lhs_node_type(parser_state_t* state, void* node, uint8_t flags)
+bool change_node_types(parse_state_t* state, parse_list_node_t* list_node, uint8_t flags);
+bool change_lhs_node_type(parse_state_t* state, void* node, uint8_t flags)
 {
    switch(node_type(node)) {
       case pnt_array_expression:
@@ -1761,7 +1752,7 @@ inline_spec node_type_t select_object_pattern_for(uint8_t flags)
    if(flags & change_flag_assignment) return pnt_object_assignment_pattern;
    return pnt_object_pattern;
 }
-bool change_node_types(parser_state_t* state, parse_list_node_t* list_node, uint8_t flags)
+bool change_node_types(parse_state_t* state, parse_list_node_t* list_node, uint8_t flags)
 {
    while(list_node != nullptr) {
       parse_node_t* parse_node = (parse_node_t*)(list_node->parse_node);
@@ -1846,7 +1837,7 @@ bool change_node_types(parser_state_t* state, parse_list_node_t* list_node, uint
    }
    return true;
 }
-void* parse_cover_array_assignment(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_cover_array_assignment(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    parse(array_literal);
    if(exists('=')) {
@@ -1859,7 +1850,7 @@ void* parse_cover_array_assignment(parser_state_t* state, parser_tree_state_t* t
    }
    passon(array_literal);
 }
-void* parse_cover_object_assignment(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_cover_object_assignment(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    //save_and_mask_tree_flags(cover_flag_initializer);
    parse(object_literal, NONE, INIT);
@@ -1878,7 +1869,7 @@ void* parse_cover_object_assignment(parser_state_t* state, parser_tree_state_t* 
    //restore_tree_flags(cover_flag_initializer);
    passon(object_literal);
 }
-void* parse_this_expression(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_this_expression(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    make_node(this_expression); ensure_word(this); return_node();
 }
@@ -1888,7 +1879,7 @@ Expression[In, Yield, Await]:
    AssignmentExpression[?In, ?Yield, ?Await]
    Expression[?In, ?Yield, ?Await] , AssignmentExpression[?In, ?Yield, ?Await]
 */
-void* parse_expression(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_expression(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    save_begin();
    parse(assignment_expression);
@@ -1905,11 +1896,11 @@ void* parse_expression(parser_state_t* state, parser_tree_state_t* tree_state, p
    assign(expressions, raw_list_head());
    return_node();
 }
-void* parse_covering_parenthesized_expression(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_covering_parenthesized_expression(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    size_t count = 0;
-   token_t* trailing_comma = nullptr;
-   void* first_cover = nullptr;
+   token_t const* trailing_comma = nullptr;
+   token_t const* first_cover = nullptr;
    save_begin();
    ensure('(');
    make_node(expression);
@@ -1919,7 +1910,7 @@ void* parse_covering_parenthesized_expression(parser_state_t* state, parser_tree
       trailing_comma = nullptr;
       if(exists(pnct_spread)) {
          if(first_cover != nullptr) {
-            first_cover = state->token;
+            first_cover = state->parse_token;
          }
          parse(binding_rest_element);
          add_to_list(binding_rest_element);
@@ -1934,7 +1925,7 @@ void* parse_covering_parenthesized_expression(parser_state_t* state, parser_tree
       }
       add_to_list(assignment_expression);
       if(exists(',')) {
-         trailing_comma = state->token;
+         trailing_comma = state->parse_token;
          ensure(',');
       } else break;
    }
@@ -1972,7 +1963,7 @@ void* parse_covering_parenthesized_expression(parser_state_t* state, parser_tree
 ParenthesizedExpression[Yield, Await]:
    ( Expression[+In, ?Yield, ?Await] )
 */
-void* parse_parenthesized_expression(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_parenthesized_expression(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    make_node(parenthesized_expression);
    ensure('('); parse(expression, expression, NONE, IN); expect(')');
@@ -2012,7 +2003,7 @@ refined using the following grammar:
 ParenthesizedExpression[Yield, Await]:
    ( Expression[+In, ?Yield, ?Await] )
 */
-void* parse_primary_expression(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_primary_expression(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    switch(current_token()->id) {
       case rw_this: passon_parsed(this_expression);
@@ -2054,7 +2045,7 @@ ArgumentList[Yield, Await]:
    ArgumentList[?Yield, ?Await] , AssignmentExpression[+In, ?Yield, ?Await]
    ArgumentList[?Yield, ?Await] , ... AssignmentExpression[+In, ?Yield, ?Await]
 */
-void* parse_arguments_list(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_arguments_list(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    expect('(');
    start_list();
@@ -2094,9 +2085,9 @@ NewTarget:
 ImportMeta:
    import . meta
 */
-void* parse_member_expression(parser_state_t* state, parser_tree_state_t* tree_state, params_t params);
-void* continue_with_member_expression(parser_state_t* state, parser_tree_state_t* tree_state, void* object, size_t begin, uint8_t flag, params_t params);
-void* parse_member_only_expression(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_member_expression(parse_state_t* state, parse_tree_state_t* tree_state, params_t params);
+void* continue_with_member_expression(parse_state_t* state, parse_tree_state_t* tree_state, void* object, size_t begin, uint8_t flag, params_t params);
+void* parse_member_only_expression(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    save_begin();
    void* object = nullptr;
@@ -2143,7 +2134,7 @@ void* parse_member_only_expression(parser_state_t* state, parser_tree_state_t* t
    continue_with(member_expression, object, begin, flag_none);
    passon(member_expression);
 }
-void* continue_with_member_expression(parser_state_t* state, parser_tree_state_t* tree_state, void* object, size_t begin, uint8_t flag, params_t params)
+void* continue_with_member_expression(parse_state_t* state, parse_tree_state_t* tree_state, void* object, size_t begin, uint8_t flag, params_t params)
 {
    void* property = nullptr;
    bool is_optional = (flag == optional_flag_optional);
@@ -2177,7 +2168,7 @@ void* continue_with_member_expression(parser_state_t* state, parser_tree_state_t
    }
    passon(nullptr);
 }
-void* parse_member_expression(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_member_expression(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    save_begin();
    try(member_only_expression);
@@ -2212,8 +2203,8 @@ void* parse_member_expression(parser_state_t* state, parser_tree_state_t* tree_s
  * CallMemberExpression[Yield, Await]:
  *    MemberExpression[?Yield, ?Await] Arguments[?Yield, ?Await]
  */
- void* continue_with_call_expression(parser_state_t* state, parser_tree_state_t* tree_state, void* callee, size_t begin, uint8_t flag, params_t params);
- void* parse_covering_call_only_expression(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+ void* continue_with_call_expression(parse_state_t* state, parse_tree_state_t* tree_state, void* callee, size_t begin, uint8_t flag, params_t params);
+ void* parse_covering_call_only_expression(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
  {
     save_begin();
     if(exists_word(async) && exists_ahead('(') && !exists_newline_ahead()) {
@@ -2241,7 +2232,7 @@ void* parse_member_expression(parser_state_t* state, parser_tree_state_t* tree_s
     }
     passon(nullptr);
  }
-void* parse_call_only_expression(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_call_only_expression(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    if(exists_word(super)) {
       if(!exists_ahead('(')) passon(nullptr);
@@ -2265,7 +2256,7 @@ void* parse_call_only_expression(parser_state_t* state, parser_tree_state_t* tre
       //passon(nullptr);
    }
 }
-void* continue_with_call_expression(parser_state_t* state, parser_tree_state_t* tree_state, void* callee, size_t begin, uint8_t flag, params_t params)
+void* continue_with_call_expression(parse_state_t* state, parse_tree_state_t* tree_state, void* callee, size_t begin, uint8_t flag, params_t params)
 {
    make_node(call_expression);
    assign_begin();
@@ -2287,7 +2278,7 @@ void* continue_with_call_expression(parser_state_t* state, parser_tree_state_t* 
    }
    passon(nullptr);
 }
-void* parse_call_expression(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_call_expression(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    save_begin();
    try(call_only_expression);
@@ -2301,8 +2292,8 @@ void* parse_call_expression(parser_state_t* state, parser_tree_state_t* tree_sta
  *    new NewExpression[?Yield, ?Await]
  */
 /* looks redundant given MemberExpression
-void* parse_new_expression(parser_state_t* state, parser_tree_state_t* tree_state, params_t params);
-void* parse_new_only_expression(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_new_expression(parse_state_t* state, parse_tree_state_t* tree_state, params_t params);
+void* parse_new_only_expression(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    if(!exists_word(new) || exists_ahead('.')) passon(nullptr);
    make_node(new_expression);
@@ -2310,7 +2301,7 @@ void* parse_new_only_expression(parser_state_t* state, parser_tree_state_t* tree
    parse(expression, new_expression);
    return_node();
 }
-void* parse_new_expression(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_new_expression(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    save_begin();
    try(new_only_expression);
@@ -2335,7 +2326,7 @@ OptionalChain[Yield, Await]:
    OptionalChain[?Yield, ?Await] . IdentifierName
    OptionalChain[?Yield, ?Await] TemplateLiteral[?Yield, ?Await, +Tagged]
 */
-void* continue_with_optional_expression(parser_state_t* state, parser_tree_state_t* tree_state, void* left, size_t begin, params_t params)
+void* continue_with_optional_expression(parse_state_t* state, parse_tree_state_t* tree_state, void* left, size_t begin, params_t params)
 {
    make_node(chain_expression);
    assign_begin();
@@ -2361,7 +2352,7 @@ void* continue_with_optional_expression(parser_state_t* state, parser_tree_state
  *    CallExpression[?Yield, ?Await]
  *    OptionalExpression[?Yield, ?Await]
  */
-void* parse_lhs_expression(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_lhs_expression(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    save_begin();
    //try(new_only_expression);
@@ -2385,8 +2376,8 @@ UpdateExpression[Yield, Await]:
    ++ UnaryExpression[?Yield, ?Await]
    -- UnaryExpression[?Yield, ?Await]
 */
-void* parse_unary_expression(parser_state_t* state, parser_tree_state_t* tree_state, params_t params);
-void* parse_update_expression(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_unary_expression(parse_state_t* state, parse_tree_state_t* tree_state, params_t params);
+void* parse_update_expression(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    if(exists_mask(mask_update_ops)) {
       make_node(update_expression);
@@ -2425,15 +2416,15 @@ UnaryExpression[Yield, Await]:
 AwaitExpression[Yield]:
    await UnaryExpression[?Yield, +Await]
 */
-void* parse_unary_expression(parser_state_t* state, parser_tree_state_t* tree_state, params_t params);
-void* parse_await_expression(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_unary_expression(parse_state_t* state, parse_tree_state_t* tree_state, params_t params);
+void* parse_await_expression(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    make_node(await_expression);
    ensure_word(await);
    parse(argument, unary_expression, NONE, AWT);
    return_node();
 }
-void* parse_unary_only_expression(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_unary_only_expression(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    if(exists_mask(mask_unary_ops)) {
       make_node(unary_expression);
@@ -2447,7 +2438,7 @@ void* parse_unary_only_expression(parser_state_t* state, parser_tree_state_t* tr
    }
    passon(nullptr);
 }
-void* parse_unary_expression(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_unary_expression(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    try(unary_only_expression);
    parse(update_expression);
@@ -2464,12 +2455,12 @@ void* precedence_adjusted(binary_expression_t* node, bool is_right)
    // adjust justification and precedence operators
    int sign = precedence(node->operator) - precedence(right->operator);
    if((sign > 0) || (sign == 0 && is_right)) return node;
-   //printf("swapping\n");
    node_as(parse_node, right->left, right_left);
    node->end = right_left->end;
    right->begin = node->begin;
    node->right = right->left;
    right->left = precedence_adjusted(node, is_right);
+   //print_string("swapped\n");
    /*
    right->begin = node->begin;
    right->end = right_left->end;
@@ -2486,7 +2477,7 @@ ExponentiationExpression[Yield, Await]:
    UnaryExpression[?Yield, ?Await]
    UpdateExpression[?Yield, ?Await] ** ExponentiationExpression[?Yield, ?Await]
 */
-void* parse_exponentiation_expression(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_exponentiation_expression(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    save_begin();
    try(unary_only_expression);
@@ -2504,7 +2495,7 @@ void* parse_exponentiation_expression(parser_state_t* state, parser_tree_state_t
    passon(precedence_adjusted(node, true));
 }
 
-void* parse_binary_expression(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_binary_expression(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    save_begin();
    parse(exponentiation_expression);
@@ -2531,8 +2522,8 @@ LogicalORExpression[In, Yield, Await]:
    LogicalANDExpression[?In, ?Yield, ?Await]
    LogicalORExpression[?In, ?Yield, ?Await] || LogicalANDExpression[?In, ?Yield, ?Await]
 */
-void* parse_logical_expression(parser_state_t* state, parser_tree_state_t* tree_state, params_t params);
-void* continue_with_logical_expression(parser_state_t* state, parser_tree_state_t* tree_state, void* binary_expression, size_t begin, params_t params)
+void* parse_logical_expression(parse_state_t* state, parse_tree_state_t* tree_state, params_t params);
+void* continue_with_logical_expression(parse_state_t* state, parse_tree_state_t* tree_state, void* binary_expression, size_t begin, params_t params)
 {
    make_node(logical_expression);
    assign_begin();
@@ -2543,7 +2534,7 @@ void* continue_with_logical_expression(parser_state_t* state, parser_tree_state_
    complete_node();
    passon(precedence_adjusted(node, false));
 }
-void* parse_logical_expression(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_logical_expression(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    save_begin();
    parse(binary_expression);
@@ -2560,8 +2551,8 @@ CoalesceExpressionHead[In, Yield, Await]:
    BitwiseORExpression[?In, ?Yield, ?Await]
 [NOTE] a BitwiseORExpression is not a CoalesceExpression
 */
-void* parse_coalesce_expression(parser_state_t* state, parser_tree_state_t* tree_state, params_t params);
-void* continue_with_coalesce_expression(parser_state_t* state, parser_tree_state_t* tree_state, void* binary_expression, size_t begin, params_t params)
+void* parse_coalesce_expression(parse_state_t* state, parse_tree_state_t* tree_state, params_t params);
+void* continue_with_coalesce_expression(parse_state_t* state, parse_tree_state_t* tree_state, void* binary_expression, size_t begin, params_t params)
 {
    make_node(logical_expression);
    assign_begin();
@@ -2576,7 +2567,7 @@ void* continue_with_coalesce_expression(parser_state_t* state, parser_tree_state
 // produce a BinaryExpression (aka BitwiseORExpression) which is not allowed
 // per grammar. Instead ShortCircuitExpression should be the entry point for
 // for CoalesceExpression
-void* parse_coalesce_expression(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_coalesce_expression(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    save_begin();
    parse(binary_expression);
@@ -2590,7 +2581,7 @@ ShortCircuitExpression[In, Yield, Await]:
    LogicalORExpression[?In, ?Yield, ?Await]
    CoalesceExpression[?In, ?Yield, ?Await]
 */
-void* parse_short_circuit_expression(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_short_circuit_expression(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    save_begin();
    parse(binary_expression);
@@ -2612,7 +2603,7 @@ ConditionalExpression[In, Yield, Await]:
       AssignmentExpression[+In, ?Yield, ?Await] :
       AssignmentExpression[?In, ?Yield, ?Await]
 */
-void* parse_conditional_expression(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_conditional_expression(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    save_begin();
    parse(short_circuit_expression);
@@ -2672,7 +2663,7 @@ Supplemental Syntax:
          async [no LineTerminator here] ArrowFormalParameters[~Yield, +Await]
 */
 void* continue_with_arrow_function(
-   parser_state_t* state, parser_tree_state_t* tree_state,
+   parse_state_t* state, parse_tree_state_t* tree_state,
    arrow_function_expression_t* node, size_t begin, params_t add_params, params_t params
 ){
    if(exists_newline()) passon(nullptr);
@@ -2685,7 +2676,7 @@ void* continue_with_arrow_function(
    }
    return_node();
 }
-void* parse_arrow_function(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_arrow_function(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    make_node(arrow_function_expression);
    params_t add_params = flag_none;
@@ -2767,7 +2758,7 @@ AssignmentRestElement[Yield, Await]:
 DestructuringAssignmentTarget[Yield, Await]:
    LeftHandSideExpression[?Yield, ?Await]
 */
-void* parse_assignment_expression(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_assignment_expression(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    void* expression = nullptr;
    save_begin();
@@ -2775,7 +2766,7 @@ void* parse_assignment_expression(parser_state_t* state, parser_tree_state_t* tr
       passon_parsed(yield_expression, YLD, NONE);
    }
    bool has_async = exists_word(async) && !exists_newline_ahead();
-   token_t* token = next_token();
+   token_t const* const token = next_token();
    assign_parsed(conditional_expression, expression);
    if(has_async && current_token() == token && exists_ahead(pnct_arrow) && !exists_newline_ahead()) {
       assign_parsed(conditional_expression, expression);
@@ -2836,7 +2827,7 @@ BlockStatement[Yield, Await, Return]:
 Block[Yield, Await, Return]:
    { StatementList[?Yield, ?Await, ?Return]opt }
 */
-void* parse_block_statement(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_block_statement(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    make_node(block_statement);
    expect('{'); list_parse(body, block_statement_list); expect('}');
@@ -2867,7 +2858,7 @@ VariableDeclaration[In, Yield, Await]:
 for the differences in In parameter. We will handle all var, let, const
 declaratioins identically with conditional parameters.
 */
-void* parse_lexical_binding_list(parser_state_t* state, parser_tree_state_t* tree_state, uint8_t token_id, params_t params)
+void* parse_lexical_binding_list(parse_state_t* state, parse_tree_state_t* tree_state, uint8_t token_id, params_t params)
 {
    start_list();
    bool first_element = true;
@@ -2911,7 +2902,7 @@ void* parse_lexical_binding_list(parser_state_t* state, parser_tree_state_t* tre
    } while(optional(','));
    passon(list_head());
 }
-void* parse_variable_statement(parser_state_t* state, parser_tree_state_t* tree_state, uint8_t reserved_word, params_t params)
+void* parse_variable_statement(parse_state_t* state, parse_tree_state_t* tree_state, uint8_t reserved_word, params_t params)
 {
    make_node(variable_declaration);
    ensure(reserved_word);
@@ -2922,16 +2913,16 @@ void* parse_variable_statement(parser_state_t* state, parser_tree_state_t* tree_
    //if(!exists('}')) expect(';');
    return_node();
 }
-void* parse_var_variable_statement(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_var_variable_statement(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    return parse_variable_statement(state, tree_state, word(var), make_params(NONE, IN));
 }
-void* parse_let_variable_statement(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_let_variable_statement(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    if(!is_let_a_keyword()){ passon(nullptr); }
    return parse_variable_statement(state, tree_state, word(let), params);
 }
-void* parse_const_variable_statement(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_const_variable_statement(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    return parse_variable_statement(state, tree_state, word(const), params);
 }
@@ -2939,7 +2930,7 @@ void* parse_const_variable_statement(parser_state_t* state, parser_tree_state_t*
 EmptyStatement:
    ;
 */
-void* parse_empty_statement(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_empty_statement(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    make_node(empty_statement);
    ensure(';');
@@ -2956,7 +2947,7 @@ ExpressionStatement. All we have to do is check for ExpressionStatement at
 the end after all other productions are tried. This is exactly what is done in
 parse_statement below
 */
-void* parse_expression_statement(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_expression_statement(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    make_node(expression_statement);
    parse(expression, expression, NONE, IN);
@@ -2980,7 +2971,7 @@ Annex B.3.4: https://tc39.es/ecma262/#sec-functiondeclarations-in-ifstatement-st
       else FunctionDeclaration[?Yield, ?Await, ~Default]
    if ( Expression[+In, ?Yield, ?Await] ) FunctionDeclaration[?Yield, ?Await, ~Default]
 */
-void* parse_if_statement(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_if_statement(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    make_node(if_statement);
    ensure_word(if); expect('(');
@@ -3007,7 +2998,7 @@ IterationStatement[Yield, Await, Return]:
    do Statement[?Yield, ?Await, ?Return]
       while ( Expression[+In, ?Yield, ?Await] ) ;
 */
-void* parse_do_statement(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_do_statement(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    make_node(do_statement);
    ensure_word(do); parse(body, statement);
@@ -3024,7 +3015,7 @@ void* parse_do_statement(parser_state_t* state, parser_tree_state_t* tree_state,
 IterationStatement[Yield, Await, Return]:
    while ( Expression[+In, ?Yield, ?Await] ) Statement[?Yield, ?Await, ?Return]
 */
-void* parse_while_statement(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_while_statement(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    make_node(while_statement);
    ensure_word(while); expect('(');
@@ -3089,7 +3080,7 @@ ForBinding[Yield, Await]:
 [NOTE] The difference between ForBinding and LexicalBinding is that ForBinding
 does not have an initializer.
 */
-void* parse_for_statement(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_for_statement(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    ///*
    void* production = nullptr;
@@ -3209,7 +3200,7 @@ ContinueStatement[Yield, Await]:
    continue ;
    continue [no LineTerminator here] LabelIdentifier[?Yield, ?Await] ;
 */
-void* parse_continue_statement(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_continue_statement(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    make_node(continue_statement);
    ensure_word(continue);
@@ -3229,7 +3220,7 @@ BreakStatement[Yield, Await]:
    break ;
    break [no LineTerminator here] LabelIdentifier[?Yield, ?Await] ;
 */
-void* parse_break_statement(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_break_statement(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    make_node(break_statement);
    ensure_word(break);
@@ -3249,7 +3240,7 @@ ReturnStatement[Yield, Await]:
    return ;
    return [no LineTerminator here] Expression[+In, ?Yield, ?Await] ;
 */
-void* parse_return_statement(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_return_statement(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    make_node(return_statement);
    ensure_word(return);
@@ -3267,7 +3258,7 @@ void* parse_return_statement(parser_state_t* state, parser_tree_state_t* tree_st
 WithStatement[Yield, Await, Return]:
    with ( Expression[+In, ?Yield, ?Await] ) Statement[?Yield, ?Await, ?Return]
 */
-void* parse_with_statement(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_with_statement(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    make_node(with_statement);
    ensure_word(with); expect('(');
@@ -3291,7 +3282,7 @@ CaseClause[Yield, Await, Return]:
 DefaultClause[Yield, Await, Return]:
    default : StatementList[?Yield, ?Await, ?Return]opt
 */
-void* parse_case_clause_list(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_case_clause_list(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    bool has_default = false;
    start_list();
@@ -3315,7 +3306,7 @@ void* parse_case_clause_list(parser_state_t* state, parser_tree_state_t* tree_st
       }
    }
 }
-void* parse_switch_statement(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_switch_statement(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    make_node(switch_statement);
    ensure_word(switch); expect('(');
@@ -3339,7 +3330,7 @@ Static Semantics:
       LabelledItem: FunctionDeclaration
          It is a Syntax Error if any strict mode source code matches this rule.
 */
-void* parse_labeled_statement(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_labeled_statement(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    make_node(labeled_statement);
    parse(label, label_identifier, RET, NONE); expect(':');
@@ -3354,7 +3345,7 @@ void* parse_labeled_statement(parser_state_t* state, parser_tree_state_t* tree_s
 ThrowStatement[Yield, Await]:
    throw [no LineTerminator here] Expression[+In, ?Yield, ?Await] ;
 */
-void* parse_throw_statement(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_throw_statement(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    make_node(throw_statement);
    ensure_word(throw);
@@ -3379,7 +3370,7 @@ CatchParameter[Yield, Await]:
    BindingIdentifier[?Yield, ?Await]
    BindingPattern[?Yield, ?Await]
 */
-void* parse_try_statement(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_try_statement(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    make_node(try_statement);
    ensure_word(try);
@@ -3411,7 +3402,7 @@ void* parse_try_statement(parser_state_t* state, parser_tree_state_t* tree_state
 DebuggerStatement:
    debugger ;
 */
-void* parse_debugger_statement(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_debugger_statement(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    make_node(debugger_statement);
    ensure_word(debugger);
@@ -3430,7 +3421,7 @@ HoistableDeclaration[Yield, Await, Default]:
    AsyncFunctionDeclaration[?Yield, ?Await, ?Default]
    AsyncGeneratorDeclaration[?Yield, ?Await, ?Default]
 */
-void* parse_declaration(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_declaration(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    switch(current_token()->id) {
       case rw_async: // fallthrough
@@ -3459,7 +3450,7 @@ Statement[Yield, Await, Return]:
    TryStatement[?Yield, ?Await, ?Return]
    DebuggerStatement
 */
-void* parse_statement(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+void* parse_statement(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    switch(current_token()->id) {
       case '{': passon_parsed(block_statement);
@@ -3499,7 +3490,7 @@ void* parse_statement(parser_state_t* state, parser_tree_state_t* tree_state, pa
    }
 }
 
-program_t* parse_script(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+program_t* parse_script(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    make_node(program);
    assign(source_type, program_kind_script);
@@ -3508,7 +3499,7 @@ program_t* parse_script(parser_state_t* state, parser_tree_state_t* tree_state, 
    return node;
 }
 
-program_t* parse_module(parser_state_t* state, parser_tree_state_t* tree_state, params_t params)
+program_t* parse_module(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    make_node(program);
    assign(source_type, program_kind_module);
@@ -3575,61 +3566,84 @@ program_t* parse_module(parser_state_t* state, parser_tree_state_t* tree_state, 
 #undef add_to_list
 #undef list_head
 
-parser_result_t parse(char_t const* source_begin, char_t const* source_end, bool is_module, uint32_t params)
+parse_result_t parse(char_t const* code_begin, char_t const* code_end, bool is_module, uint32_t params)
 {
-   size_t source_length = source_end - source_begin;
+   size_t code_length = code_end - code_begin;
    memory_state_t memory_state = {
       .head = nullptr, .current = nullptr, .page_count = 0
    };
-   scan_result_t result = tokenize(source_begin, source_end, &memory_state, params);
-   if_debug(print_string("parsing begins\n");)
-   parser_state_t state = {
-      .buffer = source_begin,
-      .tokens = result.tokens,
-      .token = result.tokens,
+   size_t predicted_tokens = ((code_end - code_begin) / 1) + 3 + 128;
+   token_t* token_begin = (token_t*) malloc(predicted_tokens * sizeof(token_t));
+   parse_state_t _state = {
+      .memory = &memory_state,
+      // code buffer
+      .code_begin = code_begin,
+      .code_end = code_end,
+      .code = code_begin,
+      // token buffer
+      .token_begin = token_begin,
+      .token_end = token_begin + predicted_tokens,
+      .scan_token = token_begin,
+      // scanner flags
+      .token_flags = token_flag_none,
+      .current_token_flags = token_flag_none,
+      .in_template_expression = 0,
+      .in_regexp_context = 1,
+      .is_comment = 0,
+      .was_comment = 0,
+      .template_level = 0,
+      .parenthesis_level = 0,
+      .curly_parenthesis_level = 0,
+      .expect_statement_after_level = 0,
+      .template_parenthesis_offset = 0,
+      // parser
+      .parse_token = token_begin,
+      .depth = 0,
+      // error state
+      .tokenization_failed = 0,
+      .parsing_failed = 0,
+      .error_message = nullptr,
       .expected_token_id = 0,
       .expected_mask = 0,
-      .error_message = nullptr,
-      .depth = 0,
-      .memory = &memory_state
    };
-   parser_tree_state_t tree_state = {.flags = 0};
+   parse_state_t* state = &_state;
+   tokenize(state, params);
+   if_debug(print_string("parsing begins\n");)
+   parse_tree_state_t tree_state = {.flags = 0};
    //init_named_list(state.aggregator.array.spread);
    //init_named_list(state.aggregator.array.assignment);
    //init_named_list(state.aggregator.array.pattern)
-   //printf("%p begin: %zu end: %zu\n", state.tokens, (state.tokens + 1)->begin, (state.tokens + 1)->end);
+   //printf("%p begin: %zu end: %zu\n", state.token_begin, (state.token_begin + 1)->begin, (state.token_begin + 1)->end);
    program_t* program = nullptr;
    if(is_module) {
-      program = parse_module(&state, &tree_state, params);
+      program = parse_module(state, &tree_state, params);
    } else {
-      program = parse_script(&state, &tree_state, params);
+      program = parse_script(state, &tree_state, params);
    }
-   //printf("%p begin: %zu end: %zu\n", state.tokens, (state.tokens + 1)->begin, (state.tokens + 1)->end);
+   //printf("%p begin: %zu end: %zu\n", state.token_begin, (state.token_begin + 1)->begin, (state.token_begin + 1)->end);
    //printf("length = %d\n", program->end - program->begin);
    if(program != nullptr) {
-      program->begin = 0; program->end = source_length;
+      program->begin = 0; program->end = code_length;
    }
    /*
    #ifdef debug
    if(program == nullptr) {
-      size_t begin = state.token->begin;
-      int length = state.token->end - begin;
+      size_t begin = state.parse_token->begin;
+      int length = state.parse_token->end - begin;
       printf("\nparsing failed at character index %zu %.*s\n", begin, length, state.buffer + begin);
       if(state.error_message != nullptr) {
          printf("%s\n", state.error_message);
       }
-      printf("token found: %x %x %c\n", state.token->id, state.token->group, state.token->id);
+      printf("token found: %x %x %c\n", state.parse_token->id, state.parse_token->group, state.parse_token->id);
       printf("token expected: %x %c\n", state.expected_token_id, state.expected_token_id);
    } else {
       printf("parsing successful: page_count = %zu\n", state.memory.page_count);
    }
    #endif
    //*/
-   return (parser_result_t){
+   return (parse_result_t){
       .program = program,
-      .state = state,
-      .token_result = result,
-      .return_value = (program != nullptr)
+      .state = *state
    };
 }
 

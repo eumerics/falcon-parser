@@ -83,8 +83,8 @@ elements_t characters2 = {0, 0, 0, 0, 0, 0, 0, 0, 0};
          printf( \
             color_bold_cyan("%*s-- consumed token '%.*s'") "\n", \
             state->depth % 60, "", \
-            (int)(state->token->end - state->token->begin), \
-            state->buffer + state->token->begin \
+            (int)(state->parse_token->end - state->parse_token->begin), \
+            state->code_begin + state->parse_token->begin \
          ), \
          fflush(stdout) \
       )
@@ -93,8 +93,8 @@ elements_t characters2 = {0, 0, 0, 0, 0, 0, 0, 0, 0};
          printf( \
             color_bold_cyan("%*s-- consumed token '%.*s'") "\n", \
             state->depth % 60, "", \
-            2 * (int)(state->token->end - state->token->begin), \
-            (char const*)(state->buffer + state->token->begin) \
+            2 * (int)(state->parse_token->end - state->parse_token->begin), \
+            (char const*)(state->code_begin + state->parse_token->begin) \
          ), \
          fflush(stdout) \
       )
@@ -142,43 +142,45 @@ int main(int argc, char* argv[])
          ///*
          {
             //scan_result_t result;
-            parser_result_t result;
+            //parse_result_t result;
             clock_t cbegin = clock();
             uint64_t begin = __rdtsc();
             uint32_t params = param_flag_annex;
             for(int it = 0; it < iterations; ++it) {
                //result = tokenize(source, source + file_size);
-               //free(result.tokens);
-               result = parse(source, source + file_size, is_module, params);
+               //free(result.token_begin);
+               parse_result_t result = parse(source, source + file_size, is_module, params);
                if(it != iterations - 1) parser_free(&result.state);
-            }
-            uint64_t end = __rdtsc();
-            clock_t cend = clock();
-            if(result.token_result.return_value == 1) {
-               if(result.return_value == 1) {
-                  printf(color_bold_green("parsing successful") "\n");
-               } else {
-                  printf(color_bold_red("parsing failed") "\n");
-                  if(result.state.error_message != nullptr) {
-                     printf(color_bold_red("%s") "\n", result.state.error_message);
+               else {
+                  uint64_t end = __rdtsc();
+                  clock_t cend = clock();
+                  if(!result.state.tokenization_failed) {
+                     if(!result.state.parsing_failed) {
+                        printf(color_bold_green("parsing successful") "\n");
+                     } else {
+                        printf(color_bold_red("parsing failed") "\n");
+                        if(result.state.error_message != nullptr) {
+                           printf(color_bold_red("%s") "\n", result.state.error_message);
+                        }
+                        size_t begin = result.state.parse_token->begin;
+                        int length = result.state.parse_token->end - begin;
+                        printf("\nparsing failed at character index %zu %.*s\n", begin, length, result.state.code_begin + begin);
+                        printf("token found: %x %x %c\n", result.state.parse_token->id, result.state.parse_token->group, result.state.parse_token->id);
+                        printf("token expected: %x %c\n", result.state.expected_token_id, result.state.expected_token_id);
+                        //printf("token found: %x %x %c\n", result.state.parse_token->id, result.state.parse_token->group, result.state.parse_token->id);
+                        //printf("token expected: %x %c\n", result.state.expected_token_id, result.state.expected_token_id);
+                     }
+                  } else {
+                     printf(color_bold_red("tokenization failed") "\n");
                   }
-                  size_t begin = result.state.token->begin;
-                  int length = result.state.token->end - begin;
-                  printf("\nparsing failed at character index %zu %.*s\n", begin, length, result.state.buffer + begin);
-                  printf("token found: %x %x %c\n", result.state.token->id, result.state.token->group, result.state.token->id);
-                  printf("token expected: %x %c\n", result.state.expected_token_id, result.state.expected_token_id);
-                  //printf("token found: %x %x %c\n", result.state.token->id, result.state.token->group, result.state.token->id);
-                  //printf("token expected: %x %c\n", result.state.expected_token_id, result.state.expected_token_id);
+                  //printf("%lu\n", (end - begin) / iterations);
+                  printf("%lu %.3f\n", (end - begin) / iterations, 1000 * ((double)(cend - cbegin)) / CLOCKS_PER_SEC / iterations);
                }
-            } else {
-               printf(color_bold_red("tokenization failed") "\n");
             }
-            //printf("%lu\n", (end - begin) / iterations);
-            printf("%lu %.3f\n", (end - begin) / iterations, 1000 * ((double)(cend - cbegin)) / CLOCKS_PER_SEC / iterations);
          }
          //*/
          #if 0
-         defined(SIMD)
+         //defined(SIMD)
          {
             int result;
             clock_t cbegin = clock();
