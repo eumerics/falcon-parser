@@ -50,7 +50,7 @@ uint8_t const pnct_base = 0x90;
 uint8_t const pnct_equals = pnct_base + 0;
 uint8_t const pnct_strict_equals = pnct_base + 1;
 uint8_t const pnct_not_equals = pnct_base + 2;
-uint8_t const pnct_strict_not_equals = pnct_base + 2;
+uint8_t const pnct_strict_not_equals = pnct_base + 3;
 uint8_t const pnct_lesser_or_equals = pnct_base + 4;
 uint8_t const pnct_greater_or_equals = pnct_base + 5;
 // logical operators

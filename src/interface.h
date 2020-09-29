@@ -2,6 +2,18 @@
 #define _INTERFACE_H_
 
 typedef uint8_t token_id_t;
+typedef union {
+   struct {
+      union {
+         uint8_t flags;
+         uint8_t precedence;
+         uint8_t flags_length;
+      };
+      uint8_t id;
+      uint16_t group;
+   };
+   uint32_t aggregated_id;
+} aggregate_id_t;
 typedef struct {
    size_t begin;
    size_t end;
@@ -250,16 +262,14 @@ typedef struct {
 typedef struct {
    embed_parse_node();
    uint8_t flags;
-   uint8_t operator_id;
-   token_t const* operator;
+   aggregate_id_t operator;
    void* argument;
 } update_expression_t;
 
 typedef struct {
    embed_parse_node();
    uint8_t flags;
-   uint8_t operator_id;
-   token_t const* operator;
+   aggregate_id_t operator;
    void* argument;
 } unary_expression_t;
 
@@ -270,8 +280,7 @@ typedef struct {
 
 typedef struct {
    embed_parse_node();
-   uint8_t operator_id;
-   token_t const* operator;
+   aggregate_id_t operator;
    void* left;
    void* right;
 } binary_expression_t;
@@ -293,16 +302,14 @@ typedef struct {
 */
 typedef struct {
    embed_parse_node();
-   uint8_t operator_id;
    void* left;
    void* right;
-   token_t const* operator;
+   aggregate_id_t operator;
 } assignment_expression_t;
 // keep assignment_expression_t and assignment_pattern_t binary compatible
 // it makes life easier to convert their interpretations in cover expressions
 typedef struct {
    embed_parse_node();
-   uint8_t operator_id;
    void* left;
    void* right;
 } assignment_pattern_t;

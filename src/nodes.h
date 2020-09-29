@@ -1,6 +1,7 @@
 #ifndef _NODES_H_
 #define _NODES_H_
 
+size_t const token_capacity = 32;
 typedef struct _memory_page_t {
    uint8_t* buffer;
    size_t available;
@@ -40,6 +41,7 @@ typedef struct {
    token_t const* const token_begin;
    token_t const* const token_end;
    token_t* scan_token;
+   size_t token_count;
    // scanner flags
    uint8_t token_flags;
    uint8_t current_token_flags;

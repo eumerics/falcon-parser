@@ -14,6 +14,20 @@
 #define set_error(x) state->error_message = error_##x##_message;
 #define return_error(x, value) { set_error(x); return value; }
 
+#if defined(MEMOPT)
+   #define token_diff(token1, token2) (((token1) - (token2) + token_capacity) % token_capacity)
+   #define _offset_from_current_scan_token(offset) (state->token_begin + ((state->token_count + offset) % token_capacity))
+   #define previous_scan_token() _offset_from_current_scan_token(-1)
+   // discard const qualifier for the following two definitions in favor of efficiency
+   #define increment_current_scan_token(token) (state->scan_token = (token_t*) _offset_from_current_scan_token(1), ++state->token_count)
+   #define decrement_current_scan_token(token) (state->scan_token = (token_t*) _offset_from_current_scan_token(-1), --state->token_count)
+#else
+   #define token_diff(token1, token2) ((token1) - (token2))
+   #define previous_scan_token() (state->scan_token - 1)
+   #define increment_current_scan_token() (++state->scan_token, ++state->token_count)
+   #define decrement_current_scan_token() (--state->scan_token, --state->token_count)
+#endif
+
 #if defined(timing) || defined(profile)
    #define start_clock(x) \
       clock_t cbegin = clock(); \
@@ -222,7 +236,7 @@ inline_spec void make_char_token(parse_state_t* state, uint8_t const id)
       .id = id, .group = mask_none, .flags = token_flag_none,
       .detail = nullptr
    };
-   ++state->scan_token;
+   increment_current_scan_token();
    ++state->code;
 }
 
@@ -237,7 +251,7 @@ inline_spec void make_token(
       .id = id, .group = group, .flags = (contextual << 3 | state->token_flags),
       .detail = detail
    };
-   ++state->scan_token;
+   increment_current_scan_token();
 }
 
 inline_spec void make_aggregated_token(
@@ -250,7 +264,7 @@ inline_spec void make_aggregated_token(
       .aggregated_id = aggregated_id,
       .detail = detail
    };
-   ++state->scan_token;
+   increment_current_scan_token();
 }
 
 // [LIMITATION] string length is 1-bit shorter than what the platform can
@@ -1151,9 +1165,12 @@ inline_spec int scan_ascii_identifier(parse_state_t* const state, params_t param
       make_token(state, begin, tkn_identifier, mask_identifier, precedence_none, nullptr);
       if_verbose(print_string("identifier: "));
    } else {
+      //if(state->scan_token == state->token_begin || (state->scan_token - 1)->id != '.') {
+      if(state->token_count == 0 || previous_scan_token()->id != '.') {
+         state->in_regexp_context = 1;
+      }
       make_aggregated_token(state, begin, reserved_word_id, nullptr);
       if_verbose(print_string("reserved_word: "));
-      state->in_regexp_context = 1;
    }
    return 1;
 }
@@ -1166,7 +1183,7 @@ int scan_identifier(parse_state_t* const state, params_t params)
    // 2) this function is invoked as a possible identifier scan, we have to
    //    first ascertain a identifier scan and gracefully return in order to
    //    consider other possible scans
-   token_t* token = (state->scan_token > state->token_begin ? state->scan_token - 1 : nullptr);
+   token_t const* const token = (state->token_count > 0 ? previous_scan_token() : nullptr);
    // if previous token is a possible continuation we roll back current token
    int can_continue = token && (state->code_begin + token->end == state->code) && (token->group & mask_idname);
    char_t const* const begin = (can_continue ? state->code_begin + token->begin : state->code);
@@ -1213,7 +1230,7 @@ int scan_identifier(parse_state_t* const state, params_t params)
       identifier_begin = begin;
       identifier_length = state->code - begin;
    }
-   if(can_continue) --state->scan_token;
+   if(can_continue) { decrement_current_scan_token(); }
    uint32_t reserved_word_id = is_reserved(state, identifier_begin, *identifier_begin, identifier_length, params);
    if(reserved_word_id == 0) {
       make_token(state, begin, tkn_identifier, mask_identifier, precedence_none, compiled_identifier);
@@ -1288,14 +1305,14 @@ int scan_uncommon(parse_state_t* state, params_t params)
    }
    if(c == line_separator || c == paragraph_separator) {
       //if_debug(print_string("continuing newline\n"));
-      token_t* token = (state->scan_token > state->token_begin ? state->scan_token - 1 : nullptr);
+      token_t const* const token = (state->token_count > 0 ? previous_scan_token() : nullptr);
       int can_continue = token && (state->code_begin + token->end == state->code) && (token->id & tkn_terminator);
       char_t const* const begin = (can_continue ? state->code_begin + token->begin : state->code);
       char_t const* const code_end = state->code_end;
       while(++state->code < code_end && is_line_terminator(*state->code));
       state->current_token_flags |= token_flag_newline;
    } else if(is_whitespace(c)) {
-      token_t* token = (state->scan_token > state->token_begin ? state->scan_token - 1 : nullptr);
+      token_t const* const token = (state->token_count > 0 ? previous_scan_token() : nullptr);
       int can_continue = token && (state->code_begin + token->end == state->code) && (token->id & tkn_whitespace);
       char_t const* const begin = (can_continue ? state->code_begin + token->begin : state->code);
       char_t const* const code_end = state->code_end;
@@ -1393,7 +1410,7 @@ inline_spec int scan(parse_state_t* state, params_t params)
 int scan_next_token(parse_state_t* const state, uint32_t params)
 {
    if(state->tokenization_status != status_flag_incomplete) return 0;
-   while(state->scan_token - state->parse_token < 2) {
+   while(token_diff(state->scan_token, state->parse_token) < 2) {
       if(state->code == state->code_end) {
          make_token(state, state->code, tkn_eot, 0, precedence_none, nullptr);
          state->tokenization_status = status_flag_complete;

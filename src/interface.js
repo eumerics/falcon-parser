@@ -110,6 +110,7 @@ function define_interface(Class, type_info, type_name)
    if(type_info.lists) _bind_lists(Class, type_info.lists);
    if(type_info.strings) _bind_strings(Class, type_info.strings);
    if(type_info.tokens) _bind_tokens(Class, type_info.tokens);
+   if(type_info.punctuators) _bind_punctuators(Class, type_info.punctuators);
    if(type_info.bind_value) {
       enumerables.push(type_info.bind_value);
       Object.defineProperty(Class.prototype, type_info.bind_value, {
@@ -278,6 +279,23 @@ function define_interface(Class, type_info, type_name)
                const end = this.buffer_view[type][token_offset + 1];
                const token_string = this.decode(begin, end);
                return token_string;
+            }
+         });
+      }
+      group_end();
+   }
+   function _bind_punctuators(Class, tokens) {
+      group_begin('punctuators');
+      for(const [name, offset] of Object.entries(tokens)) {
+         debug_log(name);
+         enumerables.push(name);
+         const type = 'u08';
+         Object.defineProperty(Class.prototype, name, {
+            enumerable: true,
+            get: function(){
+               const prop_offset = (this.pointer + offset + 1) / sizeof[type];
+               const pnct_id = this.buffer_view[type][prop_offset];
+               return (pnct_id < 0x80 ? String.fromCharCode(pnct_id) : Parser.punctuators[pnct_id]);
             }
          });
       }
@@ -547,7 +565,7 @@ const env = {
       //console.log(string);
    },
    */
-   log_number: function(number) { console.log(String.fromCharCode(number), number.toString(16)); },
+   log_number: function(number) { console.log(number.toString(16)); },
    log_string: function(pointer, length) {
       if(length < 256) {
          console.log(
@@ -704,6 +722,7 @@ export class Parser {
          if(key.startsWith('pnt_') ||
             key.startsWith('rw_') ||
             key.startsWith('tkn_') ||
+            key.startsWith('pnct_') ||
             key.match('_kind_') ||
             key.match('_flag_')
          ){
@@ -714,6 +733,52 @@ export class Parser {
             }
          }
       }
+      Parser.punctuators = {
+         // comparison operators
+         [Parser.constants.pnct_equals]: '==',
+         [Parser.constants.pnct_strict_equals]: '===',
+         [Parser.constants.pnct_not_equals]: '!=',
+         [Parser.constants.pnct_strict_not_equals]: '!==',
+         [Parser.constants.pnct_lesser_or_equals]: '<=',
+         [Parser.constants.pnct_greater_or_equals]: '>=',
+         // logical operators
+         [Parser.constants.pnct_logical_and]: '&&',
+         [Parser.constants.pnct_logical_or]: '||',
+         [Parser.constants.pnct_logical_coalesce]: '??',
+         // bit manipulation operators
+         [Parser.constants.pnct_shift_left]: '<<',
+         [Parser.constants.pnct_shift_right]: '>>',
+         [Parser.constants.pnct_unsigned_shift_right]: '>>>',
+         // update operators
+         [Parser.constants.pnct_increment]: '++',
+         [Parser.constants.pnct_decrement]: '--',
+         [Parser.constants.pnct_inplace_add]: '+=',
+         [Parser.constants.pnct_inplace_substract]: '-=',
+         [Parser.constants.pnct_inplace_mulitply]: '*=',
+         [Parser.constants.pnct_inplace_divide]: '/=',
+         [Parser.constants.pnct_inplace_remainder]: '%=',
+         [Parser.constants.pnct_inplace_exponentiation]: '^=',
+         [Parser.constants.pnct_inplace_logical_and]: '&&=',
+         [Parser.constants.pnct_inplace_logical_or]: '||=',
+         [Parser.constants.pnct_inplace_logical_coalesce]: '??=',
+         [Parser.constants.pnct_inplace_binary_and]: '&=',
+         [Parser.constants.pnct_inplace_binary_or]: '|=',
+         [Parser.constants.pnct_inplace_binary_xor]: '^=',
+         [Parser.constants.pnct_inplace_shift_left]: '<<=',
+         [Parser.constants.pnct_inplace_shift_right]: '>>=',
+         [Parser.constants.pnct_inplace_unsigned_shift_right]: '>>>=',
+         // other operators
+         [Parser.constants.pnct_exponentitation]: '**',
+         [Parser.constants.pnct_arrow]: '=>',
+         [Parser.constants.pnct_spread]: '...',
+         [Parser.constants.pnct_optional]: '?.',
+         // reserved words
+         [Parser.constants.rw_delete]: 'delete',
+         [Parser.constants.rw_typeof]: 'typeof',
+         [Parser.constants.rw_void]: 'void',
+         [Parser.constants.rw_in]: 'in',
+         [Parser.constants.rw_instanceof]: 'instanceof'
+      };
    }
    static map_constructors(){
       const constants = Parser.constants;
@@ -942,18 +1007,18 @@ export class Parser {
       });
       define_interface(UpdateExpression, {
          //nodes: {argument: 12},
-         //tokens: {operator: 11}
+         //punctuators: {operator: 11}
          nodes: {argument: 16},
-         tokens: {operator: 12},
+         punctuators: {operator: 12},
          flags: {flags: {type: 'u08', offset: 10, flags: {
             prefix: Parser.constants.operator_flag_prefix
          }}}
       });
       define_interface(UnaryExpression, {
          //nodes: {argument: 12},
-         //tokens: {operator: 10}
+         //punctuators: {operator: 10}
          nodes: {argument: 16},
-         tokens: {operator: 12},
+         punctuators: {operator: 12},
          flags: {flags: {type: 'u08', offset: 10, flags: {
             prefix: Parser.constants.operator_flag_prefix
          }}}
@@ -969,24 +1034,24 @@ export class Parser {
       });
       define_interface(BinaryExpression, {
          //nodes: {left: 12, right: 16},
-         //tokens: {operator: 10}
+         //punctuators: {operator: 10}
          nodes: {left: 16, right: 20},
-         tokens: {operator: 12}
+         punctuators: {operator: 12}
       });
       define_interface(LogicalExpression, {
          //nodes: {left: 12, right: 16},
-         //tokens: {operator: 10}
+         //punctuators: {operator: 10}
          nodes: {left: 16, right: 20},
-         tokens: {operator: 12}
+         punctuators: {operator: 12}
       });
       define_interface(ConditionalExpression, {
          nodes: {test: 12, consequent: 16, alternate: 20}
       });
       define_interface(AssignmentExpression, {
          //nodes: {left: 12, right: 16},
-         //tokens: {operator: 10}
+         //punctuators: {operator: 10}
          nodes: {left: 12, right: 16},
-         tokens: {operator: 20}
+         punctuators: {operator: 20}
       });
       define_interface(SequenceExpression, {
          lists: {expressions: 12}

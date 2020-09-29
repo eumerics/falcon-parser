@@ -24,7 +24,7 @@
 #define _get_7th_arg(arg1, arg2, arg3, arg4, arg5, arg6, arg7, ...) arg7
 
 #define word(name) rw_##name
-#define precedence(operator) (operator->precedence & 0xf8)
+#define precedence(operator) (operator.precedence & 0xf8)
 
 #define token_length(token) (token->end - token->begin)
 #define raw_char(token, offset) (state->code_begin[token->begin + offset])
@@ -32,16 +32,31 @@
    (token->end - token->begin == strlen(#name)) && \
    (strncmp_impl(state->code_begin + token->begin, stringize(name), strlen(#name)) == 0) \
 )
+#if defined(MEMOPT)
+   #define _offset_token(token, offset) ( \
+      (token) += (((token) - state->token_begin + offset) % token_capacity) \
+         - ((token) - state->token_begin) \
+   )
+   #define _token_at_offset(token, offset) (state->token_begin + ((token) - state->token_begin + offset) % token_capacity)
+   #define increment_current_token() (state->parse_token = _token_at_offset(current_token(), 1))
+#else
+   #define _offset_token(token, offset) ((token) += offset)
+   #define _token_at_offset(token, offset) ((token) + offset)
+   #define increment_current_token() (++state->parse_token)
+#endif
+#define increment_token(token) _offset_token(token, 1)
 #define current_token() (state->parse_token)
-#define offset_token(offset) (state->parse_token + offset)
-#define previous_token() offset_token(-1)
-#define next_token() offset_token(1)
+#define previous_token() _token_at_offset(current_token(), -1)
+#define next_token() _token_at_offset(current_token(), 1)
 #define current_token_id() (current_token()->id)
 #define current_token_length() (token_length(current_token()))
 #define current_token_is(name) token_is(name, current_token())
 
 //#define consume_token() (++state->parse_token)
-#define consume_token() (++state->parse_token, (params & param_flag_streaming) && scan_next_token(state, params))
+#define consume_token() ( \
+   increment_current_token(), \
+   (params & param_flag_streaming) && scan_next_token(state, params) \
+)
 #ifdef verbose
    #define log_and_consume_token() (print_token_consumption(), consume_token())
 #else
@@ -110,8 +125,7 @@
 #define assign_to_parent(property, value) parent->property = value;
 #define assign_operator() { \
    token_t const* const token = current_token(); \
-   node->operator_id = token->id; \
-   node->operator = token; \
+   node->operator.aggregated_id = token->aggregated_id; \
 }
 #define assign_token() { \
    token_t const* const token = current_token(); \
@@ -193,7 +207,9 @@ parse_list_node_t* make_list_node(parse_state_t* state, void* parse_node) {
 
 #define is_a_directive(token) ( \
    token->id == tkn_string_literal && \
-   (++token == state->parse_token || (token->id == ';' && ++token == state->parse_token)) \
+   ((increment_token(token) == state->parse_token) || \
+    (token->id == ';' && increment_token(token) == state->parse_token) \
+   ) \
 )
 #define is_use_strict(token) ( \
    (token->end - token->begin - 2 == strlen("use strict")) && \
@@ -306,10 +322,10 @@ inline_spec bool _property_key_is(parse_state_t* state, property_t* property, ch
    }
 #define _optional_parse1(type) _optional_parse3(type, NONE, NONE)
 #define _optional_parse3(type, remove_filter, add_filter) \
-   token_t const* const type##_start_token = state->parse_token; \
+   size_t const type##_token_count = state->token_count; \
    _print_parse_descent(type, remove_filter, add_filter); \
    void* type = parse_##type(state, tree_state, make_params(remove_filter, add_filter)); \
-   if(type == nullptr && state->parse_token != type##_start_token) { \
+   if(type == nullptr && state->token_count != type##_token_count) { \
       passon(nullptr); \
    }
 #define _try_parse1(type) _try_parse3(type, NONE, NONE)
@@ -1793,7 +1809,7 @@ bool change_node_types(parse_state_t* state, parse_list_node_t* list_node, uint8
             case pnt_initialized_name: break;
             case pnt_assignment_expression: {
                node_as(assignment_expression, parse_node, ae);
-               if(ae->operator_id != '=') return_error(non_assignment, false);
+               if(ae->operator.id != '=') return_error(non_assignment, false);
                ae->type = pnt_assignment_pattern;
                if(flags & change_flag_binding) {
                   if(!change_lhs_node_type(state, ae->left, flags)) return false;
@@ -2810,7 +2826,7 @@ void* parse_assignment_expression(parse_state_t* state, parse_tree_state_t* tree
    if(!is_an_assignment_target(expression)) {
       set_error(lvalue); passon(nullptr);
    }
-   if((params & param_flags_to_reset_on_assign) && node->operator_id == '=') {
+   if((params & param_flags_to_reset_on_assign) && node->operator.id == '=') {
    //if((params & cover_flag_initializer) && node->operator_id == '=') {
       //save_and_mask_tree_flags(cover_flag_initializer);
       parse(right, assignment_expression, param_flags_to_reset_on_assign, flag_none);
@@ -3573,8 +3589,15 @@ parse_result_t parse(char_t const* code_begin, char_t const* code_end, bool is_m
    memory_state_t memory_state = {
       .head = nullptr, .current = nullptr, .page_count = 0
    };
+#if defined(MEMOPT)
+   params |= param_flag_streaming;
+   token_t* token_begin = (token_t *) malloc(token_capacity * sizeof(token_t));
+   token_t* token_end = token_begin + token_capacity;
+#else
    size_t predicted_tokens = ((code_end - code_begin) / 1) + 3 + 128;
    token_t* token_begin = (token_t*) malloc(predicted_tokens * sizeof(token_t));
+   token_t* token_end = token_begin + predicted_tokens;
+#endif
    parse_state_t _state = {
       .memory = &memory_state,
       // code buffer
@@ -3583,8 +3606,9 @@ parse_result_t parse(char_t const* code_begin, char_t const* code_end, bool is_m
       .code = code_begin,
       // token buffer
       .token_begin = token_begin,
-      .token_end = token_begin + predicted_tokens,
+      .token_end = token_end,
       .scan_token = token_begin,
+      .token_count = 0,
       // scanner flags
       .token_flags = token_flag_none,
       .current_token_flags = token_flag_none,
