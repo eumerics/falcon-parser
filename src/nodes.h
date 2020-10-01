@@ -32,6 +32,13 @@ struct error_node_t {} error_node;
 void* errptr = &error_node;
 
 typedef struct {
+   // error state
+   uint8_t tokenization_status;
+   uint8_t parsing_status;
+   char const* error_message;
+   uint8_t expected_token_id;
+   uint16_t expected_mask;
+   //
    memory_state_t* memory;
    // code buffer
    char_t const* const code_begin;
@@ -57,12 +64,6 @@ typedef struct {
    // parser
    token_t const* parse_token;
    uint32_t depth;
-   // error state
-   uint8_t tokenization_status;
-   uint8_t parsing_status;
-   char const* error_message;
-   uint8_t expected_token_id;
-   uint16_t expected_mask;
 } parse_state_t;
 
 typedef struct {

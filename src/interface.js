@@ -81,6 +81,14 @@ function utf8_to_utf16(utf8_view) {
    return new Uint16Array(utf16_buffer, 0, j);
 }
 
+function cstring_length(buffer, index)
+{
+   const begin = index;
+   const capacity = buffer.byteLength;
+   while(index < capacity && buffer[index] != 0) ++index;
+   return index - begin;
+}
+
 function change_node_type(Class, type_name)
 {
    Object.defineProperty(Class.prototype, 'type', {value: type_name});
@@ -643,6 +651,60 @@ const env = {
    }
 }
 
+export class Token {
+   constructor(buffer_view, pointer) {
+      Object.defineProperties(this, {
+         buffer_view: {value: buffer_view, configurable: true},
+         pointer: {value: pointer},
+      });
+   }
+   get begin() { return this.buffer_view.u32[this.pointer / sizeof.u32]; }
+   get end() { return this.buffer_view.u32[this.pointer / sizeof.u32 + 1]; }
+}
+export class Parse_Result {
+   constructor(buffer_view, pointer) {
+      Object.defineProperties(this, {
+         buffer_view: {value: buffer_view, configurable: true},
+         pointer: {value: pointer},
+      });
+   }
+   get parse_result_pointer() {
+      return this.pointer;
+   }
+   get parse_state_pointer() {
+      return this.pointer + 4;
+   }
+   get program() {
+      if(this._program) return this._program;
+      const program_pointer = this.buffer_view.u32[this.pointer / sizeof.u32];
+      this._program = new Program(this.buffer_view, program_pointer);
+      return this._program;
+   }
+   get parse_token() {
+      const prop_offset = (this.pointer + 76) / sizeof.u32;
+      return new Token(this.buffer_view, this.buffer_view.u32[prop_offset]);
+   }
+   get tokenization_status() {
+      return this.buffer_view.u08[this.pointer + 4];
+   }
+   get parsing_status() {
+      return this.buffer_view.u08[this.pointer + 5];
+   }
+   get error_mesage() {
+      const prop_offset = (this.pointer + 8) / sizeof.u32;
+      const error_message_pointer = this.buffer_view.u32[prop_offset];
+      if(error_message_pointer == 0) return '';
+      const length = cstring_length(this.buffer_view.u08, error_message_pointer);
+      if(length >= 512) return 'error message is too long';
+      return utf8_decoder.decode(this.buffer_view.u08.subarray(error_message_pointer, length));
+   }
+   get expected_token_id() {
+      return this.buffer_view.u08[this.pointer + 12];
+   }
+   get expected_token_mask() {
+      return this.buffer_view.u16[(this.pointer + 14) / sizeof.u16];
+   }
+}
 export class Parser {
    constructor() {
       this.code = {};
@@ -652,6 +714,9 @@ export class Parser {
    async load_file(file_path) {
       // for now all files are assumed to be UTF-8 encoded
       let code_utf8_view = await read_file(file_path);
+      this.load_utf8_view(code_utf8_view);
+   }
+   load_utf8_view(code_utf8_view) {
       let code_view;
       if(Parser.use_utf16) {
          // convert from UTF-8 to UTF-16
@@ -673,10 +738,8 @@ export class Parser {
       let result_pointer = Parser.instance.exports.malloc(result_size);
       let begin = this.code.pointer, end = begin + this.code.view.byteLength;
       Parser.instance.exports.parse(result_pointer, begin, end, is_module, params);
-      let result = new Uint32Array(Parser.memory.buffer, result_pointer, result_size/4);
-      this.parse_result = {value: result, pointer: result_pointer};
-   }
-   bind_parse_tree() {
+      //let result = new Uint32Array(Parser.memory.buffer, result_pointer, result_size/4);
+      //this.parse_result = {value: result, pointer: result_pointer};
       let buffer = Parser.memory.buffer;
       let buffer_view = {
          buffer: buffer,
@@ -685,21 +748,28 @@ export class Parser {
          u32: new Uint32Array(buffer),
          code: this.code.view
       };
-      let TypedArray = (Parser.use_utf16 ? Uint16Array : Uint8Array);
-      let code_view = new TypedArray(buffer, this.parse_result.value[1], this.code.view.length);
-      this.program = new Program(buffer_view, this.parse_result.value[0]);
-      return this.program;
+      this.parse_result = new Parse_Result(buffer_view, result_pointer);
+      if(this.parse_result.tokenization_status != Parser.constants.status_flag_complete ||
+         this.parse_result.parsing_status != Parser.constants.status_flag_complete
+      ){
+         let error_message = this.parse_result.error_message;
+         if(error_message) throw error_message;
+         let expected_token_id = this.parse_result.expected_token_id;
+         if(expected_token_id) throw `expecting token id ${expected_token_id}`;
+         const index = this.parse_result.parse_token.begin;
+         throw `unexpected token at character index ${index}`;
+      }
+      return this.parse_result;
    }
    async parse_file(file_name, is_module, params) {
       await this.load_file(file_name);
       is_module = is_module ?? /\.module\.js$|\.mjs$/.test(file_name);
-      this.parse_code(is_module, params);
-      return this.bind_parse_tree();
+      return this.parse_code(is_module, params);
    }
    free() {
       //Parser.instance.exports.wasm_free(result.value[0]);
-      Parser.instance.exports.parser_free(this.parse_result.pointer + 4);
-      Parser.instance.exports.wasm_free(this.parse_result.pointer);
+      Parser.instance.exports.parser_free(this.parse_result.parse_state_pointer);
+      Parser.instance.exports.wasm_free(this.parse_result.parse_result_pointer);
    }
 
    static async load_wasm(path) {
@@ -757,7 +827,7 @@ export class Parser {
          [Parser.constants.pnct_inplace_mulitply]: '*=',
          [Parser.constants.pnct_inplace_divide]: '/=',
          [Parser.constants.pnct_inplace_remainder]: '%=',
-         [Parser.constants.pnct_inplace_exponentiation]: '^=',
+         [Parser.constants.pnct_inplace_exponentiation]: '**=',
          [Parser.constants.pnct_inplace_logical_and]: '&&=',
          [Parser.constants.pnct_inplace_logical_or]: '||=',
          [Parser.constants.pnct_inplace_logical_coalesce]: '??=',

@@ -24,15 +24,13 @@ import {Parser} from '../src/interface.js';
             await parser.load_file(args.f);
             let start = new Date;
             let iterations = args.i || 1000;
+            let parse_result;
             for(let it = 0; it < iterations; ++it) {
-               parser.parse_code(is_module, params);
+               parse_result = parser.parse_code(is_module, params);
                if(it != iterations - 1) parser.free();
             }
             const elapsed = (new Date - start) / iterations;
-
-            start = new Date();
-            const program = parser.bind_parse_tree();
-            console.log('syntax tree constructions took', (new Date - start));
+            const program = parse_result.program;
 
             const script = parser.code.utf8_view.toString();
             const acorn = await import('acorn');
@@ -52,7 +50,8 @@ import {Parser} from '../src/interface.js';
             const meriyah_elpased = (new Date - start) / iterations;
             console.log(elapsed, acorn_elpased, meriyah_elpased);
          } else {
-            let program = await parser.parse_file(args.f, is_module, params);
+            const parse_result = await parser.parse_file(args.f, is_module, params);
+            const program = parse_result.program;
             if(args.c) {
                const acorn = await import('acorn');
                const options = {ecmaVersion: 2020, sourceType: is_module ? 'module' : 'script'};
@@ -64,8 +63,10 @@ import {Parser} from '../src/interface.js';
                let tb = new Date; const t = JSON.stringify(acorn_result); let te = new Date - tb;
                let spb = new Date; const source = JSON.parse(s); let spe = new Date - spb;
                const target = JSON.parse(t);
-               fs.writeFileSync('../.ignore/log1', JSON.stringify(source, null, '   '));
-               fs.writeFileSync('../.ignore/log2', JSON.stringify(target, null, '   '));
+               if(!args.nodump) {
+                  fs.writeFileSync('../.ignore/log1', JSON.stringify(source, null, '   '));
+                  fs.writeFileSync('../.ignore/log2', JSON.stringify(target, null, '   '));
+               }
                const diff = object_diff(source, target);
                console.log(JSON.stringify(diff, null, '   '));
                let vt = new Date; program.visit(); let visitation_time = new Date - vt;
