@@ -2,10 +2,11 @@
    "type": "module",
    "devDependencies": {
       "acorn": "^8.0.1",
+      "asar": "^3.0.3",
       "meriyah": "^2.1.1",
       "minimist": "^1.2.5",
-      "test262-parser-tests": "0.0.5",
-      "asar": "^3.0.3"
+      "tenko": "^1.1.1",
+      "test262-parser-tests": "0.0.5"
    },
    "scripts": {
       "postinstall": "node ../scripts/archive_test262.js"

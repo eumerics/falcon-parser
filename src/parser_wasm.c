@@ -1,6 +1,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include "common.h"
+#include "nodes.h"
 
 #define wasm_export __attribute__ ((visibility ("default")))
 #define start_clock(x)
@@ -42,6 +43,7 @@ extern void begin_group_impl(char const* type_pointer, size_t type_length);
 extern void end_group();
 extern void log_token(char_t const* token, size_t length);
 extern void log_assertion(char const* file_name, size_t length, size_t line_number);
+extern void log_params(params_t params);
 
 #ifdef verbose
    void assert(int value, char const* file_name, size_t line_number)
@@ -62,6 +64,7 @@ extern void log_assertion(char const* file_name, size_t length, size_t line_numb
       log_token_consumption(state->code_begin, state->parse_token->begin, state->parse_token->end, state->depth)
    #define begin_group(name) begin_group_impl(name, strlen(name))
    #define print_token(token, length) log_token(token, length)
+   #define print_params(params) log_params(params);
 #else
    #define _print_parse_descent(type, remove_filter, add_filter)
    #define _print_parse_ascent(node)
@@ -69,10 +72,10 @@ extern void log_assertion(char const* file_name, size_t length, size_t line_numb
    #define print_token_consumption()
    #define begin_group(name)
    #define print_token(token, length)
+   #define print_params(params)
 #endif
 
 #include "scanner.h"
-#include "nodes.h"
 #include "parser.h"
 #include <stdlib.h>
 

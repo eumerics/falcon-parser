@@ -13,6 +13,7 @@
 
 #define set_error(x) state->error_message = error_##x##_message;
 #define return_error(x, value) { set_error(x); return value; }
+#define allow_annex() ((params & param_flag_annex) && !(params & param_flag_strict_mode))
 
 #if defined(MEMOPT)
    #define token_diff(token1, token2) (((token1) - (token2) + token_capacity) % token_capacity)
@@ -21,11 +22,19 @@
    // discard const qualifier for the following two definitions in favor of efficiency
    #define increment_current_scan_token(token) (state->scan_token = (token_t*) _offset_from_current_scan_token(1), ++state->token_count)
    #define decrement_current_scan_token(token) (state->scan_token = (token_t*) _offset_from_current_scan_token(-1), --state->token_count)
+   #define unwind_for_use_strict(token) ( \
+      state->tokenization_status = status_flag_incomplete, \
+      state->code = state->code_begin + token->begin, \
+      state->token_count -= (state->scan_token - token + token_capacity) % token_capacity, \
+      state->scan_token = (token_t*) token, \
+      scan_next_token(state, params) \
+   )
 #else
    #define token_diff(token1, token2) ((token1) - (token2))
    #define previous_scan_token() (state->scan_token - 1)
    #define increment_current_scan_token() (++state->scan_token, ++state->token_count)
    #define decrement_current_scan_token() (--state->scan_token, --state->token_count)
+   #define unwind_for_use_strict(token)
 #endif
 
 #if defined(timing) || defined(profile)
@@ -297,11 +306,27 @@ compiled_string_t* compile_string(
    char_t const* const begin, char_t const* const end, params_t params
 )
 {
+   #define return_non_escape_string() { \
+      if(for_template) { \
+         compiled_string_t* compiled_string = parser_malloc(sizeof(compiled_string_t)); \
+         *compiled_string = (compiled_string_t){ \
+            .begin = nullptr, .end = (char_t const*)(-1), \
+            .offending_index = non_escape_code_begin - state->code_begin, \
+            .offending_flags = offending_flag_not_escape \
+         }; \
+         return compiled_string; \
+      } else { \
+         return nullptr; \
+      } \
+   }
    char_t const* code = begin - 1;
    char_t* compiled = parser_malloc((end - begin) * sizeof(char_t));
    char_t const* const compiled_begin = compiled;
+   size_t offending_index = 0;
+   uint8_t offending_flags = 0;
    while(++code < end) {
       char_t c = *code;
+      char_t const* non_escape_code_begin = code;
       if(c != '\\') {
          // Very odd behavior for template LineTerminatorSequences
          // https://tc39.es/ecma262/#sec-static-semantics-tv-and-trv
@@ -353,13 +378,13 @@ compiled_string_t* compile_string(
                   hex <<= 4;
                   if(c >= '0' && c <= '9'){ hex |= (c - '0'); continue; }
                   if(cl >= 'a' && cl <= 'f'){ hex |= 10 + (cl - 'a'); continue; }
-                  if(i < min_hex_chars) return 0;
+                  if(i < min_hex_chars) { return_non_escape_string(); }
                   else { --code; hex >>= 4; break; }
                }
-               if(is_code_point && (*++code != '}')) return 0;
+               if(is_code_point && (*++code != '}')) { return_non_escape_string(); }
             #if defined(UTF16)
                if(hex & 0xffff0000) {
-                  if(hex > 0x10ffff) return 0;
+                  if(hex > 0x10ffff) { return_non_escape_string(); }
                   hex -= 0x10000;
                   *(compiled + 1) = (0b110111 << 10) | (hex & 0x3ff); hex >>= 10;
                   *(compiled + 0) = (0b110110 << 10) | (hex & 0x3ff); hex >>= 10;
@@ -373,7 +398,11 @@ compiled_string_t* compile_string(
                break;
             }
             default: {
-               if(!for_template && (params & param_flag_annex) && c >= '0' && c <= '9') {
+               if(!for_template && allow_annex() && c >= '0' && c <= '9') {
+                  if(offending_flags == 0) {
+                     offending_flags = offending_flag_octal;
+                     offending_index = code - 1 - state->code_begin;
+                  }
                   // legacy octal escape sequence
                   if(c >= '8') { *compiled++ = c; break; }
                   char_t value = c - '0';
@@ -392,15 +421,18 @@ compiled_string_t* compile_string(
                } else if(!is_decimal(c)){
                   *compiled++ = c;
                } else {
-                  return 0;
+                  return_non_escape_string();
                }
             }
          }
       }
    }
    compiled_string_t* compiled_string = parser_malloc(sizeof(compiled_string_t));
-   compiled_string->begin = compiled_begin;
-   compiled_string->end = compiled;
+   *compiled_string = (compiled_string_t){
+      .begin = compiled_begin, .end = compiled,
+      .offending_index = offending_index,
+      .offending_flags = offending_flags
+   };
    return compiled_string;
 }
 inline_spec int compile_string_literal(parse_state_t* const state, params_t params)
@@ -449,7 +481,7 @@ inline_spec int scan_string_literal(parse_state_t* const state, params_t params)
          } else if(c == '\r') {
             if(++code == end) return 0;
             if(*code == '\n') ++code;
-         } else if((params & param_flag_annex) && c >= '0' && c <= '9'){
+         } else if(allow_annex() && c >= '0' && c <= '9'){
             if(c >= '8') ++code;
             else if(c >= '4') {
                if(++code != end && *code >= '0' && *code <= '7') ++code;
@@ -498,7 +530,7 @@ inline_spec int scan_numeric_literal(parse_state_t* const state, params_t params
       if(++code == end) goto _make_numeric_token;
       char_t c = *code;
       //[TODO] octal compilation
-      if((params & param_flag_annex) && (c >= '0' && c <= '9')) {
+      if(allow_annex() && (c >= '0' && c <= '9')) {
          decimal_like = c & 0x08; // '8' = 0x38, '9' = 0x39
          while(++code < end){
             char_t c = *code;

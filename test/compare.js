@@ -1,4 +1,5 @@
 import {Parser} from '../src/interface.js';
+import Tenko from 'tenko';
 
 (async () => {
    /*
@@ -54,13 +55,16 @@ import {Parser} from '../src/interface.js';
             const program = parse_result.program;
             if(args.c) {
                const acorn = await import('acorn');
-               const options = {ecmaVersion: 2020, sourceType: is_module ? 'module' : 'script'};
+               const source_type = (is_module ? 'module' : 'script');
+               const options = {ecmaVersion: 2020, sourceType: source_type};
                const fs = await import('fs');
                const script = fs.readFileSync(args.f).toString();
-               const acorn_result = acorn.parse(script, options);
+               let reference_result;
+               reference_result = acorn.parse(script, options);
+               //reference_result = Tenko(script, {goalMode: source_type, ranges: true}).ast;
                const {object_diff} = await import('./object_diff.js');
                let sb = new Date; const s = JSON.stringify(program); let se = new Date - sb;
-               let tb = new Date; const t = JSON.stringify(acorn_result); let te = new Date - tb;
+               let tb = new Date; const t = JSON.stringify(reference_result); let te = new Date - tb;
                let spb = new Date; const source = JSON.parse(s); let spe = new Date - spb;
                const target = JSON.parse(t);
                if(!args.nodump) {

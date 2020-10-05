@@ -21,6 +21,10 @@
    [p = [q, r] = [1, 2]] = [];
    [s = [t, u = 1, [v, w] = [x, [, y = 2] = [3, [4]]]]] = [];
    // ----- lhs expressions other than identifier
+   [...z.a] = [1];
+   [...fun().e] = [5];
+   [...(z.a)] = [1];
+   [...(fun().e)] = [5];
    [z.a, [z.b, ...[z.c, z.d, fun().e]]] = [1, 2, 3, 4, 5]; // funny :) get it?!
    // ----- array equivalents
    [a];
@@ -35,14 +39,18 @@
    [o = [1, 2]];
    [p = [q, r]];
    [s = [t, u = 1, [v, w] = [x, [, y = 2] = [3, [4]]]]];
+   // ----- lhs expressions other than identifier
+   [...z.a];
+   [...fun().e];
+   [...(z.a)];
+   [...(fun().e)];
+   [z.a, [z.b, ...[z.c, z.d, fun().e]]];
 }
 {
    // -- object assignment
    let a, b, c, d, e, f, g, h, i, j, k, l, m;
    let n, o, p, q, r, s, t, u, v, w, x, y, z;
-   // the former below is a neater vesion of the latter, we will use that format
-   z = {a} = {a: 1}; ({a} = {a: 1});
-   z = {b, c: {d}} = {b: 1, c: {d: 2}};
+   z = {a: {a}, "b": {b}, 1: {c}, [d]: d, e} = {a, b, c, d, e};
    // ----- rest
    z = {...f} = {x: 1, y: 2};
    z = {g, ...h} = {g: 1, y: 2, z: 3};
@@ -56,7 +64,12 @@
    z = {o = {a: 1, b: 2}, oo = 3} = {};
    z = {p = {q, r} = {q: 1, r: 2}} = {};
    z = {s, t: {u = 10}} = {s: 1, t: {}};
-   //z = {s = {t, u = 1, v: {w = {w: {x: 2}}}}} = {};
+   // ----- lhs expressions other than identifier
+   //z = {...z.a} = {};
+   //z = {...fun().e} = {};
+   //z = {...(z.a)} = {};
+   //z = {...(fun().e)} = {};
+   //z = {z.a, {z.b, ...{z.c, z.d, fun().e}}} = {};
 }
 {
    // -- mixed assignment
@@ -66,8 +79,6 @@
    z = {d, e: [f, g]} = {d: 1, e: [2, 3]};
    [h, {i = 4, j} = {i: 1, j: 2}] = [1, {b: 0, c: 0}];
    z = {k, l = [2, 3]} = {k: 1};
-   [m, ...{0: n, o: {p} = {p: 3}}] = [1, 2];
-   //[m, ...{0: n, o: {p} = {q, r} = {p: 3}}] = [1, 2];
-
-   //({...(obj)} = foo);
+   //[m, ...{0: n, o: {p} = {p: 3}}] = [1, 2];
+   [m, ...{0: n, o: {p} = {q, r} = {p: 3}}] = [1, 2];
 }

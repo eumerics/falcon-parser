@@ -30,6 +30,12 @@ define_error(0x000f, surrogate_in_identifier,
    "Unicode character in an identifier must not be a surrogate. "
    "Instead of specifying a surrogate pair, use unicode escape sequence format \\u{xxxxx}."
 );
+define_error(0x0010, contextual_identifier, "identifier cannot be a contextual reserved word");
+define_error(0x0011, contextual_label, "label cannot be a contextual reserved word");
+define_error(0x0012, trailing_comma, "unexpected trailing comma");
+define_error(0x0013, invalid_binding_element, "invalid binding element");
+define_error(0x0014, initializer_in_for, "initialier is not allowed in for-in/for-of statement");
+define_error(0x0015, missing_try_handler, "one of catch or finally handler must be defined for try");
 
 define_error(0x1000, missing_assignment_or_binding_flag,
    "internal-error: change flags must have one of assignment or binding flag"

@@ -212,9 +212,9 @@ uint8_t const png_string_literal = LHS | LITERAL;
 uint8_t const pnt_regexp_literal = 7;
 uint8_t const png_regexp_literal = LHS;
 uint8_t const pnt_array_expression = 8;
-uint8_t const png_array_expression = LHS | ASSIGN;
+uint8_t const png_array_expression = LHS | COVER;
 uint8_t const pnt_object_expression = 9;
-uint8_t const png_object_expression = LHS | ASSIGN | COVER;
+uint8_t const png_object_expression = LHS | COVER;
 uint8_t const pnt_template_literal = 10;
 uint8_t const png_template_literal = LHS;
 
@@ -242,9 +242,9 @@ uint8_t const pnt_covered_call_expression = expression_base + 9;
 uint8_t const pnt_chain_expression = expression_base + 10;
 uint8_t const png_chain_expression = LHS;
 uint8_t const pnt_array_assignment_pattern = expression_base + 11;
-uint8_t const png_array_assignment_pattern = NONE;
+uint8_t const png_array_assignment_pattern = LHS | ASSIGN | COVER;
 uint8_t const pnt_object_assignment_pattern = expression_base + 12;
-uint8_t const png_object_assignment_pattern = NONE;
+uint8_t const png_object_assignment_pattern = LHS | ASSIGN | COVER;
 uint8_t const pnt_lhs_expression = expression_base + 13;
 uint8_t const png_lhs_expression = LHS; // for inheritence checks only
 uint8_t const pnt_update_expression = expression_base + 14;
@@ -423,17 +423,16 @@ uint32_t const param_flag_in = 0x0004;
 uint32_t const param_flag_return = 0x0008;
 uint32_t const param_flag_yield = 0x0010;
 uint32_t const param_flag_tagged = 0x0020;
-uint32_t const cover_flag_initializer = 0x00020000; // both a param and state flag
-uint32_t const cover_flag_parameters = 0x00040000; // both a param and state flag
+//uint32_t const cover_flag_initializer = 0x00010000; // both a param and state flag
+uint32_t const cover_flag_parameters = 0x00020000; // both a param and state flag
 // optional_binding_init parameter is used to reuse [Lexical]BindingList
 // production for simultaneous [Lexical]BindingList product of a
 // LexicalDeclaration and the ForBinding in a ForStatement
-uint32_t const param_flag_for_binding = 0x00080000;
-uint32_t const param_flag_annex = 0x00100000;
-uint32_t const param_flag_strict_mode = 0x00200000;
-uint32_t const param_flag_vanilla_function = 0x0040000;
+uint32_t const param_flag_for_binding = 0x00100000;
+uint32_t const param_flag_annex = 0x00200000;
+uint32_t const param_flag_strict_mode = 0x00400000;
+uint32_t const param_flag_vanilla_function = 0x0080000;
 uint32_t const param_flag_streaming = 0x80000000;
-uint32_t const param_flags_to_reset_on_assign = cover_flag_initializer | cover_flag_parameters;
 /*
 uint32_t const cover_flag_array = 0x00010000;
 uint32_t const cover_flag_assignment = 0x00020000;
@@ -451,9 +450,13 @@ uint8_t const change_flag_object_binding = change_flag_object | change_flag_bind
 uint8_t const change_flag_array_assignment = change_flag_array | change_flag_assignment;
 uint8_t const change_flag_object_assignment = change_flag_object | change_flag_assignment;
 
+uint8_t const offending_flag_octal = 0x01;
+uint8_t const offending_flag_not_escape = 0x02;
+
 #undef NONE
 #undef LHS
 #undef ASSIGN
 #undef COVER
+#undef LITERAL
 
 #endif //_CONSTANTS_H_

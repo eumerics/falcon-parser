@@ -1,6 +1,7 @@
 import {Parser} from '../src/interface.js';
 import disk from 'asar/lib/disk.js';
 import * as acorn from 'acorn';
+import Tenko from 'tenko';
 import {object_diff} from './object_diff.js';
 import fs from 'fs';
 import readline from 'readline';
@@ -16,19 +17,27 @@ function test_file(utf8_view, script, is_module, is_negative)
       program = parse_result.program;
       program = JSON.parse(JSON.stringify(program));
    } catch(e) {
+      //console.log(e);
    }
-   let acorn_result;
+   let reference_result;
    try {
-      const options = {ecmaVersion: 2020, sourceType: is_module ? 'module' : 'script'};
-      acorn_result = acorn.parse(script, options);
-      acorn_result = JSON.parse(JSON.stringify(acorn_result));
+      const source_type = (is_module ? 'module' : 'script');
+      const options = {ecmaVersion: 2020, sourceType: source_type};
+      reference_result = acorn.parse(script, options);
+      //reference_result = Tenko(script, {goalMode: source_type, ranges: true}).ast;
+      reference_result = JSON.parse(JSON.stringify(reference_result));
    } catch(e) {
+      //console.log(e);
    }
+   let result;
    if(is_negative) {
-      return (!program && !acorn_result ? null : undefined);
+      result = (!program && !reference_result ? null : undefined);
    } else {
-      return (program && acorn_result ? object_diff(program, acorn_result) : undefined);
+      result = (program && reference_result ? object_diff(program, reference_result) : undefined);
    }
+   //if(result !== null) { console.log(program, acorn_result); }
+   //parser.free();
+   return result;
 }
 
 function test_test262_suite()
@@ -124,6 +133,7 @@ function test_falcon_suite_dir(suite_path, is_negative)
          continue;
       }
       if(/tsserver/.test(file_path)) continue;
+      //if(/libraries/.test(file_path)) continue;
       if(!/\.js$/.test(file_path)) continue;
       //console.log(file_path);
       const is_module = /\.module\.js$|\.mjs$/.test(file_path);

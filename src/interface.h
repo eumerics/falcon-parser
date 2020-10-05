@@ -83,6 +83,8 @@ typedef struct {
 typedef struct {
    char_t const* begin;
    char_t const* end;
+   size_t offending_index;
+   uint8_t offending_flags;
 } compiled_string_t;
 
 // expressions
@@ -92,6 +94,8 @@ typedef struct {
 
 typedef struct {
    embed_parse_node();
+   uint8_t has_trailing_comma;
+   token_t const* first_cover;
    void* elements;
 } array_expression_t;
 // keep array_expression_t and array_pattern_t binary compatible
@@ -105,6 +109,7 @@ typedef struct {
 } binding_assignment_t;
 typedef struct {
    embed_parse_node();
+   uint8_t has_trailing_comma;
    token_t const* first_cover;
    void* properties;
 } object_expression_t;
@@ -317,6 +322,7 @@ typedef struct {
    embed_parse_node();
    void* left;
    void* right;
+   cover_list_node_t* cover_node;
 } initialized_name_t;
 
 typedef struct {

@@ -16,7 +16,8 @@ let a, b, c, expr, head_expr, tail_expr;
 `head-${a}${b}-tail`;
 
 // special characters
-`$`, `{`, `}`, `\${`, `$ {`, `\``, `
+`$`, `{`, `}`, `\${`, `$ {`, `\``, ``, `
+`, `
 `;
 
 // nesting
@@ -43,3 +44,9 @@ let a, b, c, expr, head_expr, tail_expr;
 // special expressions / statements
 `${{a}}`;
 { `${a}`; }
+
+// tagged not-escape sequences
+a`\01`, a`\1`;
+a`\x`, a`\xg`, a`\x0g`;
+a`\u`, a`\ug`, a`\u0g`, a`\u00g`, a`\u000g`;
+a`\u{`, a`\u{g`, a`\u{0g`, a`\u{00g`, a`\u{000g`, a`\u{0000g`, a`\u{00000g`, a`\u{110000}`;

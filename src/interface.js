@@ -135,8 +135,9 @@ function define_interface(Class, type_info, type_name)
       let type_id = parent.buffer_view.u08[node_pointer + 8];
       let constructor = Parser.constructors[type_id];
       if(!constructor){
-         console.log(parent.pointer, new Uint32Array(parent.buffer_view.buffer, parent.pointer, 6));
-         console.log(node_pointer, new Uint32Array(parent.buffer_view.buffer, node_pointer, 6));
+         //console.log(parent.pointer, new Uint32Array(parent.buffer_view.buffer, parent.pointer, 6));
+         //console.log(node_pointer, new Uint32Array(parent.buffer_view.buffer, node_pointer, 6));
+         console.log((new Error).stack);
          throw(`no constructor for id ${type_id}`);
       }
       return new constructor(parent.buffer_view, node_pointer);
@@ -327,6 +328,7 @@ export class Node {
       const compiled_begin = this.buffer_view[type][(this.pointer + 12) / sizeof[type]];
       const compiled_end = this.buffer_view[type][(this.pointer + 16) / sizeof[type]];
       if(!compiled_begin) {
+         if(compiled_end) return null; // case of template nonescape string
          return Parser.decoder.decode(
             this.buffer_view.code.subarray(this.begin + strip_length, this.end - strip_length)
          );
@@ -353,6 +355,7 @@ export class Node {
          enumerable_object[property] = this[property];
       }
       Parser.to_json_time += new Date - begin;
+      //console.log(this.type, this.enumerables);
       return enumerable_object;
    }
    visit() {
@@ -596,27 +599,34 @@ const env = {
    log_pointer: function(pointer) { console.log('pointer', pointer); },
    log_node: function(){ console.log(...arguments); },
    //print: function() { console.log(...arguments); }
-   log_parse_descent: function(type_pointer, type_length, depth, params) {
-      const type_view = new Uint8Array(Parser.memory.buffer, type_pointer, type_length);
-      let title = Array(depth < 0 ? 0 : depth % 60).fill(' ').join('') + '=> ';
-      title += Parser.utf8_decoder.decode(type_view);
+   get_params_string: function(params) {
       const flags = [
          ['param_flag_await', 'await'],
          ['param_flag_default', 'default'],
          ['param_flag_in', 'in'],
          ['param_flag_return', 'return'],
          ['param_flag_yield', 'yield'],
-         ['cover_flag_initializer', 'cover-init'],
          ['cover_flag_parameters', 'cover-params'],
          ['param_flag_for_binding', 'for-binding'],
          ['param_flag_annex', 'annex'],
          ['param_flag_strict_mode', 'strict']
       ];
-      title += ' (';
+      let params_string = ' (';
       for(const [flag, label] of flags) {
-         if(params & Parser.constants[flag]) title += ` ${label}`;
+         if(params & Parser.constants[flag]) params_string += ` ${label}`;
       }
-      title += ` ) [${depth}]`;
+      params_string += ` )`;
+      return params_string;
+   },
+   log_params: function(params) {
+      console.log(env.get_params_string(params));
+   },
+   log_parse_descent: function(type_pointer, type_length, depth, params) {
+      const type_view = new Uint8Array(Parser.memory.buffer, type_pointer, type_length);
+      let title = Array(depth < 0 ? 0 : depth % 60).fill(' ').join('') + '=> ';
+      title += Parser.utf8_decoder.decode(type_view);
+      title += ` [${depth}]`;
+      title += env.get_params_string(params);
       console.log(title);
       //console.groupCollapsed(title);
    },
@@ -1027,7 +1037,7 @@ export class Parser {
       define_interface(SpreadElement, {nodes: {argument: 12}});
       define_interface(RestElement, {nodes: {argument: 12}});
       //define_interface(Identifier, {bind_value: 'name'});
-      define_interface(ArrayExpression, {lists: {elements: 12}});
+      define_interface(ArrayExpression, {lists: {elements: 16}});
       define_interface(ObjectExpression, {lists: {properties: 16}});
       define_interface(TemplateLiteral, {lists: {quasis: 12, expressions: 16}});
       define_interface(TemplateElement, {
@@ -1138,7 +1148,7 @@ export class Parser {
          nodes: {left: 12, right: 16}
       }, 'AssignmentPattern');
       define_interface(ArrayPattern, {
-         lists: {elements: 12}
+         lists: {elements: 16}
       });
       define_interface(ObjectPattern, {
          lists: {properties: 16}
@@ -1146,7 +1156,7 @@ export class Parser {
       //[COMPATIBILITY] estree does not distinguish between assignment patterns and
       // binding patterns
       define_interface(ArrayAssignmentPattern, {
-         lists: {elements: 12}
+         lists: {elements: 16}
       }, 'ArrayPattern');
       define_interface(ObjectAssignmentPattern, {
          lists: {properties: 16}

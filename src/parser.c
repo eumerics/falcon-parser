@@ -43,24 +43,24 @@ elements_t characters2 = {0, 0, 0, 0, 0, 0, 0, 0, 0};
          abort();
       }
    }
+   #define print_params(params) \
+      printf( \
+         color_bold_bright_black("(%s%s%s%s%s%s%s%s%s )") " \n", \
+         (params & param_flag_await ? " await" : ""), \
+         (params & param_flag_default ? " default" : ""), \
+         (params & param_flag_in ? " in" : ""), \
+         (params & param_flag_return ? " return" : ""), \
+         (params & param_flag_yield ? " yield" : ""), \
+         (params & cover_flag_parameters ? " cover-params" : ""), \
+         (params & param_flag_for_binding ? " for-binding" : ""), \
+         (params & param_flag_annex ? " annex" : ""), \
+         (params & param_flag_strict_mode ? " strict" : "") \
+      ); \
+      fflush(stdout);
    #define _print_parse_descent(type, remove_filter, add_filter) { \
       uint32_t new_params = make_params(remove_filter, add_filter); \
-      printf( \
-         "%*s=> %s " color_bold_bright_black("(%s%s%s%s%s%s%s%s%s%s )") " [%d]\n", \
-         (state->depth % 60), "", #type, \
-         (new_params & param_flag_await ? " await" : ""), \
-         (new_params & param_flag_default ? " default" : ""), \
-         (new_params & param_flag_in ? " in" : ""), \
-         (new_params & param_flag_return ? " return" : ""), \
-         (new_params & param_flag_yield ? " yield" : ""), \
-         (new_params & cover_flag_initializer ? " cover-init" : ""), \
-         (new_params & cover_flag_parameters ? " cover-params" : ""), \
-         (new_params & param_flag_for_binding ? " for-binding" : ""), \
-         (new_params & param_flag_annex ? " annex" : ""), \
-         (new_params & param_flag_strict_mode ? " strict" : ""), \
-         state->depth \
-      ); \
-      fflush(stdout); \
+      printf( "%*s=> %s [%d]", (state->depth % 60), "", #type, state->depth); \
+      print_params(new_params); \
       ++state->depth; \
    }
    #define _print_parse_ascent(node) { \
@@ -105,6 +105,7 @@ elements_t characters2 = {0, 0, 0, 0, 0, 0, 0, 0, 0};
    #define print_make_node(node_type)
    #define print_token_consumption()
    #define print_token(token, length)
+   #define print_params(params)
 #endif
 #define begin_group(name)
 #define end_group()
@@ -123,7 +124,7 @@ int main(int argc, char* argv[])
 {
    if(argc > 1) {
       FILE* fp = fopen(argv[1], "r");
-      bool is_module = true;
+      bool is_module = false;
       if(fp != NULL) {
          fseek(fp, 0L, SEEK_END);
          size_t file_size = ftell(fp);

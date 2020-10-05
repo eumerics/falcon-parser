@@ -25,6 +25,17 @@ typedef struct {
    int node_count;
 } parse_node_list_state_t;
 
+typedef struct _cover_list_node_t {
+   void* cover_node;
+   struct _cover_list_node_t* prev;
+   struct _cover_list_node_t* next;
+} cover_list_node_t;
+typedef struct {
+   cover_list_node_t* head;
+   cover_list_node_t* tail;
+   size_t count;
+} cover_node_list_t;
+
 #include "interface.h"
 
 struct empty_list_t {} empty_list;
@@ -63,6 +74,7 @@ typedef struct {
    uint32_t template_parenthesis_offset;
    // parser
    token_t const* parse_token;
+   cover_node_list_t cover_node_list;
    uint32_t depth;
 } parse_state_t;
 
