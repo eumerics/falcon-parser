@@ -50,7 +50,7 @@
    // -- object assignment
    let a, b, c, d, e, f, g, h, i, j, k, l, m;
    let n, o, p, q, r, s, t, u, v, w, x, y, z;
-   z = {a: {a}, "b": {b}, 1: {c}, [d]: d, e} = {a, b, c, d, e};
+   z = {a: {a}, 'b': {b}, 1: {c}, [d]: d, e} = {a, b, c, d, e};
    // ----- rest
    z = {...f} = {x: 1, y: 2};
    z = {g, ...h} = {g: 1, y: 2, z: 3};

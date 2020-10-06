@@ -13,7 +13,8 @@
 
 #define set_error(x) state->error_message = error_##x##_message;
 #define return_error(x, value) { set_error(x); return value; }
-#define allow_annex() ((params & param_flag_annex) && !(params & param_flag_strict_mode))
+#define in_strict_mode() (params & param_flag_strict_mode)
+#define allow_annex() ((params & param_flag_annex) && !in_strict_mode())
 
 #if defined(MEMOPT)
    #define token_diff(token1, token2) (((token1) - (token2) + token_capacity) % token_capacity)

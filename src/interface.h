@@ -33,6 +33,13 @@ typedef struct {
 } token_t;
 
 typedef struct {
+   char_t const* begin;
+   char_t const* end;
+   size_t offending_index;
+   uint8_t offending_flags;
+} compiled_string_t;
+
+typedef struct {
    char const* source;
 } location_t;
 
@@ -64,8 +71,7 @@ typedef struct {
 // parser node
 typedef struct {
    embed_parse_node();
-   char_t const* compiled_begin;
-   char_t const* compiled_end;
+   compiled_string_t* compiled_string;
 } identifier_t;
 typedef struct {
    embed_parse_node();
@@ -73,19 +79,12 @@ typedef struct {
 } literal_t;
 typedef struct {
    embed_parse_node();
-   char_t const* compiled_begin;
-   char_t const* compiled_end;
+   compiled_string_t* compiled_string;
 } string_literal_t;
 typedef struct {
    embed_parse_node();
    uint8_t flags_length;
 } regexp_literal_t;
-typedef struct {
-   char_t const* begin;
-   char_t const* end;
-   size_t offending_index;
-   uint8_t offending_flags;
-} compiled_string_t;
 
 // expressions
 typedef struct {
@@ -127,8 +126,7 @@ typedef struct {
    embed_parse_node();
    uint8_t flags;
    //token_t const* token;
-   char_t const* compiled_begin;
-   char_t const* compiled_end;
+   compiled_string_t* compiled_string;
 } template_element_t;
 
 typedef struct {
@@ -381,6 +379,7 @@ typedef struct {
    embed_parse_node();
    void* expression;
 } expression_statement_t;
+typedef expression_statement_t directive_t;
 
 typedef struct {
    embed_parse_node();

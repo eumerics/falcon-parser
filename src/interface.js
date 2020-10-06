@@ -325,14 +325,16 @@ export class Node {
    decode(begin, end) { return Parser.decoder.decode(this.buffer_view.code.subarray(begin, end)); }
    get_compiled_value(strip_length) {
       const type = 'u32';
-      const compiled_begin = this.buffer_view[type][(this.pointer + 12) / sizeof[type]];
-      const compiled_end = this.buffer_view[type][(this.pointer + 16) / sizeof[type]];
-      if(!compiled_begin) {
-         if(compiled_end) return null; // case of template nonescape string
+      const pointer = this.buffer_view[type][(this.pointer + 12) / sizeof[type]];
+      if(pointer == 0) {
          return Parser.decoder.decode(
             this.buffer_view.code.subarray(this.begin + strip_length, this.end - strip_length)
          );
       } else {
+         const compiled_begin = this.buffer_view[type][(pointer + 0) / sizeof[type]];
+         const compiled_end = this.buffer_view[type][(pointer + 4) / sizeof[type]];
+         const offending_flags = this.buffer_view.u08[(pointer + 12) / sizeof.u08];
+         if(offending_flags & Parser.constants.offending_flag_not_escape) return null;
          return Parser.decoder.decode(
             this.buffer_view.u08.subarray(compiled_begin, compiled_end)
          );

@@ -36,6 +36,9 @@ define_error(0x0012, trailing_comma, "unexpected trailing comma");
 define_error(0x0013, invalid_binding_element, "invalid binding element");
 define_error(0x0014, initializer_in_for, "initialier is not allowed in for-in/for-of statement");
 define_error(0x0015, missing_try_handler, "one of catch or finally handler must be defined for try");
+define_error(0x0016, octal_in_strict, "octal string literal is not allowed in strict mode");
+define_error(0x0017, for_of_begins_with_let, "for-of statement cannot begin with non-declarative let");
+define_error(0x0018, invalid_for_assignment, "invalid assignment target in for-in / for-of left-hand-side");
 
 define_error(0x1000, missing_assignment_or_binding_flag,
    "internal-error: change flags must have one of assignment or binding flag"

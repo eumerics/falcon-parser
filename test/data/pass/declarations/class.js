@@ -17,73 +17,73 @@ class NonEmpty {
    constructor(){}
 
    regular(){}
-   "string"(a){}
+   'string'(a){}
    [computed](a, b){}
    [(parenthesized)](){}
    1(a, b, c){}
 
    * generator_regular(a){}
-   * "generator_string"(a,b){}
+   * 'generator_string'(a,b){}
    * [generator_computed](a,b,c){}
    * [(generator_parenthesized)](){}
    * 2(){}
 
    async async_regular(a,b){}
-   async "async_string"(a,b,c){}
+   async 'async_string'(a,b,c){}
    async [async_computed](){}
    async [(async_parenthesized)](){}
    async 3(a){}
 
    async* async_generator_regular(a,b,c){}
-   async* "async_generator_string"(){}
+   async* 'async_generator_string'(){}
    async* [async_generator_computed](a){}
    async* [(async_generator_parenthesized)](){}
    async* 4(a,b){}
 
    get get_regular(){}
-   get "get_string"(){}
+   get 'get_string'(){}
    get [get_computed](){}
    get [(get_parenthesized)](){}
    get 5(){}
 
    set set_regular(a){}
-   set "set_string"(a){}
+   set 'set_string'(a){}
    set [set_computed](a){}
    set [(set_parenthesized)](a){}
    set 6(a){}
 
    static static_regular(a, b, c){}
-   static "static_string"(a, b){}
+   static 'static_string'(a, b){}
    static [static_computed](a){}
    static [(static_parenthesized)](){}
    static 7(){}
 
    static * static_generator_regular(a){}
-   static * "static_generator_string"(a,b){}
+   static * 'static_generator_string'(a,b){}
    static * [static_generator_computed](a,b,c){}
    static * [(static_generator_parenthesized)](){}
    static * 8(){}
 
    static async static_async_regular(a,b){}
-   static async "static_async_string"(a,b,c){}
+   static async 'static_async_string'(a,b,c){}
    static async [static_async_computed](){}
    static async [(static_async_parenthesized)](){}
    static async 9(a){}
 
    static async* static_async_generator_regular(a,b,c){}
-   static async* "static_async_generator_string"(){}
+   static async* 'static_async_generator_string'(){}
    static async* [static_async_generator_computed](a){}
    static async* [(static_async_generator_parenthesized)](){}
    static async* 10(a,b){}
 
    static get static_get_regular(){}
-   static get "static_get_string"(){}
+   static get 'static_get_string'(){}
    static get [static_get_computed](){}
    static get [(static_get_parenthesized)](){}
    static get 11(){}
 
    static set static_set_regular(a){}
-   static set "static_set_string"(a){}
+   static set 'static_set_string'(a){}
    static set [static_set_computed](a){}
    static set [(static_set_parenthesized)](a){}
    static set 12(a){}
@@ -96,6 +96,6 @@ class NonEmpty {
 }
 class Constructor
 {
-   "constructor"(){}
-   ["constructor"](){}
+   'constructor'(){}
+   ['constructor'](){}
 }

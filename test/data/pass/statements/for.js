@@ -17,15 +17,41 @@ for(var a = 0; a < 1; ++a);
 for(let a = 0; a < 1; ++a);
 for(const a = 0; a < 1; ++a);
 
+for(var [a] = [1];;);
+for(let [a] = [1];;);
+for(const [a] = [1];;);
+
+for(; a in {};);
+for(;; a in {});
+for(var a = (b in {});;);
+for(var a = [b in {}];;);
+for(var [a] = [b in {}];;);
+for(var [a = b in {}] = [1];;);
+
 for(b in {});
 for(var b in {});
 for(let b in {});
 for(const b in {});
 
+for(var [a] in {});
+for(let [a] in {});
+for(const [a] in {});
+
 for(c of []);
 for(var c of []);
 for(let c of []);
 for(const c of []);
+
+for(var [a] of []);
+for(let [a] of []);
+for(const [a] of []);
+
+// let as keyword or identifier?
+for(let.a;;);
+//for(let/a;;);
+for(let of;;);
+for(let in {});
+for(let.a in {});
 
 async function f(){
    for await(c of []);
@@ -44,8 +70,4 @@ for(let [a, b = [c = 3], d] of []);
 for(let {a, b: [c = 3], d} in {});
 for(let {a, b: [c = 3], d} of {});
 
-//for(var x = ('x' in {x: 1}); false;);
-//for(var x = 1 in []); //legacy
-//for(var [x, y] = [1, 2] in []);
-//for(var x = 1 in []; false; );
-//for (x=>x in y;;);
+for(var a = 1 in []); //legacy

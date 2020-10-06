@@ -5,6 +5,9 @@ import Tenko from 'tenko';
 import {object_diff} from './object_diff.js';
 import fs from 'fs';
 import readline from 'readline';
+import parse_args from 'minimist';
+
+const arg = parse_args(process.argv.slice(2));
 
 function test_file(utf8_view, script, is_module, is_negative)
 {
@@ -31,19 +34,22 @@ function test_file(utf8_view, script, is_module, is_negative)
    }
    let result;
    if(is_negative) {
-      result = (!program && !reference_result ? null : undefined);
+      result = (program ? undefined : null);
+      //result = (!program && !reference_result ? null : undefined);
+      //if(!program && reference_result) console.log('refernce implementation failed the test');
    } else {
       result = (program && reference_result ? object_diff(program, reference_result) : undefined);
    }
-   //if(result !== null) { console.log(program, acorn_result); }
+   //if(result !== null) { console.log(program, reference_result); }
    //parser.free();
    return result;
 }
 
 function test_test262_suite()
 {
+   //for(const suite of ['fail', 'early', 'pass', 'pass-explicit']) {
    for(const suite of ['fail', 'pass', 'pass-explicit']) {
-      const is_negative = (suite == 'fail');
+      const is_negative = (suite == 'fail' || suite == 'early');
       console.group(`\x1b[1;35mtest262/${suite}\x1b[0;m`);
       const suite_path = `data/test262/${suite}.asar`;
       const asarfs = disk.readFilesystemSync(suite_path);
@@ -132,8 +138,8 @@ function test_falcon_suite_dir(suite_path, is_negative)
          test_falcon_suite_dir(file_path, is_negative);
          continue;
       }
+      if(arg.native && /libraries/.test(file_path)) continue;
       if(/tsserver/.test(file_path)) continue;
-      //if(/libraries/.test(file_path)) continue;
       if(!/\.js$/.test(file_path)) continue;
       //console.log(file_path);
       const is_module = /\.module\.js$|\.mjs$/.test(file_path);
@@ -164,6 +170,22 @@ function test_falcon_suite()
 
 (async () => {
    await Parser.load_wasm('../dist/parser.wasm');
-   test_test262_suite();
-   test_falcon_suite();
+   if(arg.f) {
+      const is_module = !!arg.m, is_negative = !!arg.n;
+      if(is_negative) {
+         test_segmented_file(arg.f, is_module, is_negative);
+      } else {
+         const utf8_view = fs.readFileSync(arg.f);
+         const script = utf8_view.toString();
+         const diff = test_file(utf8_view, script, is_module, is_negative);
+         if(diff !== null) {
+            console.log(`\x1b[1;31m${arg.f}\x1b[0;m`);
+         }
+      }
+   } else if(arg.s) {
+      test_falcon_suite_dir(arg.s, !!arg.n);
+   } else {
+      if(!arg.native) test_test262_suite();
+      test_falcon_suite();
+   }
 })();
