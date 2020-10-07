@@ -432,6 +432,10 @@ uint32_t const param_flag_for_binding = 0x00100000;
 uint32_t const param_flag_annex = 0x00200000;
 uint32_t const param_flag_strict_mode = 0x00400000;
 uint32_t const param_flag_vanilla_function = 0x0080000;
+uint32_t const param_flag_function = 0x01000000;
+uint32_t const param_flag_class = 0x02000000;
+uint32_t const param_flag_module = 0x04000000;
+uint32_t const param_flag_formal = 0x08000000;
 uint32_t const param_flag_streaming = 0x80000000;
 /*
 uint32_t const cover_flag_array = 0x00010000;

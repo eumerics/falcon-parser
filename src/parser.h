@@ -15,6 +15,8 @@
 #define YLD param_flag_yield
 #define TAG param_flag_tagged
 #define PARAM cover_flag_parameters
+#define FUNC param_flag_function
+#define FORMAL param_flag_formal
 
 #define _get_3rd_arg(arg1, arg2, arg3, ...) arg3
 #define _get_4th_arg(arg1, arg2, arg3, arg4, ...) arg4
@@ -774,7 +776,7 @@ inline_spec void* parse_module_body(parse_state_t* state, parse_tree_state_t* tr
    bool look_for_directive = true;
    start_list();
    while(!exists(tkn_eot)) {
-      if(exists_word(import)) {
+      if(exists_word(import) && !exists_ahead('.')) {
          parse(import_declaration);
          add_to_list(import_declaration);
       } else if(exists_word(export)) {
@@ -1028,6 +1030,7 @@ void* parse_formal_parameter(parse_state_t* state, parse_tree_state_t* tree_stat
 }
 void* parse_formal_parameter_list(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
+   params = params | FORMAL;
    start_list();
    while(!exists(')')) {
       if(exists(pnct_spread)) {
@@ -1112,6 +1115,7 @@ AsyncGeneratorBody:
 */
 void* parse_hoistable_declaration(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
+   params |= FUNC;
    params_t add_params = 0;
    uint8_t function_flags = flag_none;
    save_begin();
@@ -1164,6 +1168,7 @@ AsyncGeneratorExpression:
 */
 void* parse_function_expression(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
+   params |= FUNC;
    make_node(function_expression);
    params_t add_params = flag_none;
    uint8_t function_flags = flag_none;
@@ -1177,7 +1182,7 @@ void* parse_function_expression(parse_state_t* state, parse_tree_state_t* tree_s
       add_params |= param_flag_yield;
    }
    if(!exists('(')) {
-      parse(id, binding_identifier);
+      parse(id, binding_identifier, YLD|AWT, add_params);
    } else {
       assign(id, nullptr);
    }
@@ -1229,6 +1234,7 @@ PropertySetParameterList:
 // ( UniqueFormalParameters[Yield, Await] ) { FunctionBody[?Yield, ?Await] }
 inline_spec void* parse_method_function(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
+   params |= FUNC;
    make_node(function_expression);
    assign(id, nullptr);
    ensure('('); list_parse(params, unique_formal_parameters); expect(')');
@@ -1247,11 +1253,12 @@ inline_spec void* parse_method_function(parse_state_t* state, parse_tree_state_t
 */
 method_definition_t* parse_method_only_definition(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
+   params |= FUNC;
    bool is_get_set = false, is_get = false, is_set = false;
    uint8_t property_kind = property_kind_method;
    uint8_t property_flags = property_flag_method;
    uint8_t function_flags = flag_none;
-   params_t param_flags = 0;
+   params_t param_flags = flag_none;
    make_node(method_definition);
    if(optional_word(async)) {
       function_flags |= function_flag_async;
@@ -1282,7 +1289,7 @@ method_definition_t* parse_method_only_definition(parse_state_t* state, parse_tr
       if(!is_get_set) {
          list_parse(params, unique_formal_parameters, YLD|AWT, param_flags);
       } else {
-         if(is_set) { list_parse(params, property_set_parameter_list); }
+         if(is_set) { list_parse(params, property_set_parameter_list, YLD|AWT, param_flags); }
       }
       expect(')');
       //expect('{'); list_parse(body, function_body, YLD|AWT, flags); expect('}');
@@ -2145,12 +2152,20 @@ void* parse_member_only_expression(parse_state_t* state, parse_tree_state_t* tre
          make_node(super);
          ensure_word(super);
          object = completed_node();
+         if(!exists('[') && !exists('.')) {
+            state->error_token = previous_token();
+            return_error(standalone_super, nullptr);
+         }
          break;
       }
       case rw_new: {
          if(exists_ahead('.')) {
             make_node(meta_property);
             parse(meta, identifier_name);
+            if(!(params & param_flag_function)) {
+               state->error_token = previous_token();
+               return_error(new_meta, nullptr);
+            }
             ensure('.');
             if(!current_token_is(target)) passon(nullptr);
             parse(property, identifier_name);
@@ -2171,6 +2186,10 @@ void* parse_member_only_expression(parse_state_t* state, parse_tree_state_t* tre
       case rw_import: {
          make_node(meta_property);
          parse(meta, identifier_name);
+         if(!(params & param_flag_module)) {
+            state->error_token = previous_token();
+            return_error(import_in_non_module, nullptr);
+         }
          expect('.');
          if(!current_token_is(meta)) passon(nullptr);
          parse(property, identifier_name);
@@ -2226,60 +2245,60 @@ void* parse_member_expression(parse_state_t* state, parse_tree_state_t* tree_sta
 }
 
 /*
- * CallExpression[Yield, Await]:
- *    CoverCallExpressionAndAsyncArrowHead[?Yield, ?Await]
- *    SuperCall[?Yield, ?Await]
- *    ImportCall[?Yield, ?Await]
- *    CallExpression[?Yield, ?Await] Arguments[?Yield, ?Await]
- *    CallExpression[?Yield, ?Await] [ Expression[+In, ?Yield, ?Await] ]
- *    CallExpression[?Yield, ?Await] . IdentifierName
- *    CallExpression[?Yield, ?Await] TemplateLiteral[?Yield, ?Await, +Tagged]
- * SuperCall[Yield, Await]:
- *    super Arguments[?Yield, ?Await]
- * ImportCall[Yield, Await]:
- *    import ( AssignmentExpression[+In, ?Yield, ?Await] )
- * Arguments[Yield, Await]:
- *    ( )
- *    ( ArgumentList[?Yield, ?Await] )
- *    ( ArgumentList[?Yield, ?Await] , )
- * ArgumentList[Yield, Await]:
- *    AssignmentExpression[+In, ?Yield, ?Await]
- *    ... AssignmentExpression[+In, ?Yield, ?Await]
- *    ArgumentList[?Yield, ?Await] , AssignmentExpression[+In, ?Yield, ?Await]
- *    ArgumentList[?Yield, ?Await] , ... AssignmentExpression[+In, ?Yield, ?Await]
- * CoverCallExpressionAndAsyncArrowHead:
- * CallMemberExpression[Yield, Await]:
- *    MemberExpression[?Yield, ?Await] Arguments[?Yield, ?Await]
- */
- void* continue_with_call_expression(parse_state_t* state, parse_tree_state_t* tree_state, void* callee, size_t begin, uint8_t flag, params_t params);
- void* parse_covering_call_only_expression(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
- {
-    save_begin();
-    if(exists_word(async) && exists_ahead('(') && !exists_newline_ahead()) {
-       make_node(call_expression);
-       parse(callee, identifier_reference);
-       assign(flags, flag_none);
-       list_parse(arguments, arguments_list, NONE, PARAM);
-       complete_node();
-       if(exists(pnct_arrow) && !exists_newline()) {
-          set_node_type_of(node, covered_call_expression);
-          change_node_types(state, node->arguments, false, change_flag_array_binding);
-          passon(node);
-       } else {
-          //[TODO] account of offending cover grammar
-          if(exists('(')) {
-             continue_with(call_expression, node, begin, flag_none);
-             passon(call_expression);
-          } else if(exists('[') || exists('.') || exists('`')) {
-             continue_with(member_expression, node, begin, flag_none);
-             passon(member_expression);
-          } else {
-             passon(node);
-          }
-       }
-    }
-    passon(nullptr);
- }
+CallExpression[Yield, Await]:
+   CoverCallExpressionAndAsyncArrowHead[?Yield, ?Await]
+   SuperCall[?Yield, ?Await]
+   ImportCall[?Yield, ?Await]
+   CallExpression[?Yield, ?Await] Arguments[?Yield, ?Await]
+   CallExpression[?Yield, ?Await] [ Expression[+In, ?Yield, ?Await] ]
+   CallExpression[?Yield, ?Await] . IdentifierName
+   CallExpression[?Yield, ?Await] TemplateLiteral[?Yield, ?Await, +Tagged]
+SuperCall[Yield, Await]:
+   super Arguments[?Yield, ?Await]
+ImportCall[Yield, Await]:
+   import ( AssignmentExpression[+In, ?Yield, ?Await] )
+Arguments[Yield, Await]:
+   ( )
+   ( ArgumentList[?Yield, ?Await] )
+   ( ArgumentList[?Yield, ?Await] , )
+ArgumentList[Yield, Await]:
+   AssignmentExpression[+In, ?Yield, ?Await]
+   ... AssignmentExpression[+In, ?Yield, ?Await]
+   ArgumentList[?Yield, ?Await] , AssignmentExpression[+In, ?Yield, ?Await]
+   ArgumentList[?Yield, ?Await] , ... AssignmentExpression[+In, ?Yield, ?Await]
+CoverCallExpressionAndAsyncArrowHead:
+CallMemberExpression[Yield, Await]:
+   MemberExpression[?Yield, ?Await] Arguments[?Yield, ?Await]
+*/
+void* continue_with_call_expression(parse_state_t* state, parse_tree_state_t* tree_state, void* callee, size_t begin, uint8_t flag, params_t params);
+void* parse_covering_call_only_expression(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
+{
+   save_begin();
+   if(exists_word(async) && exists_ahead('(') && !exists_newline_ahead()) {
+      make_node(call_expression);
+      parse(callee, identifier_reference);
+      assign(flags, flag_none);
+      list_parse(arguments, arguments_list, NONE, PARAM);
+      complete_node();
+      if(exists(pnct_arrow) && !exists_newline()) {
+         set_node_type_of(node, covered_call_expression);
+         change_node_types(state, node->arguments, false, change_flag_array_binding);
+         passon(node);
+      } else {
+         //[TODO] account of offending cover grammar
+         if(exists('(')) {
+            continue_with(call_expression, node, begin, flag_none);
+            passon(call_expression);
+         } else if(exists('[') || exists('.') || exists('`')) {
+            continue_with(member_expression, node, begin, flag_none);
+            passon(member_expression);
+         } else {
+            passon(node);
+         }
+      }
+   }
+   passon(nullptr);
+}
 void* parse_call_only_expression(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    if(exists_word(super)) {
@@ -2293,7 +2312,7 @@ void* parse_call_only_expression(parse_state_t* state, parse_tree_state_t* tree_
       list_parse(arguments, arguments_list);
       return_node();
    } else if(exists_word(import)) {
-      if(!exists_ahead('.')) passon(nullptr);
+      if(exists_ahead('.')) passon(nullptr);
       make_node(import_expression);
       ensure_word(import); expect('(');
          parse(source, assignment_expression, NONE, IN);
@@ -2335,10 +2354,10 @@ void* parse_call_expression(parse_state_t* state, parse_tree_state_t* tree_state
    passon(call_expression);
 }
 /*
- * NewExpression[Yield, Await]:
- *    MemberExpression[?Yield, ?Await]
- *    new NewExpression[?Yield, ?Await]
- */
+NewExpression[Yield, Await]:
+   MemberExpression[?Yield, ?Await]
+   new NewExpression[?Yield, ?Await]
+*/
 /* looks redundant given MemberExpression
 void* parse_new_expression(parse_state_t* state, parse_tree_state_t* tree_state, params_t params);
 void* parse_new_only_expression(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
@@ -2395,11 +2414,11 @@ void* continue_with_optional_expression(parse_state_t* state, parse_tree_state_t
 }
 
 /*
- * LeftHandSideExpression[Yield, Await]:
- *    NewExpression[?Yield, ?Await]
- *    CallExpression[?Yield, ?Await]
- *    OptionalExpression[?Yield, ?Await]
- */
+LeftHandSideExpression[Yield, Await]:
+   NewExpression[?Yield, ?Await]
+   CallExpression[?Yield, ?Await]
+   OptionalExpression[?Yield, ?Await]
+*/
 void* parse_lhs_expression(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    save_begin();
@@ -2724,38 +2743,6 @@ void* continue_with_arrow_function(
    }
    return_node();
 }
-void* parse_arrow_function(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
-{
-   make_node(arrow_function_expression);
-   params_t add_params = flag_none;
-   uint8_t function_flags = flag_none;
-   if(optional_word(async)) {
-      function_flags |= function_flag_async;
-      add_params |= param_flag_await;
-   }
-   if(exists('(')) {
-      ensure('('); list_parse(params, unique_formal_parameters); expect(')');
-   } else {
-      start_list();
-      parse(binding_identifier);
-      add_to_list(binding_identifier);
-      assign(params, list_head());
-   }
-   /*
-   if(exists('{')) {
-      parse(body, function_body_container, YLD|AWT, add_params);
-   } else {
-      function_flags |= function_flag_expression;
-      parse(body, expression, YLD|AWT, add_params);
-   }
-   assign(flags, function_flags);
-   return_node();
-   */
-   assign(flags, function_flags);
-   size_t begin = 0;
-   continue_with(arrow_function, node, begin, add_params);
-   passon(arrow_function);
-}
 /*
 AssignmentExpression[In, Yield, Await]:
    ConditionalExpression[?In, ?Yield, ?Await]
@@ -2810,7 +2797,9 @@ void* parse_assignment_expression(parse_state_t* state, parse_tree_state_t* tree
 {
    void* expression = nullptr;
    save_begin();
-   if((params & param_flag_yield) && exists_word(yield)) {
+   if(exists_word(yield) &&
+      (params & param_flag_yield) && !(params & param_flag_formal)
+   ){
       passon_parsed(yield_expression, YLD, NONE);
    }
    bool has_async = exists_word(async) && !exists_newline_ahead();
@@ -3592,7 +3581,7 @@ program_t* parse_script(parse_state_t* state, parse_tree_state_t* tree_state, pa
 
 program_t* parse_module(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
-   params |= param_flag_strict_mode;
+   params |= (param_flag_strict_mode | param_flag_module);
    make_node(program);
    assign(source_type, program_kind_module);
    list_parse(body, module_body);

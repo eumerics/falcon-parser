@@ -4,11 +4,6 @@ function rest_only(...b) { return b; }
 function rest_mixed(c, ...d) { return d; }
 function default_arguments(e, f = 2, g) { return f; }
 
-function* generator_empty() {}
-function* generator_identity(a) { yield a; }
-function* generator_rest_only(...b) { yield b; }
-function* generator_rest_mixed(c, ...d) { yield d; }
-
 async function async_empty() {}
 async function async_identity(a) { await a; }
 async function async_rest_only(...b) { await b; }
@@ -18,6 +13,15 @@ async function* async_generator_empty() {}
 async function* async_generator_identity(a) { await a; yield a; }
 async function* async_generator_rest_only(...b) { await b; yield b; }
 async function* async_generator_rest_mixed(c, ...d) { await d; yield d; }
+
+function* yield(){};
+async function await(){};
+async function* yield(){};
+async function* await(){};
+
+class c { *a(){ super[yield]; } }
+
+//function* a(){ function b(){ }}
 
 function top_level(a)
 {

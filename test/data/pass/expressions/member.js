@@ -15,3 +15,27 @@ a.set, a.target, a.if, a.else, a.for, a.while
 
 new f; new f();
 new new f; new new f()();
+
+{
+   ({a(){ new.target; }});
+   ({get a(){ new.target; }});
+   ({set a(b){ new.target; }});
+   function h(){ new.target; }
+   class x {
+      constructor(){ new.target; }
+      a(){ new.target; }
+      get b(){ new.target; }
+      set b(x){ new.target; }
+   }
+}
+
+{
+   ({a(b = new.target){}});
+   ({set a(b = new.target){}});
+   function h(b = new.target){}
+   class x {
+      constructor(a = new.target){}
+      a(b = new.target){}
+      set b(c = new.target){}
+   }
+}

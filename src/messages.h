@@ -39,6 +39,9 @@ define_error(0x0015, missing_try_handler, "one of catch or finally handler must 
 define_error(0x0016, octal_in_strict, "octal string literal is not allowed in strict mode");
 define_error(0x0017, for_of_begins_with_let, "for-of statement cannot begin with non-declarative let");
 define_error(0x0018, invalid_for_assignment, "invalid assignment target in for-in / for-of left-hand-side");
+define_error(0x0019, standalone_super, "super keyword can only be used to access super class properties and methods");
+define_error(0x001a, import_in_non_module, "import keyword can only appear in a module");
+define_error(0x001b, new_meta, "new meta property can only appear inside a function");
 
 define_error(0x1000, missing_assignment_or_binding_flag,
    "internal-error: change flags must have one of assignment or binding flag"

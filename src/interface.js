@@ -611,7 +611,11 @@ const env = {
          ['cover_flag_parameters', 'cover-params'],
          ['param_flag_for_binding', 'for-binding'],
          ['param_flag_annex', 'annex'],
-         ['param_flag_strict_mode', 'strict']
+         ['param_flag_strict_mode', 'strict'],
+         ['param_flag_function', 'function'],
+         ['param_flag_class', 'class'],
+         ['param_flag_formal', 'formal'],
+         ['param_flag_module', 'module']
       ];
       let params_string = ' (';
       for(const [flag, label] of flags) {

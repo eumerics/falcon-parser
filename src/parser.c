@@ -45,7 +45,7 @@ elements_t characters2 = {0, 0, 0, 0, 0, 0, 0, 0, 0};
    }
    #define print_params(params) \
       printf( \
-         color_bold_bright_black("(%s%s%s%s%s%s%s%s%s )") " \n", \
+         color_bold_bright_black("(%s%s%s%s%s%s%s%s%s%s%s%s%s )") " \n", \
          (params & param_flag_await ? " await" : ""), \
          (params & param_flag_default ? " default" : ""), \
          (params & param_flag_in ? " in" : ""), \
@@ -54,7 +54,11 @@ elements_t characters2 = {0, 0, 0, 0, 0, 0, 0, 0, 0};
          (params & cover_flag_parameters ? " cover-params" : ""), \
          (params & param_flag_for_binding ? " for-binding" : ""), \
          (params & param_flag_annex ? " annex" : ""), \
-         (params & param_flag_strict_mode ? " strict" : "") \
+         (params & param_flag_strict_mode ? " strict" : ""), \
+         (params & param_flag_function ? " function" : ""), \
+         (params & param_flag_class ? " class" : ""), \
+         (params & param_flag_formal ? " formal" : ""), \
+         (params & param_flag_module ? " module" : "") \
       ); \
       fflush(stdout);
    #define _print_parse_descent(type, remove_filter, add_filter) { \
@@ -124,7 +128,7 @@ int main(int argc, char* argv[])
 {
    if(argc > 1) {
       FILE* fp = fopen(argv[1], "r");
-      bool is_module = false;
+      bool is_module = true;
       if(fp != NULL) {
          fseek(fp, 0L, SEEK_END);
          size_t file_size = ftell(fp);
