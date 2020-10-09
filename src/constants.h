@@ -10,26 +10,29 @@
 #endif
 
 uint16_t const mask_none = 0x0000;
-uint16_t const mask_update_ops = 0x0001;
-uint16_t const mask_assign_ops = 0x0002;
-uint16_t const mask_reserved_word = 0x0004;
-uint16_t const mask_identifier = 0x0008;
+uint16_t const mask_strict_reserved_word = 0x0001;
+uint16_t const mask_always_a_reserved_word = 0x0002;
+uint16_t const mask_contextual_reserved_word = 0x0080;
+uint16_t const mask_identifier = 0x0004;
+uint16_t const mask_reserved_word = mask_always_a_reserved_word | mask_strict_reserved_word | mask_contextual_reserved_word;
 uint16_t const mask_idname = mask_identifier | mask_reserved_word;
-uint16_t const mask_unary_ops = 0x0010;
-uint16_t const mask_binary_ops = 0x0020;
-uint16_t const mask_parentheses = 0x0040;
-uint16_t const mask_arithmetic_ops = 0x0080;
-uint16_t const mask_shift_ops = 0x0100;
-uint16_t const mask_logical_ops = 0x0200;
-uint16_t const mask_comparison_ops = 0x0400;
-uint16_t const mask_variable_declarator = 0x0800;
-uint16_t const mask_literal = 0x1000;
-uint16_t const mask_expression_exclusions = 0x2000;
-uint16_t const mask_strict_mode_exclusions = 0x4000;
+uint16_t const mask_update_ops = 0x0008;
+uint16_t const mask_assign_ops = 0x0010;
+uint16_t const mask_unary_ops = 0x0020;
+uint16_t const mask_binary_ops = 0x0040;
+uint16_t const mask_parentheses = 0x0000; //0x0080 unused
+uint16_t const mask_arithmetic_ops = 0x0100;
+uint16_t const mask_shift_ops = 0x0200;
+uint16_t const mask_logical_ops = 0x0400;
+uint16_t const mask_comparison_ops = 0x0800;
+uint16_t const mask_variable_declarator = 0x1000;
+uint16_t const mask_literal = 0x2000;
+uint16_t const mask_expression_exclusions = 0x4000;
 uint16_t const mask_let_inclusions = 0x8000;
 
 uint8_t const token_flag_none = 0x00;
 uint8_t const token_flag_newline = 0x01;
+uint8_t const token_flag_escaped = 0x02;
 
 // token types
 uint8_t const tkn_base = 0x80;
@@ -87,7 +90,8 @@ uint8_t const pnct_optional = pnct_base + 32;
 /*
 uint8_t const pnct_ = pnct_base + 0;
 */
-uint8_t const tkn_eot = 0xff;
+uint8_t const tkn_eot = 0xfe;
+uint8_t const tkn_error = 0xff;
 
 // [WATCHOUT] maximum number of precedence types is 32 (5-bits)
 uint8_t const precedence_none = 0x00;
@@ -127,39 +131,56 @@ uint8_t const rw_protected = base + 44, rw_public = base + 45;
 uint8_t const rw_as = base + 46, rw_async = base + 47, rw_from = base + 48;
 uint8_t const rw_get = base + 49, rw_of = base + 50, rw_set = base + 51;
 uint8_t const rw_target = base + 52;
+//
+uint8_t const rw_constructor = base + 53;
+uint8_t const rw_eval = base + 54, rw_arguments = base + 55;
 
 // reserved word group
-uint16_t const _mrw = mask_reserved_word; // reserved word
-uint16_t const _mcrw = (mask_reserved_word | mask_identifier); // contextual reserved word
-uint16_t const _murw = (mask_reserved_word | mask_unary_ops);
-uint16_t const _mbrw = (mask_reserved_word | mask_binary_ops);
-uint16_t const _mvrw = (mask_reserved_word | mask_variable_declarator);
-uint16_t const _mlrw = (mask_reserved_word | mask_literal);
-uint16_t const _merw = (mask_reserved_word | mask_expression_exclusions);
-uint16_t const _mscrw = (mask_reserved_word | mask_identifier | mask_strict_mode_exclusions); // non-strict mode reserved word
-uint16_t const _mecrw = (mask_reserved_word | mask_identifier | mask_expression_exclusions);
-uint16_t const _mvcrw = (mask_reserved_word | mask_identifier | mask_variable_declarator);
-uint16_t const _mevcrw = (mask_reserved_word | mask_identifier | mask_variable_declarator | mask_expression_exclusions);
-uint16_t const _mevscrw = (mask_reserved_word | mask_identifier | mask_strict_mode_exclusions | mask_variable_declarator | mask_expression_exclusions);
-uint16_t const rwg_await = _mcrw, rwg_break = _mrw, rwg_case = _mrw;
-uint16_t const rwg_catch = _mrw, rwg_class = _merw, rwg_const = _mvrw;
-uint16_t const rwg_continue = _mrw, rwg_debugger = _mrw, rwg_default = _mrw;
-uint16_t const rwg_delete = _murw, rwg_do = _mrw, rwg_else = _mrw;
-uint16_t const rwg_enum = _mrw, rwg_export = _mrw, rwg_extends = _mrw;
-uint16_t const rwg_false = _mlrw, rwg_finally = _mrw, rwg_for = _mrw;
-uint16_t const rwg_function = _merw, rwg_if = _mrw, rwg_import = _mrw;
-uint16_t const rwg_in = _mbrw, rwg_instanceof = _mbrw, rwg_new = _mrw;
-uint16_t const rwg_null = _mlrw, rwg_return = _mrw, rwg_super = _mrw;
-uint16_t const rwg_switch = _mrw, rwg_this = _mrw, rwg_throw = _mrw;
-uint16_t const rwg_true = _mlrw, rwg_try = _mrw, rwg_typeof = _murw;
-uint16_t const rwg_var = _mvrw, rwg_void = _murw, rwg_while = _mrw;
-uint16_t const rwg_with = _mrw, rwg_yield = _mcrw;
-uint16_t const rwg_let = _mevscrw, rwg_static = _mscrw;
-uint16_t const rwg_implements = _mscrw, rwg_interface = _mscrw, rwg_package = _mscrw;
-uint16_t const rwg_private = _mscrw, rwg_protected = _mscrw, rwg_public = _mscrw;
-uint16_t const rwg_as = _mcrw, rwg_async = _mecrw, rwg_from = _mcrw;
-uint16_t const rwg_get = _mcrw, rwg_of = _mcrw, rwg_set = _mcrw;
-uint16_t const rwg_target = _mcrw;
+//[NOTE] yield and await are not marked as reserved words
+#define SRW mask_strict_reserved_word
+#define CRW mask_contextual_reserved_word
+#define RW mask_reserved_word
+#define ID mask_identifier
+#define UN mask_unary_ops
+#define BI mask_binary_ops
+#define VAR mask_variable_declarator
+#define LIT mask_literal
+#define EXP mask_expression_exclusions
+//
+uint16_t const rwg_await = CRW|ID, rwg_break = RW, rwg_case = RW;
+uint16_t const rwg_catch = RW, rwg_class = RW|EXP, rwg_const = RW|VAR;
+uint16_t const rwg_continue = RW, rwg_debugger = RW, rwg_default = RW;
+uint16_t const rwg_delete = RW|UN, rwg_do = RW, rwg_else = RW;
+uint16_t const rwg_enum = RW, rwg_export = RW, rwg_extends = RW;
+uint16_t const rwg_false = RW|LIT, rwg_finally = RW, rwg_for = RW;
+uint16_t const rwg_function = RW|EXP, rwg_if = RW, rwg_import = RW;
+uint16_t const rwg_in = RW|BI, rwg_instanceof = RW|BI, rwg_new = RW;
+uint16_t const rwg_null = RW|LIT, rwg_return = RW, rwg_super = RW;
+uint16_t const rwg_switch = RW, rwg_this = RW, rwg_throw = RW;
+uint16_t const rwg_true = RW|LIT, rwg_try = RW, rwg_typeof = RW|UN;
+uint16_t const rwg_var = RW|VAR, rwg_void = RW|UN, rwg_while = RW;
+uint16_t const rwg_with = RW, rwg_yield = CRW|ID;
+//
+uint16_t const rwg_let = SRW|ID|VAR|EXP, rwg_static = SRW|ID;
+uint16_t const rwg_implements = SRW|ID, rwg_interface = SRW|ID, rwg_package = SRW|ID;
+uint16_t const rwg_private = SRW|ID, rwg_protected = SRW|ID, rwg_public = SRW|ID;
+//
+uint16_t const rwg_as = ID, rwg_async = ID|EXP, rwg_from = ID;
+uint16_t const rwg_get = ID, rwg_of = ID, rwg_set = ID;
+uint16_t const rwg_target = ID;
+//
+uint16_t const rwg_constructor = ID;
+uint16_t const rwg_eval = ID, rwg_arguments = ID;
+//
+#undef SRW
+#undef CRW
+#undef RW
+#undef ID
+#undef UN
+#undef BI
+#undef VAR
+#undef LIT
+#undef EXP
 
 // reserved word precedence
 uint8_t const rwp_await = 0, rwp_break = 0, rwp_case = 0;
@@ -181,6 +202,7 @@ uint8_t const rwp_implements = 0, rwp_interface = 0, rwp_package = 0;
 uint8_t const rwp_private = 0, rwp_protected = 0, rwp_public = 0;
 uint8_t const rwp_as = 0, rwp_async = 0, rwp_from = 0;
 uint8_t const rwp_get = 0, rwp_of = 0, rwp_set = 0, rwp_target = 0;
+uint8_t const rwp_constructor = 0, rwp_eval = 0, rwp_arguments = 0;
 
 uint8_t const node_group_none = 0x00;
 //uint8_t const node_group_expression = 0x01;
@@ -417,29 +439,28 @@ uint8_t const for_flag_await = 0x01;
 uint8_t const operator_flag_prefix = 0x01;
 uint8_t const template_flag_tail = 0x01;
 
-uint32_t const param_flag_await = 0x0001;
-uint32_t const param_flag_default = 0x0002;
-uint32_t const param_flag_in = 0x0004;
-uint32_t const param_flag_return = 0x0008;
-uint32_t const param_flag_yield = 0x0010;
-uint32_t const param_flag_tagged = 0x0020;
-//uint32_t const cover_flag_initializer = 0x00010000; // both a param and state flag
-uint32_t const cover_flag_parameters = 0x00020000; // both a param and state flag
-// optional_binding_init parameter is used to reuse [Lexical]BindingList
-// production for simultaneous [Lexical]BindingList product of a
-// LexicalDeclaration and the ForBinding in a ForStatement
-uint32_t const param_flag_for_binding = 0x00100000;
-uint32_t const param_flag_annex = 0x00200000;
-uint32_t const param_flag_strict_mode = 0x00400000;
-uint32_t const param_flag_vanilla_function = 0x0080000;
-uint32_t const param_flag_function = 0x01000000;
-uint32_t const param_flag_class = 0x02000000;
-uint32_t const param_flag_module = 0x04000000;
-uint32_t const param_flag_formal = 0x08000000;
-uint32_t const param_flag_streaming = 0x80000000;
+uint32_t const param_flag_await = 0x0001 << 16;
+uint32_t const param_flag_default = 0x0002 << 16;
+uint32_t const param_flag_in = 0x0004 << 16;
+uint32_t const param_flag_return = 0x0008 << 16;
+uint32_t const param_flag_yield = 0x0010 << 16;
+uint32_t const param_flag_tagged = 0x0020 << 16;
+//
+uint32_t const param_flag_strict_mode = 0x0001;
+uint32_t const param_flag_loose_mode = 0x0002;
+uint32_t const param_flag_module = 0x0004;
+uint32_t const param_flag_annex = 0x0008;
+//uint32_t const cover_flag_initializer = 0x0001; // both a param and state flag
+uint32_t const cover_flag_parameters = 0x0020; // both a param and state flag
+uint32_t const param_flag_for_binding = 0x0040;
+uint32_t const param_flag_vanilla_function = 0x0080;
+uint32_t const param_flag_function = 0x0100;
+uint32_t const param_flag_class = 0x0200;
+uint32_t const param_flag_formal = 0x0400;
+uint32_t const param_flag_streaming = 0x8000;
 /*
-uint32_t const cover_flag_array = 0x00010000;
-uint32_t const cover_flag_assignment = 0x00020000;
+uint32_t const cover_flag_array = 0x0001;
+uint32_t const cover_flag_assignment = 0x0002;
 uint32_t const cover_flag_array_assignment = cover_flag_array | cover_flag_assignment;
 */
 
@@ -454,8 +475,9 @@ uint8_t const change_flag_object_binding = change_flag_object | change_flag_bind
 uint8_t const change_flag_array_assignment = change_flag_array | change_flag_assignment;
 uint8_t const change_flag_object_assignment = change_flag_object | change_flag_assignment;
 
-uint8_t const offending_flag_octal = 0x01;
-uint8_t const offending_flag_not_escape = 0x02;
+uint8_t const compile_flag_source = 0x01;
+uint8_t const compile_flag_octal = 0x02;
+uint8_t const compile_flag_not_escape = 0x04;
 
 #undef NONE
 #undef LHS

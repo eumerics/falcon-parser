@@ -47,8 +47,8 @@ function test_file(utf8_view, script, is_module, is_negative)
 
 function test_test262_suite()
 {
-   //for(const suite of ['fail', 'early', 'pass', 'pass-explicit']) {
-   for(const suite of ['fail', 'pass', 'pass-explicit']) {
+   for(const suite of ['fail', 'early', 'pass', 'pass-explicit']) {
+   //for(const suite of ['fail', 'pass', 'pass-explicit']) {
       const is_negative = (suite == 'fail' || suite == 'early');
       console.group(`\x1b[1;35mtest262/${suite}\x1b[0;m`);
       const suite_path = `data/test262/${suite}.asar`;
@@ -75,10 +75,9 @@ function test_segmented_file(file_path, is_module, is_negative)
    const utf8_view = fs.readFileSync(file_path);
    const length = utf8_view.byteLength;
    const script = utf8_view.toString();
-   let begin = 0, index = 0, test_failed = false;
    function test_script(segment_view) {
       const script = segment_view.toString();
-      //console.log(script); console.log('---')
+      //console.log(script); console.log('---');
       const diff = test_file(segment_view, script, is_module, is_negative);
       if(diff !== null) {
          if(!test_failed) {
@@ -95,32 +94,20 @@ function test_segmented_file(file_path, is_module, is_negative)
    const slash = '/'.charCodeAt(0);
    const lesser = '<'.charCodeAt(0);
    const greater = '>'.charCodeAt(0);
+   let begin = 0, index = 0, test_failed = false;
    while(index < length) {
-      let code_end;
-      if(index != 0) {
-         let c = utf8_view[index++];
-         if(c != cr && c != lf) continue;
-         code_end = index - 1;
-         if(c == cr && index < length && utf8_view[index] == lf) ++index;
-      } else {
-         code_end = 0;
-      }
-      let marker_begin = index, marker_length = 0;
-      while(
-         index < length && marker_length < 4 &&
-         utf8_view[index] != cr && utf8_view[index] != lf
-      ) ++index, ++marker_length;
-      //console.log(marker_length, utf8_view[marker_begin]);
-      if(
-         marker_length != 4 ||
-         utf8_view[marker_begin++] != slash ||
-         utf8_view[marker_begin++] != slash ||
-         utf8_view[marker_begin++] != lesser ||
-         utf8_view[marker_begin++] != greater
+      let end = index;
+      if(utf8_view[index] != slash || index + 4 > length) { ++index; continue; }
+      if(utf8_view[++index] != slash ||
+         utf8_view[++index] != lesser ||
+         utf8_view[++index] != greater
       ) continue;
-      let c = utf8_view[index++];
-      if(c == cr && index < length && utf8_view[index] == lf) ++index;
-      test_script(utf8_view.subarray(begin, code_end));
+      if(++index != length) {
+         let c = utf8_view[index];
+         if(c != cr && c != lf) continue;
+         if(c == cr && ++index < length && utf8_view[index] == lf) ++index;
+      }
+      test_script(utf8_view.subarray(begin, end));
       begin = index;
    }
    if(begin < length) {

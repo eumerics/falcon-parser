@@ -14,6 +14,8 @@
 #define set_error(x) state->error_message = error_##x##_message;
 #define return_error(x, value) { set_error(x); return value; }
 #define in_strict_mode() (params & param_flag_strict_mode)
+#define to_loose_mode() (params = (params & ~param_flag_strict_mode) | param_flag_loose_mode)
+#define to_strict_mode() (params = (params & ~param_flag_loose_mode) | param_flag_strict_mode)
 #define allow_annex() ((params & param_flag_annex) && !in_strict_mode())
 
 #if defined(MEMOPT)
@@ -307,13 +309,13 @@ compiled_string_t* compile_string(
    char_t const* const begin, char_t const* const end, params_t params
 )
 {
-   #define return_non_escape_string() { \
+   #define return_not_escape_string() { \
       if(for_template) { \
          compiled_string_t* compiled_string = parser_malloc(sizeof(compiled_string_t)); \
          *compiled_string = (compiled_string_t){ \
-            .begin = nullptr, .end = (char_t const*)(-1), \
-            .offending_index = non_escape_code_begin - state->code_begin, \
-            .offending_flags = offending_flag_not_escape \
+            .begin = nullptr, .end = nullptr, \
+            .offending_index = not_escape_code_begin - state->code_begin, \
+            .compile_flags = compile_flag_not_escape \
          }; \
          return compiled_string; \
       } else { \
@@ -324,10 +326,10 @@ compiled_string_t* compile_string(
    char_t* compiled = parser_malloc((end - begin) * sizeof(char_t));
    char_t const* const compiled_begin = compiled;
    size_t offending_index = 0;
-   uint8_t offending_flags = 0;
+   uint8_t compile_flags = 0;
    while(++code < end) {
       char_t c = *code;
-      char_t const* non_escape_code_begin = code;
+      char_t const* not_escape_code_begin = code;
       if(c != '\\') {
          // Very odd behavior for template LineTerminatorSequences
          // https://tc39.es/ecma262/#sec-static-semantics-tv-and-trv
@@ -379,13 +381,13 @@ compiled_string_t* compile_string(
                   hex <<= 4;
                   if(c >= '0' && c <= '9'){ hex |= (c - '0'); continue; }
                   if(cl >= 'a' && cl <= 'f'){ hex |= 10 + (cl - 'a'); continue; }
-                  if(i < min_hex_chars) { return_non_escape_string(); }
+                  if(i < min_hex_chars) { return_not_escape_string(); }
                   else { --code; hex >>= 4; break; }
                }
-               if(is_code_point && (*++code != '}')) { return_non_escape_string(); }
+               if(is_code_point && (*++code != '}')) { return_not_escape_string(); }
             #if defined(UTF16)
                if(hex & 0xffff0000) {
-                  if(hex > 0x10ffff) { return_non_escape_string(); }
+                  if(hex > 0x10ffff) { return_not_escape_string(); }
                   hex -= 0x10000;
                   *(compiled + 1) = (0b110111 << 10) | (hex & 0x3ff); hex >>= 10;
                   *(compiled + 0) = (0b110110 << 10) | (hex & 0x3ff); hex >>= 10;
@@ -400,8 +402,8 @@ compiled_string_t* compile_string(
             }
             default: {
                if(!for_template && allow_annex() && c >= '0' && c <= '9') {
-                  if(offending_flags == 0) {
-                     offending_flags = offending_flag_octal;
+                  if(compile_flags == 0) {
+                     compile_flags = compile_flag_octal;
                      offending_index = code - 1 - state->code_begin;
                   }
                   // legacy octal escape sequence
@@ -422,7 +424,7 @@ compiled_string_t* compile_string(
                } else if(!is_decimal(c)){
                   *compiled++ = c;
                } else {
-                  return_non_escape_string();
+                  return_not_escape_string();
                }
             }
          }
@@ -432,7 +434,7 @@ compiled_string_t* compile_string(
    *compiled_string = (compiled_string_t){
       .begin = compiled_begin, .end = compiled,
       .offending_index = offending_index,
-      .offending_flags = offending_flags
+      .compile_flags = compile_flags
    };
    return compiled_string;
 }
@@ -1053,6 +1055,7 @@ inline_spec uint32_t is_reserved(parse_state_t* const state, char_t const* strin
             //case 5: return_comparison_with(await);
             case 2: return_comparison_with(as);
             case 5: return_comparison_with_vec2(async, await);
+            case 9: return_comparison_with(arguments);
             default: return 0;
          }
       }
@@ -1067,6 +1070,7 @@ inline_spec uint32_t is_reserved(parse_state_t* const state, char_t const* strin
             case 4: return_comparison_with(case);
             case 5: return_comparison_with_vec3(catch, class, const);
             case 8: return_comparison_with(continue);
+            case 11: return_comparison_with(constructor);
             default: return 0;
          }
       }
@@ -1081,7 +1085,7 @@ inline_spec uint32_t is_reserved(parse_state_t* const state, char_t const* strin
       }
       case 'e': {
          switch(length) {
-            case 4: return_comparison_with_vec2(else, enum);
+            case 4: return_comparison_with_vec3(else, enum, eval);
             case 6: return_comparison_with(export);
             case 7: return_comparison_with(extends);
             default: return 0;
@@ -1264,12 +1268,18 @@ int scan_identifier(parse_state_t* const state, params_t params)
       identifier_length = state->code - begin;
    }
    if(can_continue) { decrement_current_scan_token(); }
-   uint32_t reserved_word_id = is_reserved(state, identifier_begin, *identifier_begin, identifier_length, params);
-   if(reserved_word_id == 0) {
-      make_token(state, begin, tkn_identifier, mask_identifier, precedence_none, compiled_identifier);
+   aggregate_id_t reserved_word = {
+      .aggregated_id = is_reserved(state, identifier_begin, *identifier_begin, identifier_length, params)
+   };
+   if(has_escape_sequence && (reserved_word.group & mask_always_a_reserved_word)) {
+      return_error(unicode_keyword, 0);
+   }
+   uint8_t token_flags = (has_escape_sequence ? token_flag_escaped : flag_none);
+   if(reserved_word.aggregated_id == 0) {
+      make_token(state, begin, tkn_identifier, mask_identifier, token_flags, compiled_identifier);
       if_verbose(print_string("identifier: "));
    } else {
-      make_aggregated_token(state, begin, reserved_word_id, compiled_identifier);
+      make_aggregated_token(state, begin, reserved_word.aggregated_id | token_flags, compiled_identifier);
       if_verbose(print_string("reserved_word: "));
       state->in_regexp_context = 1;
    }
@@ -1451,6 +1461,7 @@ int scan_next_token(parse_state_t* const state, uint32_t params)
          return 1;
       }
       if(!scan(state, params)) {
+         make_token(state, state->code, tkn_error, 0, precedence_none, nullptr);
          state->tokenization_status = status_flag_failed;
          if_debug(print_string("tokenization failed\n"););
          return 0;

@@ -17,6 +17,7 @@
 #define PARAM cover_flag_parameters
 #define FUNC param_flag_function
 #define FORMAL param_flag_formal
+#define VFUN param_flag_vanilla_function
 
 #define _get_3rd_arg(arg1, arg2, arg3, ...) arg3
 #define _get_4th_arg(arg1, arg2, arg3, arg4, ...) arg4
@@ -67,6 +68,7 @@
 
 #define exists(token_id) (current_token()->id == token_id)
 #define exists_word(name) (current_token()->id == word(name))
+#define exists_unescaped_word(name) (current_token()->id == word(name) && !(current_token()->flags & token_flag_escaped))
 #define exists_mask(mask) (current_token()->group & mask)
 #define exists_newline() (current_token()->flags & token_flag_newline)
 #define exists_newline_ahead(offset) (next_token()->flags & token_flag_newline)
@@ -95,6 +97,7 @@
 #define ensure_word(name) expect_word(name)
 #define ensure_mask(mask) expect_mask(mask)
 #define exists_ahead(token_id) (next_token()->id == token_id)
+#define exists_ahead_word(name) (next_token()->id == word(name))
 
 #define initialize_node(node_type) \
    print_make_node(node_type); \
@@ -233,8 +236,10 @@ parse_list_node_t* make_list_node(parse_state_t* state, void* parse_node) {
    (strncmp_impl(state->code_begin + token->begin + 1, stringize(use strict), strlen("use strict")) == 0) \
 )
 #define is_let_a_keyword() ( \
-   (params & param_flag_strict_mode) || \
-   (next_token()->group & (mask_let_inclusions | mask_identifier)) \
+   !(current_token()->flags & token_flag_escaped) && ( \
+      (params & param_flag_strict_mode) || \
+      (next_token()->group & (mask_let_inclusions | mask_identifier)) \
+   ) \
 )
 inline_spec bool is_an_assignment_target(void* node)
 {
@@ -277,7 +282,7 @@ bool retro_act_strict_mode(parse_state_t* state, parse_list_node_t* list_node)
    while(list_node->next != nullptr) {
       node_as(directive, list_node->parse_node, directive);
       node_as(string_literal, directive->expression, literal);
-      if(literal->compiled_string && literal->compiled_string->offending_flags & offending_flag_octal) {
+      if(literal->compiled_string && literal->compiled_string->compile_flags & compile_flag_octal) {
          //[TODO] provide proper error location
          set_error(octal_in_strict); return false;
       }
@@ -590,30 +595,36 @@ Literal:
    StringLiteral
 RegularExpressionLiteral
 */
-inline_spec identifier_t* parse_identifier(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
+inline_spec identifier_t* _parse_identifier(parse_state_t* state, parse_tree_state_t* tree_state, bool for_binding_id, params_t params)
 {
+   if(params & param_flag_strict_mode) {
+      token_t const* const token = current_token();
+      if(token->group & mask_strict_reserved_word) {
+         return_error(invalid_strict_mode_identifier, nullptr);
+      } else if(token->id == rw_yield) {
+         return_error(yield_in_strict_mode, nullptr);
+      } else if(token->id == rw_await && (params & param_flag_module)) {
+         return_error(await_in_module, nullptr);
+      } else if(for_binding_id && (token->id == rw_eval || token->id == rw_arguments)) {
+         return_error(eval_args_in_strict_mode, nullptr);
+      }
+   }
+   if(((params & YLD) && exists_word(yield)) || ((params & AWT) && exists_word(await))) {
+      return_error(contextual_identifier, nullptr);
+   }
    make_node(identifier); assign_token(); ensure_mask(mask_identifier); return_node();
 }
 inline_spec identifier_t* parse_identifier_reference(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
-   if(((params & YLD) && exists_word(yield)) || ((params & AWT) && exists_word(await))) {
-      return_error(contextual_identifier, nullptr);
-   }
-   make_node(identifier); assign_token(); ensure_mask(mask_identifier); return_node();
+   return _parse_identifier(state, tree_state, false, params);
 }
 inline_spec identifier_t* parse_binding_identifier(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
-   if(((params & YLD) && exists_word(yield)) || ((params & AWT) && exists_word(await))) {
-      return_error(contextual_identifier, nullptr);
-   }
-   make_node(identifier); assign_token(); ensure_mask(mask_identifier); return_node();
+   return _parse_identifier(state, tree_state, true, params);
 }
 inline_spec identifier_t* parse_label_identifier(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
-   if(((params & YLD) && exists_word(yield)) || ((params & AWT) && exists_word(await))) {
-      return_error(contextual_label, nullptr);
-   }
-   make_node(identifier); assign_token(); ensure_mask(mask_identifier); return_node();
+   return _parse_identifier(state, tree_state, false, params);
 }
 inline_spec identifier_t* parse_identifier_name(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
@@ -716,7 +727,7 @@ void* parse_directive_statement_list_with_end_token(
          add_to_list(statement);
          if(look_for_directive && is_a_directive(token)) {
             if(!(params & param_flag_strict_mode) && is_use_strict(directive_token)) {
-               params |= param_flag_strict_mode;
+               to_strict_mode();
                unwind_for_use_strict(state->parse_token);
                if(!retro_act_strict_mode(state, raw_list_head())) {
                   passon(nullptr);
@@ -795,7 +806,7 @@ inline_spec void* parse_module_body(parse_state_t* state, parse_tree_state_t* tr
             if(look_for_directive && is_a_directive(token)) {
                //(strncmp_impl(state->code_begin + token->begin + 1, stringize(use strict), strlen("use strict")) == 0)
                if(!(params & param_flag_strict_mode) && is_use_strict(directive_token)) {
-                  params |= param_flag_strict_mode;
+                  to_strict_mode();
                   unwind_for_use_strict(state->parse_token);
                   if(!retro_act_strict_mode(state, raw_list_head())) {
                      passon(nullptr);
@@ -1121,7 +1132,7 @@ void* parse_hoistable_declaration(parse_state_t* state, parse_tree_state_t* tree
    save_begin();
    if(!(params & param_flag_vanilla_function)) {
       if(exists_word(async)) {
-         if(exists_newline_ahead() || !exists_ahead(word(function))) {
+         if(exists_newline_ahead() || !exists_ahead_word(function)) {
             passon(nullptr);
          }
          ensure_word(async);
@@ -1143,9 +1154,9 @@ void* parse_hoistable_declaration(parse_state_t* state, parse_tree_state_t* tree
    } else {
       parse(id, binding_identifier);
    }
-   expect('('); list_parse(params, formal_parameters, YLD|AWT, add_params); expect(')');
+   expect('('); list_parse(params, formal_parameters, YLD|AWT|VFUN, add_params); expect(')');
    //expect('{'); parse(body, function_body, YLD|AWT, flags); expect('}');
-   parse(body, function_body_container, YLD|AWT, add_params);
+   parse(body, function_body_container, YLD|AWT|VFUN, add_params);
    assign(flags, function_flags);
    return_node();
 }
@@ -1508,7 +1519,7 @@ void* parse_import_declaration(parse_state_t* state, parse_tree_state_t* tree_st
             ensure('{');
             while(!exists('}')) {
                make_node(import_specifier);
-               if(exists_ahead(word(as))) {
+               if(exists_ahead_word(as)) {
                   parse(imported, identifier_name);
                   ensure_word(as);
                   parse(local, binding_identifier, YLD|AWT, NONE);
@@ -1856,7 +1867,7 @@ void* parse_template_literal(parse_state_t* state, parse_tree_state_t* tree_stat
       node->compiled_string = token->detail;
       if(token->detail != nullptr) {
          compiled_string_t* compiled_string = (compiled_string_t*)(token->detail);
-         if((compiled_string->offending_flags & offending_flag_not_escape) &&
+         if((compiled_string->compile_flags & compile_flag_not_escape) &&
             !(params & TAG)
          ){
             passon(nullptr);
@@ -2077,7 +2088,7 @@ void* parse_primary_expression(parse_state_t* state, parse_tree_state_t* tree_st
       }
       case rw_function: passon_parsed(function_expression, YLD|AWT, NONE);
       case rw_async: {
-         if(!exists_newline_ahead() && exists_ahead(word(function))) {
+         if(!exists_newline_ahead() && exists_ahead_word(function)) {
             passon_parsed(function_expression, YLD|AWT, NONE);
          }
       } // fallthrough
@@ -2452,6 +2463,10 @@ void* parse_update_expression(parse_state_t* state, parse_tree_state_t* tree_sta
       ensure_mask(mask_update_ops);
       parse(argument, unary_expression);
       assign(flags, operator_flag_prefix);
+      //[TODO] update location
+      if(!is_an_assignment_target(node->argument)) {
+         return_error(invalid_update, nullptr);
+      }
       return_node();
    } else {
       save_begin();
@@ -2465,6 +2480,10 @@ void* parse_update_expression(parse_state_t* state, parse_tree_state_t* tree_sta
       assign_operator();
       ensure_mask(mask_update_ops);
       assign(flags, flag_none);
+      //[TODO] update location
+      if(!is_an_assignment_target(node->argument)) {
+         return_error(invalid_update, nullptr);
+      }
       return_node();
    }
 }
@@ -3025,7 +3044,7 @@ void* parse_if_statement(parse_state_t* state, parse_tree_state_t* tree_state, p
    ensure_word(if); expect('(');
       parse(test, expression, RET, IN);
    expect(')');
-   if(allow_annex() && exists_word(function)) {
+   if(exists_word(function) && allow_annex()) {
       parse(consequent, hoistable_declaration, DEF, param_flag_vanilla_function);
    } else {
       parse(consequent, statement);
@@ -3159,7 +3178,7 @@ void* parse_for_statement(parse_state_t* state, parse_tree_state_t* tree_state, 
          if(declarations->next == nullptr) { // has only one declartion
             node_as(variable_declarator, declarations->parse_node, declarator);
             if(declarator->init == nullptr || // has no initializer
-               exists_word(in && declarator_id == word(var)) && // legacy initialization
+               exists_word(in) && (declarator_id == word(var)) && // legacy initialization
                node_type_is(identifier, declarator->id) && allow_annex()
             ){
                in_of_possible = true;
@@ -3556,10 +3575,10 @@ void* parse_statement(parse_state_t* state, parse_tree_state_t* tree_state, para
             passon_parsed(labeled_statement);
          } else if(exists_mask(mask_expression_exclusions)) {
             if(exists_word(async)) {
-               if(exists_ahead(word(function)) && !exists_newline_ahead()) {
+               if(exists_ahead_word(function) && !exists_newline_ahead()) {
                   passon(nullptr);
                }
-            } else if(exists_word(let)) {
+            } else if(exists_unescaped_word(let)) {
                if(exists_ahead('[')) { passon(nullptr); }
             } else {
                passon(nullptr);
@@ -3581,7 +3600,6 @@ program_t* parse_script(parse_state_t* state, parse_tree_state_t* tree_state, pa
 
 program_t* parse_module(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
-   params |= (param_flag_strict_mode | param_flag_module);
    make_node(program);
    assign(source_type, program_kind_module);
    list_parse(body, module_body);
@@ -3649,6 +3667,16 @@ program_t* parse_module(parse_state_t* state, parse_tree_state_t* tree_state, pa
 
 parse_result_t parse(char_t const* code_begin, char_t const* code_end, bool is_module, uint32_t params)
 {
+   if(params == flag_none) params |= param_flag_annex;
+   if(is_module) {
+      to_strict_mode();
+      params |= param_flag_module;
+   } else {
+      params &= ~param_flag_module;
+      if(params & (param_flag_loose_mode | param_flag_strict_mode)) {
+         to_loose_mode();
+      }
+   }
    size_t code_length = code_end - code_begin;
    memory_state_t memory_state = {
       .head = nullptr, .current = nullptr, .page_count = 0
@@ -3696,9 +3724,6 @@ parse_result_t parse(char_t const* code_begin, char_t const* code_end, bool is_m
       .expected_token_id = 0,
       .expected_mask = 0,
    };
-   if(is_module) {
-      params |= param_flag_strict_mode;
-   }
    parse_state_t* state = &_state;
    if(params & param_flag_streaming) {
       scan_next_token(state, params);

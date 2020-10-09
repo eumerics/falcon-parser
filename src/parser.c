@@ -45,20 +45,22 @@ elements_t characters2 = {0, 0, 0, 0, 0, 0, 0, 0, 0};
    }
    #define print_params(params) \
       printf( \
-         color_bold_bright_black("(%s%s%s%s%s%s%s%s%s%s%s%s%s )") " \n", \
+         color_bold_bright_black("(%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s )") " \n", \
+         (params & param_flag_strict_mode ? " strict" : ""), \
+         (params & param_flag_loose_mode ? " loose" : ""), \
+         (params & param_flag_module ? " module" : ""), \
+         (params & param_flag_annex ? " annex" : ""), \
          (params & param_flag_await ? " await" : ""), \
+         (params & param_flag_yield ? " yield" : ""), \
          (params & param_flag_default ? " default" : ""), \
          (params & param_flag_in ? " in" : ""), \
          (params & param_flag_return ? " return" : ""), \
-         (params & param_flag_yield ? " yield" : ""), \
          (params & cover_flag_parameters ? " cover-params" : ""), \
          (params & param_flag_for_binding ? " for-binding" : ""), \
-         (params & param_flag_annex ? " annex" : ""), \
-         (params & param_flag_strict_mode ? " strict" : ""), \
+         (params & param_flag_vanilla_function ? " vanilla-function" : ""), \
          (params & param_flag_function ? " function" : ""), \
          (params & param_flag_class ? " class" : ""), \
-         (params & param_flag_formal ? " formal" : ""), \
-         (params & param_flag_module ? " module" : "") \
+         (params & param_flag_formal ? " formal" : "") \
       ); \
       fflush(stdout);
    #define _print_parse_descent(type, remove_filter, add_filter) { \
@@ -128,7 +130,7 @@ int main(int argc, char* argv[])
 {
    if(argc > 1) {
       FILE* fp = fopen(argv[1], "r");
-      bool is_module = true;
+      bool is_module = false;
       if(fp != NULL) {
          fseek(fp, 0L, SEEK_END);
          size_t file_size = ftell(fp);
@@ -162,24 +164,26 @@ int main(int argc, char* argv[])
                else {
                   uint64_t end = __rdtsc();
                   clock_t cend = clock();
-                  if(result.state.tokenization_status == status_flag_complete) {
-                     if(result.state.parsing_status == status_flag_complete) {
-                        printf(color_bold_green("parsing successful") "\n");
-                     } else {
-                        printf(color_bold_red("parsing failed") "\n");
-                        if(result.state.error_message != nullptr) {
-                           printf(color_bold_red("%s") "\n", result.state.error_message);
-                        }
-                        size_t begin = result.state.parse_token->begin;
-                        int length = result.state.parse_token->end - begin;
-                        printf("\nparsing failed at character index %zu %.*s\n", begin, length, result.state.code_begin + begin);
-                        printf("token found: %x %x %c\n", result.state.parse_token->id, result.state.parse_token->group, result.state.parse_token->id);
-                        printf("token expected: %x %c\n", result.state.expected_token_id, result.state.expected_token_id);
-                        //printf("token found: %x %x %c\n", result.state.parse_token->id, result.state.parse_token->group, result.state.parse_token->id);
-                        //printf("token expected: %x %c\n", result.state.expected_token_id, result.state.expected_token_id);
-                     }
+                  if(result.state.tokenization_status == status_flag_complete &&
+                     result.state.parsing_status == status_flag_complete
+                  ){
+                     printf(color_bold_green("parsing successful") "\n");
                   } else {
-                     printf(color_bold_red("tokenization failed") "\n");
+                     if(result.state.tokenization_status == status_flag_complete) {
+                        printf(color_bold_red("parsing failed") "\n");
+                     } else {
+                        printf(color_bold_red("tokenization failed") "\n");
+                     }
+                     if(result.state.error_message != nullptr) {
+                        printf(color_bold_red("%s") "\n", result.state.error_message);
+                     }
+                     size_t begin = result.state.parse_token->begin;
+                     int length = result.state.parse_token->end - begin;
+                     printf("\nparsing failed at character index %zu %.*s\n", begin, length, result.state.code_begin + begin);
+                     printf("token found: %x %x %c\n", result.state.parse_token->id, result.state.parse_token->group, result.state.parse_token->id);
+                     printf("token expected: %x %c\n", result.state.expected_token_id, result.state.expected_token_id);
+                     //printf("token found: %x %x %c\n", result.state.parse_token->id, result.state.parse_token->group, result.state.parse_token->id);
+                     //printf("token expected: %x %c\n", result.state.expected_token_id, result.state.expected_token_id);
                   }
                   //printf("%lu\n", (end - begin) / iterations);
                   printf("%lu %.3f\n", (end - begin) / iterations, 1000 * ((double)(cend - cbegin)) / CLOCKS_PER_SEC / iterations);

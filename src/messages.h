@@ -42,6 +42,13 @@ define_error(0x0018, invalid_for_assignment, "invalid assignment target in for-i
 define_error(0x0019, standalone_super, "super keyword can only be used to access super class properties and methods");
 define_error(0x001a, import_in_non_module, "import keyword can only appear in a module");
 define_error(0x001b, new_meta, "new meta property can only appear inside a function");
+define_error(0x001c, invalid_strict_mode_identifier, "invalid strict mode identifier");
+define_error(0x001d, unicode_keyword, "keywords cannot be specified with unicode escape sequences");
+define_error(0x001e, yield_in_strict_mode, "yield is a reserved word in strict mode");
+define_error(0x001f, await_in_module, "await is a reserved word in module");
+define_error(0x0020, eval_args_in_strict_mode, "eval and arguments are invalid as references in strict mode");
+define_error(0x0021, invalid_update, "invalid increment/decrement operand");
+define_error(0x0022, invalid_labeled, "labeled statement is not allowed here");
 
 define_error(0x1000, missing_assignment_or_binding_flag,
    "internal-error: change flags must have one of assignment or binding flag"

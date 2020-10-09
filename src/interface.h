@@ -33,13 +33,6 @@ typedef struct {
 } token_t;
 
 typedef struct {
-   char_t const* begin;
-   char_t const* end;
-   size_t offending_index;
-   uint8_t offending_flags;
-} compiled_string_t;
-
-typedef struct {
    char const* source;
 } location_t;
 
@@ -52,15 +45,31 @@ typedef struct {
 */
 typedef uint8_t node_type_t;
 typedef uint32_t params_t;
+
 #define embed_parse_node() \
    size_t begin; \
    size_t end; \
    node_type_t type; \
    uint8_t group;
+#define embed_compiled_parse_node() \
+   embed_parse_node() \
+   uint8_t flags; \
+   compiled_string_t* compiled_string;
+
+typedef struct {
+   char_t const* begin;
+   char_t const* end;
+   size_t offending_index;
+   uint8_t compile_flags;
+} compiled_string_t;
 
 typedef struct {
    embed_parse_node();
 } parse_node_t;
+
+typedef struct {
+   embed_compiled_parse_node();
+} compiled_parse_node_t;
 
 // every covered parse node must have the following binary compatibility
 typedef struct {
@@ -70,16 +79,14 @@ typedef struct {
 
 // parser node
 typedef struct {
-   embed_parse_node();
-   compiled_string_t* compiled_string;
+   embed_compiled_parse_node();
 } identifier_t;
 typedef struct {
    embed_parse_node();
    uint8_t token_id;
 } literal_t;
 typedef struct {
-   embed_parse_node();
-   compiled_string_t* compiled_string;
+   embed_compiled_parse_node();
 } string_literal_t;
 typedef struct {
    embed_parse_node();
@@ -123,10 +130,7 @@ typedef struct {
    void* expressions;
 } template_literal_t;
 typedef struct {
-   embed_parse_node();
-   uint8_t flags;
-   //token_t const* token;
-   compiled_string_t* compiled_string;
+   embed_compiled_parse_node();
 } template_element_t;
 
 typedef struct {

@@ -1,2 +1,3 @@
-if(true) function f(){}
-if(true); else function f(){}
+if(true) function a(){}
+if(false); else function a(){}
+if(true) function a(){ function* b(){} }

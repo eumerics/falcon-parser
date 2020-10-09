@@ -333,8 +333,8 @@ export class Node {
       } else {
          const compiled_begin = this.buffer_view[type][(pointer + 0) / sizeof[type]];
          const compiled_end = this.buffer_view[type][(pointer + 4) / sizeof[type]];
-         const offending_flags = this.buffer_view.u08[(pointer + 12) / sizeof.u08];
-         if(offending_flags & Parser.constants.offending_flag_not_escape) return null;
+         const compile_flags = this.buffer_view.u08[(pointer + 12) / sizeof.u08];
+         if(compile_flags & Parser.constants.compile_flag_not_escape) return null;
          return Parser.decoder.decode(
             this.buffer_view.u08.subarray(compiled_begin, compiled_end)
          );
@@ -603,19 +603,21 @@ const env = {
    //print: function() { console.log(...arguments); }
    get_params_string: function(params) {
       const flags = [
+         ['param_flag_strict_mode', 'strict'],
+         ['param_flag_loose_mode', 'loose'],
+         ['param_flag_module', 'module'],
+         ['param_flag_annex', 'annex'],
          ['param_flag_await', 'await'],
+         ['param_flag_yield', 'yield'],
          ['param_flag_default', 'default'],
          ['param_flag_in', 'in'],
          ['param_flag_return', 'return'],
-         ['param_flag_yield', 'yield'],
          ['cover_flag_parameters', 'cover-params'],
          ['param_flag_for_binding', 'for-binding'],
-         ['param_flag_annex', 'annex'],
-         ['param_flag_strict_mode', 'strict'],
+         ['param_flag_vanilla_function', 'vanilla-function'],
          ['param_flag_function', 'function'],
          ['param_flag_class', 'class'],
-         ['param_flag_formal', 'formal'],
-         ['param_flag_module', 'module']
+         ['param_flag_formal', 'formal']
       ];
       let params_string = ' (';
       for(const [flag, label] of flags) {
@@ -749,7 +751,6 @@ export class Parser {
       this.code = {pointer: index, view: code_view, utf8_view: code_utf8_view};
    }
    parse_code(is_module, params) {
-      params = (params ? params : 0) | Parser.constants.param_flag_annex;
       let result_size = 4096; //[BUG] large enough for now to not worry about actual size
       let result_pointer = Parser.instance.exports.malloc(result_size);
       let begin = this.code.pointer, end = begin + this.code.view.byteLength;

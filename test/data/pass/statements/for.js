@@ -20,6 +20,7 @@ for(const a = 0; a < 1; ++a);
 for(var [a] = [1];;);
 for(let [a] = [1];;);
 for(const [a] = [1];;);
+for(l\u0065t[a];;);
 
 for(; a in {};);
 for(;; a in {});
