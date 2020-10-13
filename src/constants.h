@@ -33,6 +33,8 @@ uint16_t const mask_let_inclusions = 0x8000;
 uint8_t const token_flag_none = 0x00;
 uint8_t const token_flag_newline = 0x01;
 uint8_t const token_flag_escaped = 0x02;
+uint8_t const token_flag_for = 0x04;
+uint8_t const token_flag_loop = 0x08;
 
 // token types
 uint8_t const tkn_base = 0x80;
@@ -478,6 +480,9 @@ uint8_t const change_flag_object_assignment = change_flag_object | change_flag_a
 uint8_t const compile_flag_source = 0x01;
 uint8_t const compile_flag_octal = 0x02;
 uint8_t const compile_flag_not_escape = 0x04;
+
+uint32_t const syntatic_flag_break = 0x01;
+uint32_t const syntatic_flag_continue = 0x02;
 
 #undef NONE
 #undef LHS

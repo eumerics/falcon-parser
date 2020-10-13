@@ -90,7 +90,7 @@ elements_t characters2 = {0, 0, 0, 0, 0, 0, 0, 0, 0};
             color_bold_cyan("%*s-- consumed token '%.*s'") "\n", \
             state->depth % 60, "", \
             (int)(state->parse_token->end - state->parse_token->begin), \
-            state->code_begin + state->parse_token->begin \
+            state->parse_token->begin \
          ), \
          fflush(stdout) \
       )
@@ -100,7 +100,7 @@ elements_t characters2 = {0, 0, 0, 0, 0, 0, 0, 0, 0};
             color_bold_cyan("%*s-- consumed token '%.*s'") "\n", \
             state->depth % 60, "", \
             2 * (int)(state->parse_token->end - state->parse_token->begin), \
-            (char const*)(state->code_begin + state->parse_token->begin) \
+            state->parse_token->begin \
          ), \
          fflush(stdout) \
       )
@@ -177,9 +177,9 @@ int main(int argc, char* argv[])
                      if(result.state.error_message != nullptr) {
                         printf(color_bold_red("%s") "\n", result.state.error_message);
                      }
-                     size_t begin = result.state.parse_token->begin;
+                     char_t const* begin = result.state.parse_token->begin;
                      int length = result.state.parse_token->end - begin;
-                     printf("\nparsing failed at character index %zu %.*s\n", begin, length, result.state.code_begin + begin);
+                     printf("\nparsing failed at character index %zu %.*s\n", begin - result.state.code_begin, length, begin);
                      printf("token found: %x %x %c\n", result.state.parse_token->id, result.state.parse_token->group, result.state.parse_token->id);
                      printf("token expected: %x %c\n", result.state.expected_token_id, result.state.expected_token_id);
                      //printf("token found: %x %x %c\n", result.state.parse_token->id, result.state.parse_token->group, result.state.parse_token->id);

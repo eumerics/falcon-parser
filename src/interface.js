@@ -320,15 +320,15 @@ export class Node {
       });
    }
 
-   //get_value() { return String.fromCharCode(...this.buffer_view.code.subarray(this.begin, this.end)); }
-   get_value() { return Parser.decoder.decode(this.buffer_view.code.subarray(this.begin, this.end)); }
-   decode(begin, end) { return Parser.decoder.decode(this.buffer_view.code.subarray(begin, end)); }
+   //get_value() { return String.fromCharCode(...this.buffer_view.code.view.subarray(this.begin, this.end)); }
+   get_value() { return Parser.decoder.decode(this.buffer_view.code.view.subarray(this.begin, this.end)); }
+   decode(begin, end) { return Parser.decoder.decode(this.buffer_view.code.view.subarray(begin, end)); }
    get_compiled_value(strip_length) {
       const type = 'u32';
       const pointer = this.buffer_view[type][(this.pointer + 12) / sizeof[type]];
       if(pointer == 0) {
          return Parser.decoder.decode(
-            this.buffer_view.code.subarray(this.begin + strip_length, this.end - strip_length)
+            this.buffer_view.code.view.subarray(this.begin + strip_length, this.end - strip_length)
          );
       } else {
          const compiled_begin = this.buffer_view[type][(pointer + 0) / sizeof[type]];
@@ -343,12 +343,12 @@ export class Node {
 
    get type() { return this.constructor.name; }
    get type_id() { return this.buffer_view.u08[this.pointer + 8]; }
-   get start() { return this.buffer_view.u32[this.pointer/4]; } // for compatibility with acorn
-   set start(value) { this.buffer_view.u32[this.pointer/4] = value; } // for compatibility with acorn
-   get begin() { return this.buffer_view.u32[this.pointer/4]; }
-   set begin(value) { this.buffer_view.u32[this.pointer/4] = value; }
-   get end() { return this.buffer_view.u32[this.pointer/4 + 1]; }
-   set end(value) { this.buffer_view.u32[this.pointer/4 + 1] = value; }
+   get start() { return (this.buffer_view.u32[this.pointer/4] - this.buffer_view.code.pointer) / Parser.char_bytes; } // for compatibility with acorn
+   set start(value) { this.buffer_view.u32[this.pointer/4] = Parser.char_bytes * value - this.buffer_view.code.pointer; } // for compatibility with acorn
+   get begin() { return (this.buffer_view.u32[this.pointer/4] - this.buffer_view.code.pointer) / Parser.char_bytes; }
+   set begin(value) { this.buffer_view.u32[this.pointer/4] = Parser.char_bytes * value + this.buffer_view.code.pointer; }
+   get end() { return (this.buffer_view.u32[this.pointer/4 + 1] - this.buffer_view.code.pointer) / Parser.char_bytes; }
+   set end(value) { this.buffer_view.u32[this.pointer/4 + 1] = Parser.char_bytes * value + this.buffer_view.code.pointer; }
 
    toJSON() {
       let begin = new Date;
@@ -430,7 +430,7 @@ change_node_type(StringLiteral, 'Literal');
 //Literal.prototype.enumerables = Array.from(Node.prototype.enumerables).concat(['value', 'raw']);
 export class RegExpLiteral extends Literal {
    get regex() {
-      const flags_length = this.buffer_view.u08[this.pointer + 10] >> 3;
+      const flags_length = this.buffer_view.u08[this.pointer + 10] >> 4;
       const middle = this.end - flags_length;
       return {
          pattern: this.decode(this.begin + 1, middle - 1),
@@ -763,7 +763,7 @@ export class Parser {
          u08: new Uint8Array(buffer),
          u16: new Uint16Array(buffer),
          u32: new Uint32Array(buffer),
-         code: this.code.view
+         code: this.code
       };
       this.parse_result = new Parse_Result(buffer_view, result_pointer);
       if(this.parse_result.tokenization_status != Parser.constants.status_flag_complete ||
@@ -796,6 +796,7 @@ export class Parser {
       Parser.memory = Parser.instance.exports.memory;
       Parser.map_constants();
       Parser.use_utf16 = !!Parser.constants.has_flag_utf16;
+      Parser.char_bytes = (Parser.use_utf16 ? 2 : 1);
       Parser.utf8_decoder = new TextDecoder('utf-8');
       Parser.decoder = new TextDecoder(Parser.use_utf16 ? 'utf-16' : 'utf-8');
       Parser.map_constructors();
@@ -1191,13 +1192,13 @@ export class Parser {
          nodes: {test: 12, body: 16}
       });
       define_interface(ForStatement, {
-         nodes: {init: 12, test: 16, update: 20, body: 24}
+         nodes: {init: 16, test: 20, update: 24, body: 12}
       });
       define_interface(ForInStatement, {
-         nodes: {left: 12, right: 16, body: 20}
+         nodes: {left: 16, right: 20, body: 12}
       });
       define_interface(ForOfStatement, {
-         nodes: {left: 12, right: 16, body: 20},
+         nodes: {left: 16, right: 20, body: 12},
          flags: {flags: {type: 'u08', offset: 10, flags: {
             await: Parser.constants.for_flag_await
          }}}

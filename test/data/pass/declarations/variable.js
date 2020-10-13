@@ -20,3 +20,6 @@ var await, yield;
 var let, static, implements, interface;
 var package, private, protected, public;
 var as, async, from, get, of, set, target;
+
+var a = 1, a = 2;
+for(let a = 0; false;) { let a; }

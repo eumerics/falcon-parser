@@ -49,6 +49,12 @@ define_error(0x001f, await_in_module, "await is a reserved word in module");
 define_error(0x0020, eval_args_in_strict_mode, "eval and arguments are invalid as references in strict mode");
 define_error(0x0021, invalid_update, "invalid increment/decrement operand");
 define_error(0x0022, invalid_labeled, "labeled statement is not allowed here");
+define_error(0x0023, duplicate_symbol, "redeclaration of variable");
+define_error(0x0024, let_in_lexical, "a lexical declaration cannot declare a variable named let");
+define_error(0x0025, with_in_strict_mode, "with statement cannot be used in strict mode");
+define_error(0x0026, invalid_constructor, "constructor must not be a getter, setter, async, generator or async-generator");
+define_error(0x0027, unsyntatic_continue, "continue statement must be inside a loop");
+define_error(0x0028, unsyntatic_break, "unlabeled break statement must be inside a loop or switch");
 
 define_error(0x1000, missing_assignment_or_binding_flag,
    "internal-error: change flags must have one of assignment or binding flag"

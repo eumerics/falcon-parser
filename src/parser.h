@@ -29,10 +29,10 @@
 #define precedence(operator) (operator.precedence & 0xf8)
 
 #define token_length(token) (token->end - token->begin)
-#define raw_char(token, offset) (state->code_begin[token->begin + offset])
+#define raw_char(token, offset) (token->begin[offset])
 #define token_is(name, token) ( \
    (token->end - token->begin == strlen(#name)) && \
-   (strncmp_impl(state->code_begin + token->begin, stringize(name), strlen(#name)) == 0) \
+   (strncmp_impl(token->begin, stringize(name), strlen(#name)) == 0) \
 )
 #if defined(MEMOPT)
    #define _offset_token(token, offset) ( \
@@ -40,7 +40,7 @@
          - ((token) - state->token_begin) \
    )
    #define _token_at_offset(token, offset) (state->token_begin + ((token) - state->token_begin + offset) % token_capacity)
-   #define increment_current_token() (state->parse_token = _token_at_offset(current_token(), 1))
+   #define increment_current_token() (state->parse_token = (token_t*)(_token_at_offset(current_token(), 1)))
 #else
    #define _offset_token(token, offset) ((token) += offset)
    #define _token_at_offset(token, offset) ((token) + offset)
@@ -118,8 +118,8 @@
 #define return_node() { complete_node(); passon(node); }
 #define passon(node) { _print_parse_ascent(node); return node; }
 
-#define save_begin() size_t begin = current_token()->begin;
-#define save_end() size_t end = current_token()->end;
+#define save_begin() char_t const* begin = current_token()->begin;
+#define save_end() char_t const* end = current_token()->end;
 #define assign_begin() node->begin = begin;
 #define assign_end() node->end = end;
 #define copy_begin(object) node->begin = ((parse_node_t*)(object))->begin;
@@ -233,7 +233,7 @@ parse_list_node_t* make_list_node(parse_state_t* state, void* parse_node) {
 )
 #define is_use_strict(token) ( \
    (token->end - token->begin - 2 == strlen("use strict")) && \
-   (strncmp_impl(state->code_begin + token->begin + 1, stringize(use strict), strlen("use strict")) == 0) \
+   (strncmp_impl(token->begin + 1, stringize(use strict), strlen("use strict")) == 0) \
 )
 #define is_let_a_keyword() ( \
    !(current_token()->flags & token_flag_escaped) && ( \
@@ -263,7 +263,8 @@ inline_spec bool _property_key_is(parse_state_t* state, property_t* property, ch
    if(property == nullptr) return false;
    if(property->key == nullptr) return false;
    parse_node_t* key = (parse_node_t*)(property->key);
-   size_t begin, end;
+   char_t const* begin;
+   char_t const* end;
    if(key->type == pnt_identifier) {
       begin = key->begin; end = key->end;
    } else if(key->type == pnt_string_literal) {
@@ -275,7 +276,7 @@ inline_spec bool _property_key_is(parse_state_t* state, property_t* property, ch
    } else {
       return false;
    }
-   return (strncmp_impl(state->code_begin + begin, name, length) == 0);
+   return (strncmp_impl(begin, name, length) == 0);
 }
 bool retro_act_strict_mode(parse_state_t* state, parse_list_node_t* list_node)
 {
@@ -290,6 +291,10 @@ bool retro_act_strict_mode(parse_state_t* state, parse_list_node_t* list_node)
    }
    return true;
 }
+#define check_lexical_collision(_node, binding_type) \
+   if(!insert_symbol(state, _node, binding_type)) { \
+      return_error(duplicate_symbol, nullptr); \
+   } \
 
 #define make_params(remove_filter, add_filter) (params & ~(params_t)(remove_filter)) | ((params_t)(add_filter))
 
@@ -804,7 +809,7 @@ inline_spec void* parse_module_body(parse_state_t* state, parse_tree_state_t* tr
             parse(statement, YLD|AWT|RET, NONE);
             add_to_list(statement);
             if(look_for_directive && is_a_directive(token)) {
-               //(strncmp_impl(state->code_begin + token->begin + 1, stringize(use strict), strlen("use strict")) == 0)
+               //(strncmp_impl(token->begin + 1, stringize(use strict), strlen("use strict")) == 0)
                if(!(params & param_flag_strict_mode) && is_use_strict(directive_token)) {
                   to_strict_mode();
                   unwind_for_use_strict(state->parse_token);
@@ -1085,8 +1090,13 @@ inline_spec void* parse_function_body(parse_state_t* state, parse_tree_state_t* 
 }
 inline_spec void* parse_function_body_container(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
+   uint32_t saved_syntactic_flags = state->syntactic_flags;
+   state->syntactic_flags = flag_none;
    make_node(block_statement);
+   new_scope(state);
    expect('{'); list_parse(body, function_statement_list); expect('}');
+   end_scope(state);
+   state->syntactic_flags = saved_syntactic_flags;
    return_node();
 }
 /*
@@ -1329,11 +1339,6 @@ method_definition_t* parse_method_definition(parse_state_t* state, parse_tree_st
       uint8_t kind = property_kind_method;
       parse(key, property_name);
       assign(flags, flags); // this is needed for property_is
-      if(!(method_flags & method_flag_static) &&
-         property_key_is(constructor, node)
-      ){
-         kind = property_kind_constructor;
-      }
       if(exists('(')) {
          parse(value, method_function, YLD|AWT, NONE);
          flags |= property_flag_method;
@@ -1406,6 +1411,17 @@ void* parse_class_element_list(parse_state_t* state, parse_tree_state_t* tree_st
       }
       parse_with_arg(method_flags, method_definition);
       node_as(method_definition, method_definition, md);
+      if(property_key_is(constructor, md)){
+         node_as(function_expression, md->value, fe);
+         if((md->flags & method_flag_special) ||
+            (fe->flags & (function_flag_async | function_flag_generator))
+         ){
+            return_error(invalid_constructor, nullptr);
+         }
+         if(!(method_flags & method_flag_static)) {
+            md->kind = property_kind_constructor;
+         }
+      }
       md->begin = begin;
       md->flags |= method_flags;
       add_to_list(method_definition);
@@ -1689,6 +1705,7 @@ void* parse_array_literal(parse_state_t* state, parse_tree_state_t* tree_state, 
    };
    expect(']');
    assign(elements, raw_list_head());
+   assign(first_cover, nullptr);
    assign(has_trailing_comma, has_trailing_comma);
    return_node();
 }
@@ -1793,6 +1810,7 @@ void* parse_object_literal(parse_state_t* state, parse_tree_state_t* tree_state,
    };
    expect('}');
    assign(properties, raw_list_head());
+   assign(first_cover, nullptr);
    assign(has_trailing_comma, has_trailing_comma);
    return_node();
 }
@@ -2152,7 +2170,7 @@ ImportMeta:
    import . meta
 */
 void* parse_member_expression(parse_state_t* state, parse_tree_state_t* tree_state, params_t params);
-void* continue_with_member_expression(parse_state_t* state, parse_tree_state_t* tree_state, void* object, size_t begin, uint8_t flag, params_t params);
+void* continue_with_member_expression(parse_state_t* state, parse_tree_state_t* tree_state, void* object, char_t const* begin, uint8_t flag, params_t params);
 void* parse_member_only_expression(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    save_begin();
@@ -2212,7 +2230,7 @@ void* parse_member_only_expression(parse_state_t* state, parse_tree_state_t* tre
    continue_with(member_expression, object, begin, flag_none);
    passon(member_expression);
 }
-void* continue_with_member_expression(parse_state_t* state, parse_tree_state_t* tree_state, void* object, size_t begin, uint8_t flag, params_t params)
+void* continue_with_member_expression(parse_state_t* state, parse_tree_state_t* tree_state, void* object, char_t const* begin, uint8_t flag, params_t params)
 {
    void* property = nullptr;
    bool is_optional = (flag == optional_flag_optional);
@@ -2281,7 +2299,7 @@ CoverCallExpressionAndAsyncArrowHead:
 CallMemberExpression[Yield, Await]:
    MemberExpression[?Yield, ?Await] Arguments[?Yield, ?Await]
 */
-void* continue_with_call_expression(parse_state_t* state, parse_tree_state_t* tree_state, void* callee, size_t begin, uint8_t flag, params_t params);
+void* continue_with_call_expression(parse_state_t* state, parse_tree_state_t* tree_state, void* callee, char_t const* begin, uint8_t flag, params_t params);
 void* parse_covering_call_only_expression(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    save_begin();
@@ -2334,7 +2352,7 @@ void* parse_call_only_expression(parse_state_t* state, parse_tree_state_t* tree_
       //passon(nullptr);
    }
 }
-void* continue_with_call_expression(parse_state_t* state, parse_tree_state_t* tree_state, void* callee, size_t begin, uint8_t flag, params_t params)
+void* continue_with_call_expression(parse_state_t* state, parse_tree_state_t* tree_state, void* callee, char_t const* begin, uint8_t flag, params_t params)
 {
    make_node(call_expression);
    assign_begin();
@@ -2404,7 +2422,7 @@ OptionalChain[Yield, Await]:
    OptionalChain[?Yield, ?Await] . IdentifierName
    OptionalChain[?Yield, ?Await] TemplateLiteral[?Yield, ?Await, +Tagged]
 */
-void* continue_with_optional_expression(parse_state_t* state, parse_tree_state_t* tree_state, void* left, size_t begin, params_t params)
+void* continue_with_optional_expression(parse_state_t* state, parse_tree_state_t* tree_state, void* left, char_t const* begin, params_t params)
 {
    make_node(chain_expression);
    assign_begin();
@@ -2609,7 +2627,7 @@ LogicalORExpression[In, Yield, Await]:
    LogicalORExpression[?In, ?Yield, ?Await] || LogicalANDExpression[?In, ?Yield, ?Await]
 */
 void* parse_logical_expression(parse_state_t* state, parse_tree_state_t* tree_state, params_t params);
-void* continue_with_logical_expression(parse_state_t* state, parse_tree_state_t* tree_state, void* binary_expression, size_t begin, params_t params)
+void* continue_with_logical_expression(parse_state_t* state, parse_tree_state_t* tree_state, void* binary_expression, char_t const* begin, params_t params)
 {
    make_node(logical_expression);
    assign_begin();
@@ -2638,7 +2656,7 @@ CoalesceExpressionHead[In, Yield, Await]:
 [NOTE] a BitwiseORExpression is not a CoalesceExpression
 */
 void* parse_coalesce_expression(parse_state_t* state, parse_tree_state_t* tree_state, params_t params);
-void* continue_with_coalesce_expression(parse_state_t* state, parse_tree_state_t* tree_state, void* binary_expression, size_t begin, params_t params)
+void* continue_with_coalesce_expression(parse_state_t* state, parse_tree_state_t* tree_state, void* binary_expression, char_t const* begin, params_t params)
 {
    make_node(logical_expression);
    assign_begin();
@@ -2750,7 +2768,7 @@ Supplemental Syntax:
 */
 void* continue_with_arrow_function(
    parse_state_t* state, parse_tree_state_t* tree_state,
-   arrow_function_expression_t* node, size_t begin, params_t add_params, params_t params
+   arrow_function_expression_t* node, char_t const* begin, params_t add_params, params_t params
 ){
    if(exists_newline()) passon(nullptr);
    ensure(pnct_arrow);
@@ -2896,8 +2914,13 @@ Block[Yield, Await, Return]:
 */
 void* parse_block_statement(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
+   //bool in_for_statement = current_token()->flags & token_flag_for;
+   //if(!in_for_statement) new_scope(state);
+   new_scope(state);
    make_node(block_statement);
    expect('{'); list_parse(body, block_statement_list); expect('}');
+   //if(!in_for_statement) end_scope(state);
+   end_scope(state);
    return_node();
 }
 /*
@@ -2934,7 +2957,11 @@ void* parse_lexical_binding_list(parse_state_t* state, parse_tree_state_t* tree_
    do {
       make_node(variable_declarator);
       if(exists_mask(mask_identifier)) {
+         if(exists_word(let) && token_id != rw_var) {
+            return_error(let_in_lexical, nullptr);
+         }
          parse(id, binding_identifier);
+         check_lexical_collision(node->id, token_id);
          if(token_id == rw_const && !exists('=')) {
             if(first_element && optional_binding_init) {
                if(exists_word(in) || exists_word(of)) {
@@ -3068,7 +3095,12 @@ IterationStatement[Yield, Await, Return]:
 void* parse_do_statement(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    make_node(do_statement);
-   ensure_word(do); parse(body, statement);
+   ensure_word(do);
+   uint32_t saved_syntactic_flags = state->syntactic_flags;
+   state->syntactic_flags |= (syntatic_flag_break | syntatic_flag_continue);
+   current_token()->flags |= token_flag_loop;
+   parse(body, statement);
+   state->syntactic_flags = saved_syntactic_flags;
    expect_word(while); expect('(');
       parse(test, expression, RET, IN);
    expect(')');
@@ -3088,7 +3120,11 @@ void* parse_while_statement(parse_state_t* state, parse_tree_state_t* tree_state
    ensure_word(while); expect('(');
       parse(test, expression, RET, IN);
    expect(')');
+   uint32_t saved_syntactic_flags = state->syntactic_flags;
+   state->syntactic_flags |= (syntatic_flag_break | syntatic_flag_continue);
+   current_token()->flags |= token_flag_loop;
    parse(body, statement);
+   state->syntactic_flags = saved_syntactic_flags;
    return_node();
 }
 // ====== STATEMENTS::For ============== //
@@ -3151,14 +3187,18 @@ void* parse_for_statement(parse_state_t* state, parse_tree_state_t* tree_state, 
 {
    ///*
    void* production = nullptr;
+   void* for_statement = nullptr;
    bool is_declarator = false;
    bool in_of_possible = false;
    bool has_invalid_initializer = false;
+   bool has_let = false;
+
    save_begin();
+   new_scope(state);
+
    ensure_word(for);
    bool is_await = optional_word(await);
    expect('(');
-   bool has_let = false;
    if(is_await || !exists(';')) {
       if(is_await && !(params & param_flag_await)) {
          return_error(unexpected_await, nullptr);
@@ -3211,8 +3251,7 @@ void* parse_for_statement(parse_state_t* state, parse_tree_state_t* tree_state, 
       parse(right, assignment_expression, RET, IN);
       assign(flags, (is_await ? for_flag_await : flag_none));
       expect(')');
-      parse(body, statement);
-      return_node();
+      for_statement = node;
    } else if(in_of_possible && optional_word(in)) {
       if(has_invalid_initializer) { return_error(initializer_in_for, nullptr); }
       if(!is_declarator) {
@@ -3225,8 +3264,7 @@ void* parse_for_statement(parse_state_t* state, parse_tree_state_t* tree_state, 
       assign(left, production);
       parse(right, expression, RET, IN);
       expect(')');
-      parse(body, statement);
-      return_node();
+      for_statement = node;
    } else {
       make_node(for_statement);
       assign_begin();
@@ -3244,9 +3282,17 @@ void* parse_for_statement(parse_state_t* state, parse_tree_state_t* tree_state, 
          assign(update, nullptr);
       }
       expect(')');
-      parse(body, statement);
-      return_node();
+      for_statement = node;
    }
+
+   for_statement_t* node = for_statement;
+   uint32_t saved_syntactic_flags = state->syntactic_flags;
+   state->syntactic_flags |= (syntatic_flag_break | syntatic_flag_continue);
+   current_token()->flags |= token_flag_for | token_flag_loop;
+   parse(body, statement);
+   end_scope(state);
+   state->syntactic_flags = saved_syntactic_flags;
+   return_node();
    //*/
    /*
    ensure_word(for); expect('(');
@@ -3292,6 +3338,9 @@ void* parse_continue_statement(parse_state_t* state, parse_tree_state_t* tree_st
 {
    make_node(continue_statement);
    ensure_word(continue);
+   if(!(state->syntactic_flags & syntatic_flag_continue)) {
+      return_error(unsyntatic_continue, nullptr);
+   }
    if(!exists('}')) {
       //if(!exists(';')) expect_mask(mask_idname);
       if(!exists(';') && !exists_newline()) {
@@ -3319,6 +3368,9 @@ void* parse_break_statement(parse_state_t* state, parse_tree_state_t* tree_state
       if(!exists(';') && !exists_newline()) {
          parse(label, label_identifier);
       } else {
+         if(!(state->syntactic_flags & syntatic_flag_break)) {
+            return_error(unsyntatic_break, nullptr);
+         }
          assign(label, nullptr);
       }
       parse_semicolon();
@@ -3354,6 +3406,9 @@ WithStatement[Yield, Await, Return]:
 */
 void* parse_with_statement(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
+   if(params & param_flag_strict_mode) {
+      return_error(with_in_strict_mode, nullptr);
+   }
    make_node(with_statement);
    ensure_word(with); expect('(');
       parse(object, expression, RET, IN);
@@ -3380,6 +3435,8 @@ void* parse_case_clause_list(parse_state_t* state, parse_tree_state_t* tree_stat
 {
    bool has_default = false;
    start_list();
+   uint32_t saved_syntactic_flags = state->syntactic_flags;
+   state->syntactic_flags |= syntatic_flag_break;
    while(true) {
       if(exists_word(case)) {
          make_node(case_clause);
@@ -3397,6 +3454,7 @@ void* parse_case_clause_list(parse_state_t* state, parse_tree_state_t* tree_stat
          add_to_list(completed_node());
          has_default = true;
       } else {
+         state->syntactic_flags = saved_syntactic_flags;
          passon(list_head());
       }
    }
@@ -3427,9 +3485,10 @@ Static Semantics:
 */
 void* parse_labeled_statement(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
+   bool in_loop = current_token()->flags & token_flag_loop;
    make_node(labeled_statement);
    parse(label, label_identifier, RET, NONE); expect(':');
-   if(allow_annex() && exists_word(function)) {
+   if(exists_word(function) && !in_loop && allow_annex()) {
       parse(body, hoistable_declaration, DEF|RET, param_flag_vanilla_function);
    } else {
       parse(body, statement);
@@ -3717,6 +3776,9 @@ parse_result_t parse(char_t const* code_begin, char_t const* code_end, bool is_m
       .parse_token = token_begin,
       .cover_node_list = {.head = nullptr, .tail = nullptr, .count = 0},
       .depth = 0,
+      .scope = nullptr,
+      .scope_list_node = nullptr,
+      .syntactic_flags = flag_none,
       // error state
       .tokenization_status = status_flag_incomplete,
       .parsing_status = status_flag_incomplete,
@@ -3725,6 +3787,7 @@ parse_result_t parse(char_t const* code_begin, char_t const* code_end, bool is_m
       .expected_mask = 0,
    };
    parse_state_t* state = &_state;
+   new_scope(state);
    if(params & param_flag_streaming) {
       scan_next_token(state, params);
       scan_next_token(state, params);
@@ -3751,12 +3814,12 @@ parse_result_t parse(char_t const* code_begin, char_t const* code_end, bool is_m
    //printf("%p begin: %zu end: %zu\n", state.token_begin, (state.token_begin + 1)->begin, (state.token_begin + 1)->end);
    //printf("length = %d\n", program->end - program->begin);
    if(program != nullptr) {
-      program->begin = 0; program->end = code_length;
+      program->begin = state->code_begin; program->end = state->code_end;
    }
    /*
    #ifdef debug
    if(program == nullptr) {
-      size_t begin = state.parse_token->begin;
+      char_t const* begin = state.parse_token->begin;
       int length = state.parse_token->end - begin;
       printf("\nparsing failed at character index %zu %.*s\n", begin, length, state.buffer + begin);
       if(state.error_message != nullptr) {

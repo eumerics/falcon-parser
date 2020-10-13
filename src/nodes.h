@@ -1,41 +1,7 @@
 #ifndef _NODES_H_
 #define _NODES_H_
 
-size_t const token_capacity = 32;
-typedef struct _memory_page_t {
-   uint8_t* buffer;
-   size_t available;
-   size_t allocated;
-   struct _memory_page_t* next;
-} memory_page_t;
-
-typedef struct {
-   memory_page_t* head;
-   memory_page_t* current;
-   size_t page_count;
-} memory_state_t;
-
-typedef struct _parse_list_node_t {
-   void* parse_node;
-   struct _parse_list_node_t* next;
-} parse_list_node_t;
-typedef struct {
-   parse_list_node_t* head;
-   parse_list_node_t* current;
-   int node_count;
-} parse_node_list_state_t;
-
-typedef struct _cover_list_node_t {
-   void* cover_node;
-   struct _cover_list_node_t* prev;
-   struct _cover_list_node_t* next;
-} cover_list_node_t;
-typedef struct {
-   cover_list_node_t* head;
-   cover_list_node_t* tail;
-   size_t count;
-} cover_node_list_t;
-
+#include "memory.h"
 #include "interface.h"
 
 struct empty_list_t {} empty_list;
@@ -74,9 +40,12 @@ typedef struct {
    uint32_t expect_statement_after_level;
    uint32_t template_parenthesis_offset;
    // parser
-   token_t const* parse_token;
+   token_t* parse_token;
    cover_node_list_t cover_node_list;
    uint32_t depth;
+   scope_t* scope;
+   uint32_t syntactic_flags;
+   scope_list_node_t* scope_list_node;
 } parse_state_t;
 
 typedef struct {
@@ -87,32 +56,6 @@ typedef struct {
 typedef struct {
    uint32_t flags;
 } parse_tree_state_t;
-
-#define max(a, b) ((a) > (b) ? (a) : (b))
-void* parser_malloc_impl(memory_state_t* const memory, size_t size)
-{
-   size_t const page_size = 1 << 12; // 4kB
-   size_t const remainder = (size % 4); // align to 4-bytes
-   size += (remainder == 0 ? 0 : 4 - remainder);
-   memory_page_t* current = memory->current;
-   if(current == nullptr || current->available < size) {
-      current = (memory_page_t*) malloc(sizeof(memory_page_t));
-      current->buffer = (uint8_t*) malloc(max(size, page_size));
-      current->available = current->allocated = max(size, page_size);
-      current->next = nullptr;
-      ++memory->page_count;
-      if(memory->head == nullptr) {
-         memory->head = current;
-      } else {
-         memory->current->next = current;
-      }
-      memory->current = current;
-   }
-   size_t offset = (current->allocated - current->available);
-   current->available -= size;
-   return current->buffer + offset;
-}
-#define parser_malloc(size) parser_malloc_impl(state->memory, size)
 
 void parser_free(parse_state_t* state)
 {
@@ -129,4 +72,5 @@ void parser_free(parse_state_t* state)
    state->memory->page_count = 0;
 }
 
+#include "scope.h"
 #endif //_NODES_H_

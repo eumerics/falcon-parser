@@ -27,7 +27,7 @@
    #define decrement_current_scan_token(token) (state->scan_token = (token_t*) _offset_from_current_scan_token(-1), --state->token_count)
    #define unwind_for_use_strict(token) ( \
       state->tokenization_status = status_flag_incomplete, \
-      state->code = state->code_begin + token->begin, \
+      state->code = token->begin, \
       state->token_count -= (state->scan_token - token + token_capacity) % token_capacity, \
       state->scan_token = (token_t*) token, \
       scan_next_token(state, params) \
@@ -242,9 +242,9 @@ inline_spec int is_line_terminator(char_t c)
 }
 inline_spec void make_char_token(parse_state_t* state, uint8_t const id)
 {
-   size_t offset = state->code - state->code_begin;
+   //size_t offset = state->code - state->code_begin;
    *(state->scan_token) = (token_t){
-      .begin = offset, .end = offset + 1,
+      .begin = state->code, .end = state->code + 1,
       .id = id, .group = mask_none, .flags = token_flag_none,
       .detail = nullptr
    };
@@ -258,9 +258,9 @@ inline_spec void make_token(
    uint8_t const contextual, void* detail
 ){
    *(state->scan_token) = (token_t){
-      .begin = begin - state->code_begin,
-      .end = state->code - state->code_begin,
-      .id = id, .group = group, .flags = (contextual << 3 | state->token_flags),
+      .begin = begin,
+      .end = state->code,
+      .id = id, .group = group, .flags = (contextual << 4 | state->token_flags),
       .detail = detail
    };
    increment_current_scan_token();
@@ -271,8 +271,8 @@ inline_spec void make_aggregated_token(
    uint32_t const aggregated_id, void* detail
 ){
    *(state->scan_token) = (token_t){
-      .begin = begin - state->code_begin,
-      .end = state->code - state->code_begin,
+      .begin = begin,
+      .end = state->code,
       .aggregated_id = aggregated_id,
       .detail = detail
    };
@@ -723,7 +723,7 @@ inline_spec char_t scan_punctuator(char_t const* string, char_t const* end)
 //  [6]    << >> >>>  ------    <<= >>= >>>=
 // [57]
 #define combine(id, group, precedence, token_flags) \
-   ((uint32_t)(token_flags)) | (((uint32_t)(precedence)) << 3) | (((uint32_t)(id)) << 8) | (((uint32_t)(group)) << 16)
+   ((uint32_t)(token_flags)) | (((uint32_t)(precedence)) << 4) | (((uint32_t)(id)) << 8) | (((uint32_t)(group)) << 16)
 inline_spec int scan_punctuator(parse_state_t* const state, params_t params)
 {
    #define return_scan(id, group, precedence, length) { \
@@ -1222,8 +1222,8 @@ int scan_identifier(parse_state_t* const state, params_t params)
    //    consider other possible scans
    token_t const* const token = (state->token_count > 0 ? previous_scan_token() : nullptr);
    // if previous token is a possible continuation we roll back current token
-   int can_continue = token && (state->code_begin + token->end == state->code) && (token->group & mask_idname);
-   char_t const* const begin = (can_continue ? state->code_begin + token->begin : state->code);
+   int can_continue = token && (token->end == state->code) && (token->group & mask_idname);
+   char_t const* const begin = (can_continue ? token->begin : state->code);
    char_t const* const end = state->code_end;
    int has_escape_sequence = 0;
    if(begin == state->code) {
@@ -1349,15 +1349,15 @@ int scan_uncommon(parse_state_t* state, params_t params)
    if(c == line_separator || c == paragraph_separator) {
       //if_debug(print_string("continuing newline\n"));
       token_t const* const token = (state->token_count > 0 ? previous_scan_token() : nullptr);
-      int can_continue = token && (state->code_begin + token->end == state->code) && (token->id & tkn_terminator);
-      char_t const* const begin = (can_continue ? state->code_begin + token->begin : state->code);
+      int can_continue = token && (token->end == state->code) && (token->id & tkn_terminator);
+      char_t const* const begin = (can_continue ? token->begin : state->code);
       char_t const* const code_end = state->code_end;
       while(++state->code < code_end && is_line_terminator(*state->code));
       state->current_token_flags |= token_flag_newline;
    } else if(is_whitespace(c)) {
       token_t const* const token = (state->token_count > 0 ? previous_scan_token() : nullptr);
-      int can_continue = token && (state->code_begin + token->end == state->code) && (token->id & tkn_whitespace);
-      char_t const* const begin = (can_continue ? state->code_begin + token->begin : state->code);
+      int can_continue = token && (token->end == state->code) && (token->id & tkn_whitespace);
+      char_t const* const begin = (can_continue ? token->begin : state->code);
       char_t const* const code_end = state->code_end;
       while(++state->code < code_end && is_whitespace(*state->code));
       state->current_token_flags = state->token_flags;

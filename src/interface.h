@@ -1,6 +1,54 @@
 #ifndef _INTERFACE_H_
 #define _INTERFACE_H_
 
+typedef struct {
+   char_t const* begin;
+   char_t const* end;
+} string_t;
+typedef struct {
+   char_t const* begin;
+   char_t const* end;
+   size_t offending_index;
+   uint8_t compile_flags;
+} compiled_string_t;
+
+typedef struct _parse_list_node_t {
+   void* parse_node;
+   struct _parse_list_node_t* next;
+} parse_list_node_t;
+typedef struct {
+   parse_list_node_t* head;
+   parse_list_node_t* current;
+   int node_count;
+} parse_node_list_state_t;
+
+typedef struct _cover_list_node_t {
+   void* cover_node;
+   struct _cover_list_node_t* prev;
+   struct _cover_list_node_t* next;
+} cover_list_node_t;
+typedef struct {
+   cover_list_node_t* head;
+   cover_list_node_t* tail;
+   size_t count;
+} cover_node_list_t;
+
+typedef string_t symbol_t;
+typedef struct _symbol_list_node_t {
+   symbol_t const* symbol;
+   uint8_t binding_type;
+   struct _symbol_list_node_t* next;
+} symbol_list_node_t;
+typedef struct _scope_t {
+   struct _scope_t* parent;
+   symbol_list_node_t** symbol_table;
+} scope_t;
+typedef struct _scope_list_node_t {
+   scope_t* scope;
+   struct _scope_list_node_t* prev;
+   struct _scope_list_node_t* next;
+} scope_list_node_t;
+
 typedef uint8_t token_id_t;
 typedef union {
    struct {
@@ -15,8 +63,8 @@ typedef union {
    uint32_t aggregated_id;
 } aggregate_id_t;
 typedef struct {
-   size_t begin;
-   size_t end;
+   char_t const* begin;
+   char_t const* end;
    union {
       struct {
          union {
@@ -47,21 +95,14 @@ typedef uint8_t node_type_t;
 typedef uint32_t params_t;
 
 #define embed_parse_node() \
-   size_t begin; \
-   size_t end; \
+   char_t const* begin; \
+   char_t const* end; \
    node_type_t type; \
    uint8_t group;
 #define embed_compiled_parse_node() \
    embed_parse_node() \
    uint8_t flags; \
    compiled_string_t* compiled_string;
-
-typedef struct {
-   char_t const* begin;
-   char_t const* end;
-   size_t offending_index;
-   uint8_t compile_flags;
-} compiled_string_t;
 
 typedef struct {
    embed_parse_node();
@@ -406,25 +447,25 @@ typedef struct {
 
 typedef struct {
    embed_parse_node();
+   void* body;
    void* init;
    void* test;
    void* update;
-   void* body;
 } for_statement_t;
 
 typedef struct {
    embed_parse_node();
+   void* body;
    void* left;
    void* right;
-   void* body;
 } for_in_statement_t;
 
 typedef struct {
    embed_parse_node();
    uint8_t flags;
+   void* body;
    void* left;
    void* right;
-   void* body;
 } for_of_statement_t;
 
 typedef struct {
