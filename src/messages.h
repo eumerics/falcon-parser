@@ -55,6 +55,8 @@ define_error(0x0025, with_in_strict_mode, "with statement cannot be used in stri
 define_error(0x0026, invalid_constructor, "constructor must not be a getter, setter, async, generator or async-generator");
 define_error(0x0027, unsyntatic_continue, "continue statement must be inside a loop");
 define_error(0x0028, unsyntatic_break, "unlabeled break statement must be inside a loop or switch");
+define_error(0x0029, misplaced_super_property, "super property can only be accessed inside methods");
+define_error(0x0029, misplaced_super_call, "super call can only appear in class constructors");
 
 define_error(0x1000, missing_assignment_or_binding_flag,
    "internal-error: change flags must have one of assignment or binding flag"

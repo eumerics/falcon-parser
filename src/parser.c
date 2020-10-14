@@ -45,7 +45,7 @@ elements_t characters2 = {0, 0, 0, 0, 0, 0, 0, 0, 0};
    }
    #define print_params(params) \
       printf( \
-         color_bold_bright_black("(%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s )") " \n", \
+         color_bold_bright_black("(%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s )") " \n", \
          (params & param_flag_strict_mode ? " strict" : ""), \
          (params & param_flag_loose_mode ? " loose" : ""), \
          (params & param_flag_module ? " module" : ""), \
@@ -57,6 +57,7 @@ elements_t characters2 = {0, 0, 0, 0, 0, 0, 0, 0, 0};
          (params & param_flag_return ? " return" : ""), \
          (params & cover_flag_parameters ? " cover-params" : ""), \
          (params & param_flag_for_binding ? " for-binding" : ""), \
+         (params & param_flag_loose_binding ? " loose-binding" : ""), \
          (params & param_flag_vanilla_function ? " vanilla-function" : ""), \
          (params & param_flag_function ? " function" : ""), \
          (params & param_flag_class ? " class" : ""), \

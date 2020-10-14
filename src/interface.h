@@ -36,7 +36,7 @@ typedef struct {
 typedef string_t symbol_t;
 typedef struct _symbol_list_node_t {
    symbol_t const* symbol;
-   uint8_t binding_type;
+   uint8_t binding_flag;
    struct _symbol_list_node_t* next;
 } symbol_list_node_t;
 typedef struct _scope_t {

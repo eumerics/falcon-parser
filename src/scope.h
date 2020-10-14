@@ -42,7 +42,7 @@ void end_scope(parse_state_t* state)
    state->scope_list_node = state->scope_list_node->prev;
 }
 
-uint8_t insert_symbol(parse_state_t* state, compiled_parse_node_t const* node, uint8_t binding_type)
+uint8_t insert_symbol(parse_state_t* state, compiled_parse_node_t const* node, uint8_t binding_flag)
 {
    symbol_t const* symbol = (node->compiled_string ? (symbol_t*)(node->compiled_string) : (symbol_t*)(node));
    scope_t* const scope = state->scope;
@@ -58,14 +58,14 @@ uint8_t insert_symbol(parse_state_t* state, compiled_parse_node_t const* node, u
          size_t const compare_symbol_length = compare_symbol->end - compare_symbol->begin;
          if(symbol_length == compare_symbol_length &&
             strncmp_impl(symbol->begin, compare_symbol->begin, compare_symbol_length) == 0 &&
-            !(symbol_node->binding_type == rw_var && binding_type == rw_var)
+            !(symbol_node->binding_flag & binding_flag)
          ){
             return 0;
          }
          if(symbol_node->next == nullptr) {
             symbol_list_node_t* new_symbol_node = parser_malloc(sizeof(symbol_list_node_t));
             *new_symbol_node = (symbol_list_node_t){
-               .symbol = symbol, .binding_type = binding_type, .next = nullptr
+               .symbol = symbol, .binding_flag = binding_flag, .next = nullptr
             };
             symbol_node->next = new_symbol_node;
             return 1;
@@ -75,7 +75,7 @@ uint8_t insert_symbol(parse_state_t* state, compiled_parse_node_t const* node, u
    } else {
       symbol_list_node_t* new_symbol_node = parser_malloc(sizeof(symbol_list_node_t));
       *new_symbol_node = (symbol_list_node_t){
-         .symbol = symbol, .binding_type = binding_type, .next = nullptr
+         .symbol = symbol, .binding_flag = binding_flag, .next = nullptr
       };
       scope->symbol_table[hash] = new_symbol_node;
       return 1;
