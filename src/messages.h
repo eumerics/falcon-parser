@@ -57,6 +57,7 @@ define_error(0x0027, unsyntatic_continue, "continue statement must be inside a l
 define_error(0x0028, unsyntatic_break, "unlabeled break statement must be inside a loop or switch");
 define_error(0x0029, misplaced_super_property, "super property can only be accessed inside methods");
 define_error(0x0029, misplaced_super_call, "super call can only appear in class constructors");
+define_error(0x0030, eval_or_arguments_in_strict_mode, "eval/arguments cannot be used as a binding identifier in strict mode");
 
 define_error(0x1000, missing_assignment_or_binding_flag,
    "internal-error: change flags must have one of assignment or binding flag"

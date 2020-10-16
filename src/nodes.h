@@ -44,7 +44,7 @@ typedef struct {
    cover_node_list_t cover_node_list;
    uint32_t depth;
    scope_t* scope;
-   uint32_t syntactic_flags;
+   uint32_t semantic_flags;
    scope_list_node_t* scope_list_node;
 } parse_state_t;
 

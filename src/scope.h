@@ -20,6 +20,7 @@ void new_scope(parse_state_t* state)
       scope_t* new_scope = parser_malloc(sizeof(scope_t));
       *new_scope = (scope_t){
          .parent = (scope_list_node ? scope_list_node->scope : nullptr),
+         .first_duplicate = nullptr,
          .symbol_table = parser_malloc(size)
       };
       *new_scope_list_node = (scope_list_node_t){
@@ -31,6 +32,7 @@ void new_scope(parse_state_t* state)
    } else {
       scope_list_node = scope_list_node->next;
       state->scope = scope_list_node->scope;
+      state->scope->first_duplicate = nullptr;
       state->scope_list_node = scope_list_node;
    }
    memset(state->scope->symbol_table, 0, size);
@@ -42,7 +44,16 @@ void end_scope(parse_state_t* state)
    state->scope_list_node = state->scope_list_node->prev;
 }
 
-uint8_t insert_symbol(parse_state_t* state, compiled_parse_node_t const* node, uint8_t binding_flag)
+uint8_t is_scope_unique(parse_state_t const* const state)
+{
+   if(state->scope->first_duplicate) {
+      //[TODO] set error
+      return 0;
+   }
+   return 1;
+}
+
+uint8_t insert_symbol(parse_state_t* state, compiled_parse_node_t const* node, uint8_t binding_flag, params_t params)
 {
    symbol_t const* symbol = (node->compiled_string ? (symbol_t*)(node->compiled_string) : (symbol_t*)(node));
    scope_t* const scope = state->scope;
@@ -51,33 +62,44 @@ uint8_t insert_symbol(parse_state_t* state, compiled_parse_node_t const* node, u
       ((symbol_length & symbol_length_mask) << 5) |
       (*symbol->begin & symbol_first_letter_mask)
    );
-   symbol_list_node_t* symbol_node = scope->symbol_table[hash];
-   if(symbol_node != nullptr) {
+   symbol_list_node_t* symbol_list_node = scope->symbol_table[hash];
+   if(symbol_list_node != nullptr) {
       while(1) {
-         symbol_t const* compare_symbol = symbol_node->symbol;
+         compiled_parse_node_t const* compare_node = symbol_list_node->symbol_node;
+         symbol_t const* compare_symbol = (
+            compare_node->compiled_string ? (symbol_t*)(compare_node->compiled_string) : (symbol_t*)(compare_node)
+         );
          size_t const compare_symbol_length = compare_symbol->end - compare_symbol->begin;
          if(symbol_length == compare_symbol_length &&
-            strncmp_impl(symbol->begin, compare_symbol->begin, compare_symbol_length) == 0 &&
-            !(symbol_node->binding_flag & binding_flag)
+            strncmp_impl(symbol->begin, compare_symbol->begin, compare_symbol_length) == 0
          ){
-            return 0;
+            if(!scope->first_duplicate) {
+               repeated_symbol_t* t = parser_malloc(sizeof(repeated_symbol_t));
+               *t = (repeated_symbol_t){.original = compare_node, .duplicate = node};
+               scope->first_duplicate = t;
+            }
+            //if(params & param_flag_unique_params) return 0;
+            //if((params & param_flag_strict_mode) || !(symbol_list_node->binding_flag & binding_flag)) {
+            if((params & param_flag_unique_params) || !(symbol_list_node->binding_flag & binding_flag)) {
+               return 0;
+            }
          }
-         if(symbol_node->next == nullptr) {
-            symbol_list_node_t* new_symbol_node = parser_malloc(sizeof(symbol_list_node_t));
-            *new_symbol_node = (symbol_list_node_t){
-               .symbol = symbol, .binding_flag = binding_flag, .next = nullptr
+         if(symbol_list_node->next == nullptr) {
+            symbol_list_node_t* new_symbol_list_node = parser_malloc(sizeof(symbol_list_node_t));
+            *new_symbol_list_node = (symbol_list_node_t){
+               .symbol_node = node, .binding_flag = binding_flag, .next = nullptr
             };
-            symbol_node->next = new_symbol_node;
+            symbol_list_node->next = new_symbol_list_node;
             return 1;
          }
-         symbol_node = symbol_node->next;
+         symbol_list_node = symbol_list_node->next;
       }
    } else {
-      symbol_list_node_t* new_symbol_node = parser_malloc(sizeof(symbol_list_node_t));
-      *new_symbol_node = (symbol_list_node_t){
-         .symbol = symbol, .binding_flag = binding_flag, .next = nullptr
+      symbol_list_node_t* new_symbol_list_node = parser_malloc(sizeof(symbol_list_node_t));
+      *new_symbol_list_node = (symbol_list_node_t){
+         .symbol_node = node, .binding_flag = binding_flag, .next = nullptr
       };
-      scope->symbol_table[hash] = new_symbol_node;
+      scope->symbol_table[hash] = new_symbol_list_node;
       return 1;
    }
 }

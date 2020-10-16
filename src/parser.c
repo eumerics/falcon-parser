@@ -43,27 +43,29 @@ elements_t characters2 = {0, 0, 0, 0, 0, 0, 0, 0, 0};
          abort();
       }
    }
-   #define print_params(params) \
-      printf( \
-         color_bold_bright_black("(%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s )") " \n", \
-         (params & param_flag_strict_mode ? " strict" : ""), \
-         (params & param_flag_loose_mode ? " loose" : ""), \
-         (params & param_flag_module ? " module" : ""), \
-         (params & param_flag_annex ? " annex" : ""), \
-         (params & param_flag_await ? " await" : ""), \
-         (params & param_flag_yield ? " yield" : ""), \
-         (params & param_flag_default ? " default" : ""), \
-         (params & param_flag_in ? " in" : ""), \
-         (params & param_flag_return ? " return" : ""), \
-         (params & cover_flag_parameters ? " cover-params" : ""), \
-         (params & param_flag_for_binding ? " for-binding" : ""), \
-         (params & param_flag_loose_binding ? " loose-binding" : ""), \
-         (params & param_flag_vanilla_function ? " vanilla-function" : ""), \
-         (params & param_flag_function ? " function" : ""), \
-         (params & param_flag_class ? " class" : ""), \
-         (params & param_flag_formal ? " formal" : "") \
-      ); \
+   void print_params(params_t params) {
+      printf(
+         color_bold_bright_black("(%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s )") " \n",
+         (params & param_flag_strict_mode ? " strict" : ""),
+         (params & param_flag_loose_mode ? " loose" : ""),
+         (params & param_flag_module ? " module" : ""),
+         (params & param_flag_annex ? " annex" : ""),
+         (params & param_flag_await ? " await" : ""),
+         (params & param_flag_yield ? " yield" : ""),
+         (params & param_flag_default ? " default" : ""),
+         (params & param_flag_in ? " in" : ""),
+         (params & param_flag_return ? " return" : ""),
+         (params & cover_flag_parameters ? " cover-params" : ""),
+         (params & param_flag_for_binding ? " for-binding" : ""),
+         (params & param_flag_loose_binding ? " loose-binding" : ""),
+         (params & param_flag_unique_params ? " unique-params" : ""),
+         (params & param_flag_vanilla_function ? " vanilla-function" : ""),
+         (params & param_flag_function ? " function" : ""),
+         (params & param_flag_class ? " class" : ""),
+         (params & param_flag_formal ? " formal" : "")
+      );
       fflush(stdout);
+   }
    #define _print_parse_descent(type, remove_filter, add_filter) { \
       uint32_t new_params = make_params(remove_filter, add_filter); \
       printf( "%*s=> %s [%d]", (state->depth % 60), "", #type, state->depth); \
@@ -157,6 +159,9 @@ int main(int argc, char* argv[])
             if((argc > 2 && strcmp(argv[2], "-s") == 0) ||
                (argc > 3 && strcmp(argv[3], "-s") == 0)
             ) params |= param_flag_streaming;
+            if((argc > 2 && strcmp(argv[2], "-m") == 0) ||
+               (argc > 3 && strcmp(argv[3], "-m") == 0)
+            ) is_module = true;
             for(int it = 0; it < iterations; ++it) {
                //result = tokenize(source, source + file_size);
                //free(result.token_begin);

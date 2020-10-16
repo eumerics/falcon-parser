@@ -33,22 +33,6 @@ typedef struct {
    size_t count;
 } cover_node_list_t;
 
-typedef string_t symbol_t;
-typedef struct _symbol_list_node_t {
-   symbol_t const* symbol;
-   uint8_t binding_flag;
-   struct _symbol_list_node_t* next;
-} symbol_list_node_t;
-typedef struct _scope_t {
-   struct _scope_t* parent;
-   symbol_list_node_t** symbol_table;
-} scope_t;
-typedef struct _scope_list_node_t {
-   scope_t* scope;
-   struct _scope_list_node_t* prev;
-   struct _scope_list_node_t* next;
-} scope_list_node_t;
-
 typedef uint8_t token_id_t;
 typedef union {
    struct {
@@ -120,14 +104,22 @@ typedef struct {
 
 // parser node
 typedef struct {
-   embed_compiled_parse_node();
+   //embed_compiled_parse_node();
+   embed_parse_node();
+   uint8_t flags;
+   uint8_t token_id;
+   compiled_string_t* compiled_string;
 } identifier_t;
 typedef struct {
    embed_parse_node();
    uint8_t token_id;
 } literal_t;
 typedef struct {
-   embed_compiled_parse_node();
+   //embed_compiled_parse_node();
+   embed_parse_node();
+   uint8_t flags;
+   uint8_t token_id;
+   compiled_string_t* compiled_string;
 } string_literal_t;
 typedef struct {
    embed_parse_node();
@@ -538,8 +530,30 @@ typedef struct {
 
 typedef struct {
    embed_parse_node();
+
    uint8_t source_type;
    void* body;
 } program_t;
+
+typedef string_t symbol_t;
+typedef struct _symbol_list_node_t {
+   compiled_parse_node_t const* symbol_node;
+   uint8_t binding_flag;
+   struct _symbol_list_node_t* next;
+} symbol_list_node_t;
+typedef struct {
+   compiled_parse_node_t const* original;
+   compiled_parse_node_t const* duplicate;
+} repeated_symbol_t;
+typedef struct _scope_t {
+   struct _scope_t* parent;
+   repeated_symbol_t* first_duplicate;
+   symbol_list_node_t** symbol_table;
+} scope_t;
+typedef struct _scope_list_node_t {
+   scope_t* scope;
+   struct _scope_list_node_t* prev;
+   struct _scope_list_node_t* next;
+} scope_list_node_t;
 
 #endif //_INTERFACE_H_

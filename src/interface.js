@@ -615,6 +615,7 @@ const env = {
          ['cover_flag_parameters', 'cover-params'],
          ['param_flag_for_binding', 'for-binding'],
          ['param_flag_loose_binding', 'loose-binding'],
+         ['param_flag_unique_params', 'unique-params'],
          ['param_flag_vanilla_function', 'vanilla-function'],
          ['param_flag_function', 'function'],
          ['param_flag_class', 'class'],
