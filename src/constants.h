@@ -465,6 +465,7 @@ uint32_t const param_flag_class = 0x1000;
 uint32_t const param_flag_derived = 0x2000;
 uint32_t const param_flag_formal = 0x4000;
 uint32_t const param_flag_streaming = 0x8000;
+uint32_t const param_flag_no_scope = 0x8000 << 16;
 /*
 uint32_t const cover_flag_array = 0x0001;
 uint32_t const cover_flag_assignment = 0x0002;

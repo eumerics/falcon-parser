@@ -25,6 +25,7 @@
 #define UNIQUE param_flag_unique_params
 #define LOOSE param_flag_loose_binding
 #define STRICT param_flag_strict_mode
+#define NOSCOPE param_flag_no_scope
 
 #define _get_3rd_arg(arg1, arg2, arg3, ...) arg3
 #define _get_4th_arg(arg1, arg2, arg3, arg4, ...) arg4
@@ -1041,7 +1042,7 @@ BindingPattern[Yield, Await]:
 */
 void* parse_binding_pattern(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
-   params |= (params & FUNC ? UNIQUE : NONE);
+   //params |= (params & FUNC ? UNIQUE : NONE);
    if(exists('{')) {
       passon_parsed(object_binding_pattern);
    } else if(exists('[')) {
@@ -1087,10 +1088,10 @@ void* parse_formal_parameter_list(parse_state_t* state, parse_tree_state_t* tree
          assert_lexical_uniqueness(binding_identifier, params & LOOSE);
          add_to_list(binding_identifier);
       } else {
-         if(!(params & UNIQUE)) {
-            assert_unique_scope();
-         }
-         params |= UNIQUE;
+         // if any of the formal parameters is a binding pattern switch to
+         // unique formal parameter list; before proceeding though ensure all
+         // the existing formal parameters are unique
+         if(!(params & UNIQUE)) { assert_unique_scope(); params |= UNIQUE; }
          if(exists(pnct_spread)) {
             parse(binding_rest_element);
             add_to_list(binding_rest_element);
@@ -1209,7 +1210,7 @@ void* parse_hoistable_declaration(parse_state_t* state, parse_tree_state_t* tree
       parse(id, binding_identifier);
       assert_lexical_uniqueness(node->id, LOOSE);
    }
-   new_scope(state);
+   new_scope(state, true);
    expect('('); list_parse(params, formal_parameters, YLD|AWT|VFUN, add_params|LOOSE); expect(')');
    //expect('{'); parse(body, function_body, YLD|AWT, flags); expect('}');
    parse(body, function_body_container, YLD|AWT|VFUN, add_params);
@@ -1254,7 +1255,7 @@ void* parse_function_expression(parse_state_t* state, parse_tree_state_t* tree_s
    } else {
       assign(id, nullptr);
    }
-   new_scope(state);
+   new_scope(state, true);
    expect('('); list_parse(params, formal_parameters, YLD|AWT, add_params|LOOSE); expect(')');
    //expect('{'); list_parse(body, function_body); expect('}');
    //list_parse(body, function_body_container);
@@ -1307,7 +1308,7 @@ inline_spec void* parse_method_function(parse_state_t* state, parse_tree_state_t
    params |= (FUNC | METHOD);
    make_node(function_expression);
    assign(id, nullptr);
-   new_scope(state);
+   new_scope(state, true);
    ensure('('); list_parse(params, unique_formal_parameters); expect(')');
    //expect('{'); list_parse(body, function_body); expect('}');
    //list_parse(body, function_body_container);
@@ -1358,7 +1359,7 @@ method_definition_t* parse_method_only_definition(parse_state_t* state, parse_tr
       return_error(invalid_constructor, nullptr);
    }
    {
-      new_scope(state);
+      new_scope(state, true);
       make_child_node(function_expression);
       assign(id, nullptr);
       expect('(');
@@ -1499,6 +1500,7 @@ void* parse_class_declaration(parse_state_t* state, parse_tree_state_t* tree_sta
       assign(id, nullptr);
    } else {
       parse(id, binding_identifier);
+      assert_lexical_uniqueness(node->id, NONE);
    }
    if(optional_word(extends)) {
       parse(super_class, lhs_expression);
@@ -2904,7 +2906,7 @@ void* parse_assignment_expression(parse_state_t* state, parse_tree_state_t* tree
    bool has_async = exists_word(async) && !exists_newline_ahead();
    bool has_arrow = false, needs_scope = has_async;
    if(has_async) {
-      new_scope(state);
+      new_scope(state, true);
       token_t const* const token_after_async = next_token();
       assign_parsed(conditional_expression, expression);
       // make sure we do not have an async expression
@@ -2917,7 +2919,7 @@ void* parse_assignment_expression(parse_state_t* state, parse_tree_state_t* tree
       bool has_parenthesis = exists('(');
       needs_scope = has_parenthesis || exists_ahead(pnct_arrow);
       params_t add_params = (has_parenthesis ? PARAM : NONE);
-      if(needs_scope) new_scope(state);
+      if(needs_scope) new_scope(state, true);
       assign_parsed(conditional_expression, expression, NULL, add_params);
    }
    if(exists(pnct_arrow) && !exists_newline()) {
@@ -2983,10 +2985,10 @@ Block[Yield, Await, Return]:
 */
 void* parse_block_statement(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
-   new_scope(state);
+   if(!(params & NOSCOPE)) new_scope(state, false);
    make_node(block_statement);
-   expect('{'); list_parse(body, block_statement_list); expect('}');
-   end_scope(state);
+   expect('{'); list_parse(body, block_statement_list, NOSCOPE, NONE); expect('}');
+   if(!(params & NOSCOPE)) end_scope(state);
    return_node();
 }
 /*
@@ -3260,7 +3262,7 @@ void* parse_for_statement(parse_state_t* state, parse_tree_state_t* tree_state, 
    bool has_let = false;
 
    save_begin();
-   new_scope(state);
+   new_scope(state, false);
 
    ensure_word(for);
    bool is_await = optional_word(await);
@@ -3600,17 +3602,23 @@ void* parse_try_statement(parse_state_t* state, parse_tree_state_t* tree_state, 
    bool has_handler = false;
    if(exists_word(catch)) {
       has_handler = true;
+      // we will created a scope for containing catch parameters
+      // [TODO] annex allow var bindings to collide with catch parameters
+      new_scope(state, false);
       make_child_node(catch_clause);
       ensure_word(catch);
       if(optional('(')) {
          if(exists_mask(mask_identifier)) {
             parse(param, binding_identifier, RET, NONE);
+            //assert_lexical_uniqueness(node->param, NONE);
+            assert_lexical_uniqueness(node->param, LOOSE);
          } else {
             parse(param, binding_pattern, RET, NONE);
          }
          expect(')');
       }
-      parse(body, block_statement);
+      parse(body, block_statement, NONE, NOSCOPE);
+      end_scope(state);
       assign_to_parent(handler, completed_node());
    } else {
       assign(handler, nullptr);
@@ -3844,9 +3852,10 @@ parse_result_t parse(char_t const* code_begin, char_t const* code_end, bool is_m
       .parse_token = token_begin,
       .cover_node_list = {.head = nullptr, .tail = nullptr, .count = 0},
       .depth = 0,
-      .scope = nullptr,
-      .scope_list_node = nullptr,
       .semantic_flags = flag_none,
+      .scope_list_node = nullptr,
+      .current_scope_list_node = nullptr,
+      .hoisting_scope_list_node = nullptr,
       // error state
       .tokenization_status = status_flag_incomplete,
       .parsing_status = status_flag_incomplete,
@@ -3855,7 +3864,7 @@ parse_result_t parse(char_t const* code_begin, char_t const* code_end, bool is_m
       .expected_mask = 0,
    };
    parse_state_t* state = &_state;
-   new_scope(state);
+   new_scope(state, true);
    if(params & param_flag_streaming) {
       scan_next_token(state, params);
       scan_next_token(state, params);

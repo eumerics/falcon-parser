@@ -530,7 +530,6 @@ typedef struct {
 
 typedef struct {
    embed_parse_node();
-
    uint8_t source_type;
    void* body;
 } program_t;
@@ -545,15 +544,29 @@ typedef struct {
    compiled_parse_node_t const* original;
    compiled_parse_node_t const* duplicate;
 } repeated_symbol_t;
+typedef struct _scope_child_list_node_t scope_child_list_node_t;
+typedef struct _scope_child_list_t {
+   scope_child_list_node_t* head;
+   scope_child_list_node_t* tail;
+} scope_child_list_t;
 typedef struct _scope_t {
-   struct _scope_t* parent;
    repeated_symbol_t* first_duplicate;
-   symbol_list_node_t** symbol_table;
+   symbol_list_node_t** lexical_symbol_table;
+   symbol_list_node_t** var_symbol_table;
 } scope_t;
+typedef struct _scope_list_node_t scope_list_node_t;
 typedef struct _scope_list_node_t {
    scope_t* scope;
-   struct _scope_list_node_t* prev;
-   struct _scope_list_node_t* next;
+   scope_list_node_t* prev;
+   scope_list_node_t* next;
+   scope_list_node_t* parent;
+   scope_list_node_t* hoisting_parent;
+   scope_child_list_t child_list;
 } scope_list_node_t;
+typedef struct _scope_child_list_node_t {
+   scope_list_node_t* scope_list_node;
+   struct _scope_child_list_node_t* prev;
+   struct _scope_child_list_node_t* next;
+} scope_child_list_node_t;
 
 #endif //_INTERFACE_H_

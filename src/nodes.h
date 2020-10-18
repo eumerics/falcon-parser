@@ -43,9 +43,10 @@ typedef struct {
    token_t* parse_token;
    cover_node_list_t cover_node_list;
    uint32_t depth;
-   scope_t* scope;
    uint32_t semantic_flags;
+   scope_list_node_t* current_scope_list_node;
    scope_list_node_t* scope_list_node;
+   scope_list_node_t* hoisting_scope_list_node;
 } parse_state_t;
 
 typedef struct {
