@@ -14,6 +14,9 @@ try{} catch(a){ var a; } //<>
 { { let a; } let a; } //<>
 //{ { function a(){} } let a; } //<>
 { { class a {} } let a; } //<>
+//function a(){} function a(){} //<>
+//let a; if(0) function a(){} //<>
+//var a; if(0) function a(){} //<>
 
 //{ let a; {function a(){}} } //<>
 //{ { var a; { function b(){} }} let b; } //<>

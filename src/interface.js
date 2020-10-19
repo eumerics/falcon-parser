@@ -619,7 +619,8 @@ const env = {
          ['param_flag_vanilla_function', 'vanilla-function'],
          ['param_flag_function', 'function'],
          ['param_flag_class', 'class'],
-         ['param_flag_formal', 'formal']
+         ['param_flag_formal', 'formal'],
+         ['param_flag_export', 'export']
       ];
       let params_string = ' (';
       for(const [flag, label] of flags) {

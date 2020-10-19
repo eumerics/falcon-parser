@@ -466,6 +466,7 @@ uint32_t const param_flag_derived = 0x2000;
 uint32_t const param_flag_formal = 0x4000;
 uint32_t const param_flag_streaming = 0x8000;
 uint32_t const param_flag_no_scope = 0x8000 << 16;
+uint32_t const param_flag_export = 0x4000 << 16;
 /*
 uint32_t const cover_flag_array = 0x0001;
 uint32_t const cover_flag_assignment = 0x0002;
@@ -489,6 +490,10 @@ uint8_t const compile_flag_not_escape = 0x04;
 
 uint32_t const semantic_flag_break = 0x01;
 uint32_t const semantic_flag_continue = 0x02;
+
+uint8_t const scope_flag_script = 0x01;
+uint8_t const scope_flag_module = 0x02;
+uint8_t const scope_flag_function = 0x04;
 
 #undef NONE
 #undef LHS

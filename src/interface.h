@@ -554,6 +554,7 @@ typedef struct _scope_child_list_t {
    scope_child_list_node_t* tail;
 } scope_child_list_t;
 typedef struct _scope_t {
+   uint8_t type;
    repeated_symbol_t* first_duplicate;
    symbol_list_t** lexical_symbol_table;
    symbol_list_t** var_symbol_table;

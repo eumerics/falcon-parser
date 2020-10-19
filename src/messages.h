@@ -58,6 +58,9 @@ define_error(0x0028, unsyntatic_break, "unlabeled break statement must be inside
 define_error(0x0029, misplaced_super_property, "super property can only be accessed inside methods");
 define_error(0x0029, misplaced_super_call, "super call can only appear in class constructors");
 define_error(0x0030, eval_or_arguments_in_strict_mode, "eval/arguments cannot be used as a binding identifier in strict mode");
+define_error(0x0031, duplicate_export, "duplicate export symbol");
+define_error(0x0032, duplicate_default_export, "duplicate default export");
+define_error(0x0033, missing_export_reference, "missing export reference");
 
 define_error(0x1000, missing_assignment_or_binding_flag,
    "internal-error: change flags must have one of assignment or binding flag"

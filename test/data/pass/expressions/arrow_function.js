@@ -3,6 +3,9 @@
    let b = () => 1;
    let c = () => ({});
    let d = () => { return 2; };
+   let da = () => function db(){};
+   let dc = () => class dd{};
+   let de = () => () => {};
    let e = x => x;
    let f = x => (x);
    let g = x => x, y;

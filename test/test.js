@@ -169,6 +169,7 @@ function test_falcon_suite_dir(suite_path, is_negative, segmented)
          continue;
       }
       if(arg.native && /libraries/.test(file_path)) continue;
+      //if(/libraries/.test(file_path)) continue;
       if(/tsserver/.test(file_path)) continue;
       if(!/\.js$/.test(file_path)) continue;
       //console.log(file_path);

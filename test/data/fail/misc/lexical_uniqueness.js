@@ -34,6 +34,10 @@ a: function b(){} let b; //<>
 try{ var a; } let a; //<>
 try{} catch{ var a; } let a; //<>
 try{} finally{ var a; } let a; //<>
+function a(){} let a; //<>
+
+{ function a(){} var a; } //<>
+{ function a(){} function a(){} } //<>
 
 try{} catch([a, a]){} //<>
 try{} catch(a){ let a; } //<>

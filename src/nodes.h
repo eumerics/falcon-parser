@@ -47,6 +47,10 @@ typedef struct {
    scope_list_node_t* current_scope_list_node;
    scope_list_node_t* scope_list_node;
    scope_list_node_t* hoisting_scope_list_node;
+   // module
+   symbol_list_t** export_symbol_table;
+   symbol_list_t* export_reference_list;
+   uint8_t has_default_export;
 } parse_state_t;
 
 typedef struct {

@@ -26,6 +26,7 @@
 #define LOOSE param_flag_loose_binding
 #define STRICT param_flag_strict_mode
 #define NOSCOPE param_flag_no_scope
+#define EXPORT param_flag_export
 
 #define _get_3rd_arg(arg1, arg2, arg3, ...) arg3
 #define _get_4th_arg(arg1, arg2, arg3, arg4, ...) arg4
@@ -304,8 +305,12 @@ inline_spec bool _property_key_is(parse_state_t* state, property_t* property, ch
 }
 #define assert_unique_scope() if(!is_scope_unique(state)) return nullptr;
 #define assert_lexical_uniqueness(_node, binding_flag) \
-   if(!insert_symbol(state, _node, binding_flag, params)) { \
+   if(!insert_symbol(state, (compiled_parse_node_t*)(_node), binding_flag, params)) { \
       return_error(duplicate_symbol, nullptr); \
+   }
+#define assert_export_uniqueness(_node) \
+   if(!add_symbol(state, state->export_symbol_table, (compiled_parse_node_t*)(_node), NONE)) { \
+      return_error(duplicate_export, nullptr); \
    }
 bool retro_act_strict_mode(parse_state_t* state, parse_list_node_t* list_node)
 {
@@ -888,11 +893,12 @@ void* parse_binding_element(parse_state_t* state, parse_tree_state_t* tree_state
       save_begin();
       parse(binding_identifier);
       assert_lexical_uniqueness(binding_identifier, params & LOOSE);
+      if(params & EXPORT) { assert_export_uniqueness(binding_identifier); }
       if(optional('=')) {
          make_node(binding_assignment);
          assign_begin();
          assign(left, binding_identifier);
-         parse(right, assignment_expression, NONE, IN);
+         parse(right, assignment_expression, EXPORT, IN);
          return_node();
       } else {
          passon(binding_identifier);
@@ -906,7 +912,7 @@ void* parse_binding_element(parse_state_t* state, parse_tree_state_t* tree_state
          make_node(binding_assignment);
          assign_begin();
          assign(left, binding_pattern);
-         parse(right, assignment_expression, NONE, IN);
+         parse(right, assignment_expression, EXPORT, IN);
          return_node();
       } else {
          passon(binding_pattern);
@@ -942,6 +948,7 @@ void* parse_object_binding_pattern(parse_state_t* state, parse_tree_state_t* tre
          ensure(pnct_spread);
          parse(argument, binding_identifier);
          assert_lexical_uniqueness(node->argument, params & LOOSE);
+         if(params & EXPORT) { assert_export_uniqueness(node->argument); }
          add_to_list(completed_node());
          break;
       } else {
@@ -954,12 +961,13 @@ void* parse_object_binding_pattern(parse_state_t* state, parse_tree_state_t* tre
             parse(binding_identifier);
             assign(key, binding_identifier);
             assert_lexical_uniqueness(binding_identifier, params & LOOSE);
+            if(params & EXPORT) { assert_export_uniqueness(binding_identifier); }
             assign(flags, property_flag_shorthand);
             if(optional('=')) {
                make_child_node(binding_assignment);
                assign_begin();
                assign(left, binding_identifier);
-               parse(right, assignment_expression, NONE, IN);
+               parse(right, assignment_expression, EXPORT, IN);
                assign_to_parent(value, completed_node());
             } else {
                assign(value, binding_identifier);
@@ -1005,6 +1013,7 @@ void* parse_binding_rest_element(parse_state_t* state, parse_tree_state_t* tree_
       // BindingIdentifier
       parse(argument, binding_identifier);
       assert_lexical_uniqueness(node->argument, params & LOOSE);
+      if(params & EXPORT) { assert_export_uniqueness(node->argument); }
    } else {
       // BindingPattern
       parse(argument, binding_pattern);
@@ -1181,7 +1190,8 @@ AsyncGeneratorBody:
 */
 void* parse_hoistable_declaration(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
-   params = make_params(DERIVED|CLASS|METHOD|CONSTR|UNIQUE, FUNC);
+   params_t saved_params = params;
+   params = make_params(DERIVED|CLASS|METHOD|CONSTR|UNIQUE|EXPORT, FUNC);
    params_t add_params = 0;
    uint8_t function_flags = flag_none;
    save_begin();
@@ -1208,9 +1218,13 @@ void* parse_hoistable_declaration(parse_state_t* state, parse_tree_state_t* tree
       assign(id, nullptr);
    } else {
       parse(id, binding_identifier);
-      assert_lexical_uniqueness(node->id, LOOSE);
+      scope_t const* const scope = state->current_scope_list_node->scope;
+      uint8_t binding_flag = ((scope->type & (scope_flag_script | scope_flag_function)) ? LOOSE : NONE);
+      assert_lexical_uniqueness(node->id, binding_flag);
+      //assert_lexical_uniqueness(node->id, LOOSE);
+      if(saved_params & EXPORT) { assert_export_uniqueness(node->id); }
    }
-   new_scope(state, true);
+   new_scope(state, scope_flag_function, true);
    expect('('); list_parse(params, formal_parameters, YLD|AWT|VFUN, add_params|LOOSE); expect(')');
    //expect('{'); parse(body, function_body, YLD|AWT, flags); expect('}');
    parse(body, function_body_container, YLD|AWT|VFUN, add_params);
@@ -1255,7 +1269,7 @@ void* parse_function_expression(parse_state_t* state, parse_tree_state_t* tree_s
    } else {
       assign(id, nullptr);
    }
-   new_scope(state, true);
+   new_scope(state, scope_flag_function, true);
    expect('('); list_parse(params, formal_parameters, YLD|AWT, add_params|LOOSE); expect(')');
    //expect('{'); list_parse(body, function_body); expect('}');
    //list_parse(body, function_body_container);
@@ -1308,7 +1322,7 @@ inline_spec void* parse_method_function(parse_state_t* state, parse_tree_state_t
    params |= (FUNC | METHOD);
    make_node(function_expression);
    assign(id, nullptr);
-   new_scope(state, true);
+   new_scope(state, scope_flag_function, true);
    ensure('('); list_parse(params, unique_formal_parameters); expect(')');
    //expect('{'); list_parse(body, function_body); expect('}');
    //list_parse(body, function_body_container);
@@ -1359,7 +1373,7 @@ method_definition_t* parse_method_only_definition(parse_state_t* state, parse_tr
       return_error(invalid_constructor, nullptr);
    }
    {
-      new_scope(state, true);
+      new_scope(state, scope_flag_function, true);
       make_child_node(function_expression);
       assign(id, nullptr);
       expect('(');
@@ -1501,6 +1515,7 @@ void* parse_class_declaration(parse_state_t* state, parse_tree_state_t* tree_sta
    } else {
       parse(id, binding_identifier);
       assert_lexical_uniqueness(node->id, NONE);
+      if(params & EXPORT) { assert_export_uniqueness(node->id); }
    }
    if(optional_word(extends)) {
       parse(super_class, lhs_expression);
@@ -1509,7 +1524,7 @@ void* parse_class_declaration(parse_state_t* state, parse_tree_state_t* tree_sta
       assign(super_class, nullptr);
    }
    //expect('{'); parse(body, class_body); expect('}');
-   parse(body, class_body_container);
+   parse(body, class_body_container, EXPORT, NONE);
    return_node();
 }
 void* parse_class_expression(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
@@ -1576,7 +1591,9 @@ void* parse_import_declaration(parse_state_t* state, parse_tree_state_t* tree_st
       bool has_specifiers = true;
       if(exists_mask(mask_identifier)) {
          make_node(import_default_specifier);
-         parse(local, binding_identifier, YLD|AWT, NONE);
+         parse(binding_identifier, YLD|AWT, NONE);
+         assert_lexical_uniqueness(binding_identifier, NONE);
+         assign(local, binding_identifier);
          add_to_list(completed_node());
          has_specifiers = optional(',');
       }
@@ -1584,7 +1601,9 @@ void* parse_import_declaration(parse_state_t* state, parse_tree_state_t* tree_st
          if(exists('*')) {
             make_node(import_namespace_specifier);
             ensure('*'); expect_word(as);
-            parse(local, binding_identifier, YLD|AWT, NONE);
+            parse(binding_identifier, YLD|AWT, NONE);
+            assert_lexical_uniqueness(binding_identifier, NONE);
+            assign(local, binding_identifier);
             add_to_list(completed_node());
          } else if(exists('{')) {
             ensure('{');
@@ -1593,9 +1612,12 @@ void* parse_import_declaration(parse_state_t* state, parse_tree_state_t* tree_st
                if(exists_ahead_word(as)) {
                   parse(imported, identifier_name);
                   ensure_word(as);
-                  parse(local, binding_identifier, YLD|AWT, NONE);
+                  parse(binding_identifier, YLD|AWT, NONE);
+                  assert_lexical_uniqueness(binding_identifier, NONE);
+                  assign(local, binding_identifier);
                } else {
                   parse(binding_identifier, YLD|AWT, NONE);
+                  assert_lexical_uniqueness(binding_identifier, NONE);
                   assign(imported, binding_identifier);
                   assign(local, binding_identifier);
                }
@@ -1648,6 +1670,7 @@ void* parse_export_declaration(parse_state_t* state, parse_tree_state_t* tree_st
       assign_begin();
       if(optional_word(as)) {
          parse(exported, identifier_name);
+         assert_export_uniqueness(node->exported);
       } else {
          assign(exported, nullptr);
       }
@@ -1659,16 +1682,20 @@ void* parse_export_declaration(parse_state_t* state, parse_tree_state_t* tree_st
       make_node(export_named_declaration);
       assign_begin();
       start_list();
+      symbol_list_t* reference_list = nullptr;
       while(!exists('}')) {
          make_node(export_specifier);
          parse(identifier_name);
          if(optional_word(as)) {
             assign(local, identifier_name);
             parse(exported, identifier_name);
+            assert_export_uniqueness(node->exported);
          } else {
             assign(exported, identifier_name);
             assign(local, identifier_name);
+            assert_export_uniqueness(node->exported);
          }
+         _add_symbol(state, &reference_list, reference_list, (compiled_parse_node_t*)(node->local), NONE);
          add_to_list(completed_node());
          if(!optional(',')) break;
       }
@@ -1677,12 +1704,21 @@ void* parse_export_declaration(parse_state_t* state, parse_tree_state_t* tree_st
       if(optional_word(from)) {
          parse(source, string_literal);
       } else {
+         if(!state->export_reference_list) {
+            state->export_reference_list = reference_list;
+         } else {
+            state->export_reference_list->tail->next = reference_list->head;
+            state->export_reference_list->tail = reference_list->tail;
+         }
          assign(source, nullptr);
       }
       assign(declaration, nullptr);
       parse_semicolon();
       return_node();
    } else if(optional_word(default)) {
+      if(state->has_default_export) {
+         return_error(duplicate_default_export, nullptr);
+      }
       make_node(export_default_declaration);
       assign_begin();
       void* default_declaration = nullptr;
@@ -1699,14 +1735,15 @@ void* parse_export_declaration(parse_state_t* state, parse_tree_state_t* tree_st
          default_declaration = assignment_expression;
       }
       assign(declaration, default_declaration);
+      state->has_default_export = 1;
       return_node();
    } else {
       make_node(export_named_declaration);
       assign_begin();
       if(exists_word(var)) {
-         parse(declaration, var_variable_statement, YLD|AWT, NONE);
+         parse(declaration, var_variable_statement, YLD|AWT, EXPORT);
       } else {
-         parse(declaration, declaration, YLD|AWT, NONE);
+         parse(declaration, declaration, YLD|AWT, EXPORT);
       }
       assign(specifiers, nullptr);
       assign(source, nullptr);
@@ -2906,7 +2943,7 @@ void* parse_assignment_expression(parse_state_t* state, parse_tree_state_t* tree
    bool has_async = exists_word(async) && !exists_newline_ahead();
    bool has_arrow = false, needs_scope = has_async;
    if(has_async) {
-      new_scope(state, true);
+      new_scope(state, NONE, true);
       token_t const* const token_after_async = next_token();
       assign_parsed(conditional_expression, expression);
       // make sure we do not have an async expression
@@ -2919,7 +2956,7 @@ void* parse_assignment_expression(parse_state_t* state, parse_tree_state_t* tree
       bool has_parenthesis = exists('(');
       needs_scope = has_parenthesis || exists_ahead(pnct_arrow);
       params_t add_params = (has_parenthesis ? PARAM : NONE);
-      if(needs_scope) new_scope(state, true);
+      if(needs_scope) new_scope(state, NONE, true);
       assign_parsed(conditional_expression, expression, NULL, add_params);
    }
    if(exists(pnct_arrow) && !exists_newline()) {
@@ -2985,7 +3022,7 @@ Block[Yield, Await, Return]:
 */
 void* parse_block_statement(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
-   if(!(params & NOSCOPE)) new_scope(state, false);
+   if(!(params & NOSCOPE)) new_scope(state, NONE, false);
    make_node(block_statement);
    expect('{'); list_parse(body, block_statement_list, NOSCOPE, NONE); expect('}');
    if(!(params & NOSCOPE)) end_scope(state);
@@ -3030,6 +3067,7 @@ void* parse_lexical_binding_list(parse_state_t* state, parse_tree_state_t* tree_
          }
          parse(id, binding_identifier);
          assert_lexical_uniqueness(node->id, params & LOOSE);
+         if(params & EXPORT) { assert_export_uniqueness(node->id); }
          if(token_id == rw_const && !exists('=')) {
             if(first_element && optional_binding_init) {
                if(exists_word(in) || exists_word(of)) {
@@ -3041,7 +3079,7 @@ void* parse_lexical_binding_list(parse_state_t* state, parse_tree_state_t* tree_
             return_error(missing_const_initializer, nullptr);
          }
          if(optional('=')) {
-            parse(init, assignment_expression);
+            parse(init, assignment_expression, EXPORT, NONE);
          } else {
             assign(init, nullptr);
          }
@@ -3056,7 +3094,7 @@ void* parse_lexical_binding_list(parse_state_t* state, parse_tree_state_t* tree_
             passon(list_head());
          } else {
             expect('='); // error: missing_binding_initializer
-            parse(init, assignment_expression);
+            parse(init, assignment_expression, EXPORT, NONE);
          }
       }
       add_to_list(completed_node());
@@ -3140,13 +3178,17 @@ void* parse_if_statement(parse_state_t* state, parse_tree_state_t* tree_state, p
       parse(test, expression, RET, IN);
    expect(')');
    if(exists_word(function) && allow_annex()) {
+      new_scope(state, NONE, false);
       parse(consequent, hoistable_declaration, DEF, param_flag_vanilla_function);
+      end_scope(state);
    } else {
       parse(consequent, statement);
    }
    if(optional_word(else)) {
-      if(allow_annex() && exists_word(function)) {
+      if(exists_word(function) && allow_annex()) {
+         new_scope(state, NONE, false);
          parse(alternate, hoistable_declaration, DEF, param_flag_vanilla_function);
+         end_scope(state);
       } else {
          parse(alternate, statement);
       }
@@ -3262,7 +3304,7 @@ void* parse_for_statement(parse_state_t* state, parse_tree_state_t* tree_state, 
    bool has_let = false;
 
    save_begin();
-   new_scope(state, false);
+   new_scope(state, NONE, false);
 
    ensure_word(for);
    bool is_await = optional_word(await);
@@ -3604,7 +3646,7 @@ void* parse_try_statement(parse_state_t* state, parse_tree_state_t* tree_state, 
       has_handler = true;
       // we will created a scope for containing catch parameters
       // [TODO] annex allow var bindings to collide with catch parameters
-      new_scope(state, false);
+      new_scope(state, NONE, false);
       make_child_node(catch_clause);
       ensure_word(catch);
       if(optional('(')) {
@@ -3738,6 +3780,27 @@ program_t* parse_module(parse_state_t* state, parse_tree_state_t* tree_state, pa
    make_node(program);
    assign(source_type, program_kind_module);
    list_parse(body, module_body);
+   if(state->export_reference_list) {
+      symbol_list_node_t* symbol_list_node = state->export_reference_list->head;
+      scope_t const* const scope = state->current_scope_list_node->scope;
+      symbol_list_node_t* matched_symbol_list_node;
+      while(symbol_list_node) {
+         compiled_parse_node_t const* const node = symbol_list_node->symbol_node;
+         symbol_t const* symbol = (node->compiled_string ? (symbol_t*)(node->compiled_string) : (symbol_t*)(node));
+         size_t const symbol_length = symbol->end - symbol->begin;
+         uint16_t hash = (
+            ((symbol_length & symbol_length_mask) << 5) |
+            (*symbol->begin & symbol_first_letter_mask)
+         );
+         uint8_t has_symbol = get_symbol_from_lexical_tree(
+            state, scope, symbol, symbol_length, hash, &matched_symbol_list_node
+         );
+         if(!has_symbol) {
+            return_error(missing_export_reference, nullptr);
+         }
+         symbol_list_node = symbol_list_node->next;
+      }
+   }
    complete_node();
    return node;
 }
@@ -3856,6 +3919,8 @@ parse_result_t parse(char_t const* code_begin, char_t const* code_end, bool is_m
       .scope_list_node = nullptr,
       .current_scope_list_node = nullptr,
       .hoisting_scope_list_node = nullptr,
+      .export_symbol_table = nullptr,
+      .has_default_export = 0,
       // error state
       .tokenization_status = status_flag_incomplete,
       .parsing_status = status_flag_incomplete,
@@ -3864,7 +3929,8 @@ parse_result_t parse(char_t const* code_begin, char_t const* code_end, bool is_m
       .expected_mask = 0,
    };
    parse_state_t* state = &_state;
-   new_scope(state, true);
+   if(is_module) { state->export_symbol_table = new_symbol_table(state); }
+   new_scope(state, (is_module ? scope_flag_module : scope_flag_script), true);
    if(params & param_flag_streaming) {
       scan_next_token(state, params);
       scan_next_token(state, params);
