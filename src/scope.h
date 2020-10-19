@@ -31,7 +31,7 @@ void add_child(parse_state_t* state, scope_list_node_t* parent_scope_list_node, 
 
 void new_scope(parse_state_t* state, uint8_t is_hoisting)
 {
-   size_t const size = symbol_hash_table_size * sizeof(symbol_list_node_t*);
+   size_t const size = symbol_hash_table_size * sizeof(symbol_list_t*);
    scope_list_node_t* scope_list_node = state->scope_list_node;
    scope_list_node_t* next_scope_list_node;
    scope_t* child_scope;
@@ -99,7 +99,7 @@ uint8_t get_symbol(
    uint16_t hash, symbol_list_node_t** symbol_list_node_ref
 ){
    symbol_list_node_t* symbol_list_node = *symbol_list_node_ref;
-   while(1) {
+   while(symbol_list_node) {
       compiled_parse_node_t const* compare_node = symbol_list_node->symbol_node;
       symbol_t const* compare_symbol = (
          compare_node->compiled_string ? (symbol_t*)(compare_node->compiled_string) : (symbol_t*)(compare_node)
@@ -111,13 +111,9 @@ uint8_t get_symbol(
          *symbol_list_node_ref = symbol_list_node;
          return 1;
       }
-      // point to the last element if symbol lookup fails to make appending easy
-      if(symbol_list_node->next == nullptr) {
-         *symbol_list_node_ref = symbol_list_node;
-         return 0;
-      }
       symbol_list_node = symbol_list_node->next;
    }
+   return 0;
 }
 
 uint8_t has_symbol_in_tree(
@@ -134,12 +130,46 @@ uint8_t has_symbol_in_tree(
       scope_child_list_node = scope_child_list_node->next;
    }
    if(!has_symbol) {
-      symbol_list_node_t* symbol_list_node = scope_list_node->scope->var_symbol_table[hash];
-      if(symbol_list_node) {
+      symbol_list_t* symbol_list = scope_list_node->scope->var_symbol_table[hash];
+      if(symbol_list) {
+         symbol_list_node_t* symbol_list_node = symbol_list->head;
          has_symbol = get_symbol(symbol, symbol_length, hash, &symbol_list_node);
       }
    }
    return has_symbol;
+}
+
+void _add_symbol(
+   parse_state_t* state, symbol_list_t** symbol_table, symbol_list_t* symbol_list,
+   compiled_parse_node_t const* node, uint16_t hash, uint8_t binding_flag
+){
+   symbol_list_node_t* new_symbol_list_node = parser_malloc(sizeof(symbol_list_node_t));
+   *new_symbol_list_node = (symbol_list_node_t){
+      .symbol_node = node, .binding_flag = binding_flag, .next = nullptr
+   };
+   if(!symbol_list) {
+      symbol_list = parser_malloc(sizeof(symbol_list_t));
+      *symbol_list = (symbol_list_t){
+         .head = new_symbol_list_node, .tail = new_symbol_list_node
+      };
+      symbol_table[hash] = symbol_list;
+   } else {
+      symbol_list->tail->next = new_symbol_list_node;
+      symbol_list->tail = new_symbol_list_node;
+   }
+}
+
+void add_symbol(
+   parse_state_t* state, symbol_list_t** symbol_table,
+   compiled_parse_node_t const* node, uint8_t binding_flag
+){
+   symbol_t const* symbol = (node->compiled_string ? (symbol_t*)(node->compiled_string) : (symbol_t*)(node));
+   size_t const symbol_length = symbol->end - symbol->begin;
+   uint16_t hash = (
+      ((symbol_length & symbol_length_mask) << 5) |
+      (*symbol->begin & symbol_first_letter_mask)
+   );
+   _add_symbol(state, symbol_table, symbol_table[hash], node, hash, binding_flag);
 }
 
 uint8_t insert_symbol(parse_state_t* state, compiled_parse_node_t const* node, uint8_t binding_flag, params_t params)
@@ -150,15 +180,17 @@ uint8_t insert_symbol(parse_state_t* state, compiled_parse_node_t const* node, u
       ((symbol_length & symbol_length_mask) << 5) |
       (*symbol->begin & symbol_first_letter_mask)
    );
-   uint8_t has_list = 0, has_symbol = 0;
+   uint8_t has_symbol = 0;
    symbol_list_node_t* symbol_list_node;
-   symbol_list_node_t** symbol_table;
+   symbol_list_t* symbol_list;
+   symbol_list_t** symbol_table;
    scope_t* const scope = state->current_scope_list_node->scope;
    if(binding_flag & param_flag_loose_binding) {
       scope_list_node_t const* lookup_scope_list_node = state->current_scope_list_node;
       while(!has_symbol) {
-         symbol_list_node = lookup_scope_list_node->scope->lexical_symbol_table[hash];
-         if(symbol_list_node) {
+         symbol_list = lookup_scope_list_node->scope->lexical_symbol_table[hash];
+         if(symbol_list) {
+            symbol_list_node = symbol_list->head;
             has_symbol = get_symbol(symbol, symbol_length, hash, &symbol_list_node);
          }
          if(lookup_scope_list_node == state->hoisting_scope_list_node) break;
@@ -166,9 +198,9 @@ uint8_t insert_symbol(parse_state_t* state, compiled_parse_node_t const* node, u
       }
       if(!has_symbol) {
          symbol_table = scope->var_symbol_table;
-         symbol_list_node = symbol_table[hash];
-         if(symbol_list_node) {
-            has_list = 1;
+         symbol_list = symbol_table[hash];
+         if(symbol_list) {
+            symbol_list_node = symbol_list->head;
             has_symbol = get_symbol(symbol, symbol_length, hash, &symbol_list_node);
          }
       }
@@ -176,9 +208,9 @@ uint8_t insert_symbol(parse_state_t* state, compiled_parse_node_t const* node, u
       has_symbol = has_symbol_in_tree(symbol, symbol_length, hash, state->current_scope_list_node);
       if(!has_symbol) {
          symbol_table = scope->lexical_symbol_table;
-         symbol_list_node = symbol_table[hash];
-         if(symbol_list_node) {
-            has_list = 1;
+         symbol_list = symbol_table[hash];
+         if(symbol_list) {
+            symbol_list_node = symbol_list->head;
             has_symbol = get_symbol(symbol, symbol_length, hash, &symbol_list_node);
          }
       }
@@ -194,12 +226,7 @@ uint8_t insert_symbol(parse_state_t* state, compiled_parse_node_t const* node, u
          return 0;
       }
    }
-   symbol_list_node_t* new_symbol_list_node = parser_malloc(sizeof(symbol_list_node_t));
-   *new_symbol_list_node = (symbol_list_node_t){
-      .symbol_node = node, .binding_flag = binding_flag, .next = nullptr
-   };
-   if(has_list) symbol_list_node->next = new_symbol_list_node;
-   else symbol_table[hash] = new_symbol_list_node;
+   _add_symbol(state, symbol_table, symbol_list, node, hash, binding_flag);
    return 1;
 }
 

@@ -541,6 +541,10 @@ typedef struct _symbol_list_node_t {
    struct _symbol_list_node_t* next;
 } symbol_list_node_t;
 typedef struct {
+   symbol_list_node_t* head;
+   symbol_list_node_t* tail;
+} symbol_list_t;
+typedef struct {
    compiled_parse_node_t const* original;
    compiled_parse_node_t const* duplicate;
 } repeated_symbol_t;
@@ -551,8 +555,8 @@ typedef struct _scope_child_list_t {
 } scope_child_list_t;
 typedef struct _scope_t {
    repeated_symbol_t* first_duplicate;
-   symbol_list_node_t** lexical_symbol_table;
-   symbol_list_node_t** var_symbol_table;
+   symbol_list_t** lexical_symbol_table;
+   symbol_list_t** var_symbol_table;
 } scope_t;
 typedef struct _scope_list_node_t scope_list_node_t;
 typedef struct _scope_list_node_t {
