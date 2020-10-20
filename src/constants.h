@@ -473,10 +473,11 @@ uint32_t const cover_flag_assignment = 0x0002;
 uint32_t const cover_flag_array_assignment = cover_flag_array | cover_flag_assignment;
 */
 
-uint8_t const change_flag_assignment = 0x01;
-uint8_t const change_flag_binding = 0x02;
-uint8_t const change_flag_array = 0x04;
-uint8_t const change_flag_object = 0x08;
+uint8_t const change_flag_loose_binding = param_flag_loose_binding;
+uint8_t const change_flag_assignment = 0x02;
+uint8_t const change_flag_binding = 0x04;
+uint8_t const change_flag_array = 0x08;
+uint8_t const change_flag_object = 0x10;
 //uint8_t const change_mask_cover = change_flag_assignment | change_flag_binding;
 uint8_t const change_mask_group = ~(change_flag_array | change_flag_object);
 uint8_t const change_flag_array_binding = change_flag_array | change_flag_binding;

@@ -493,6 +493,63 @@ void* parse_lhs_expression(parse_state_t* state, parse_tree_state_t* tree_state,
 }
 
 bool change_node_types(parse_state_t* state, parse_list_node_t* list_node, bool has_trailing_comma, uint8_t flags, params_t params);
+bool lexically_bind_pattern_nodes(parse_state_t* state, parse_list_node_t* list_node, uint8_t flags, params_t params);
+inline_spec node_type_t select_array_pattern_for(uint8_t flags)
+{
+   if(flags & change_flag_assignment) return pnt_array_assignment_pattern;
+   return pnt_array_pattern;
+}
+inline_spec node_type_t select_object_pattern_for(uint8_t flags)
+{
+   if(flags & change_flag_assignment) return pnt_object_assignment_pattern;
+   return pnt_object_pattern;
+}
+bool lexically_bind_pattern(parse_state_t* state, void* node, uint8_t flags, params_t params)
+{
+   switch(node_type(node)) {
+      case pnt_array_pattern:
+      case pnt_array_assignment_pattern: {
+         node_as(array_pattern, node, ap);
+         flags = set_change_flag_to(array, flags);
+         return lexically_bind_pattern_nodes(state, ap->elements, flags, params);
+      }
+      case pnt_object_pattern:
+      case pnt_object_assignment_pattern: {
+         node_as(object_pattern, node, op);
+         flags = set_change_flag_to(object, flags);
+         return lexically_bind_pattern_nodes(state, op->properties, flags, params);
+      }
+      default: {
+         if(!is_a_binding_identifier(state, node, params)) {
+            return_error(expecting_binding_identifier, false);
+         }
+         assert_lexical_uniqueness(node, flags & LOOSE, NONE);
+         return true;
+      }
+   }
+}
+bool lexically_bind_pattern_nodes(parse_state_t* state, parse_list_node_t* list_node, uint8_t flags, params_t params)
+{
+   while(list_node != nullptr) {
+      parse_node_t* parse_node = (parse_node_t*)(list_node->parse_node);
+      if(parse_node == nullptr) {
+         return_error(elision_in_binding_pattern, false);
+      }
+      if(parse_node->type == pnt_rest_element) {
+         parse_node = node_as(rest_element, parse_node)->argument;
+      } else if(flags & change_flag_object) {
+         if(!node_type_is(property, parse_node)) {
+            return_error(is_not_a_property_node, false);
+         }
+         node_as(property, parse_node, property);
+         parse_node = property->value;
+      }
+      if(parse_node == nullptr) return_error(null_node_in_bind_nodes, false);
+      if(!lexically_bind_pattern(state, parse_node, flags, params)) return false;
+      list_node = list_node->next;
+   }
+   return true;
+}
 bool change_lhs_node_type(parse_state_t* state, void* node, uint8_t flags, params_t params)
 {
    switch(node_type(node)) {
@@ -522,18 +579,13 @@ bool change_lhs_node_type(parse_state_t* state, void* node, uint8_t flags, param
          uint8_t change_flags = set_change_flag_to(object, flags);
          return change_node_types(state, op->properties, op->has_trailing_comma, change_flags, params);
       }
-      default: return is_an_assignment_target(node, params);
+      default: {
+         if(flags & change_flag_binding) {
+            return lexically_bind_pattern(state, node, flags, params);
+         }
+         return is_an_assignment_target(node, params);
+      }
    }
-}
-inline_spec node_type_t select_array_pattern_for(uint8_t flags)
-{
-   if(flags & change_flag_assignment) return pnt_array_assignment_pattern;
-   return pnt_array_pattern;
-}
-inline_spec node_type_t select_object_pattern_for(uint8_t flags)
-{
-   if(flags & change_flag_assignment) return pnt_object_assignment_pattern;
-   return pnt_object_pattern;
 }
 bool change_node_types(parse_state_t* state, parse_list_node_t* list_node, bool has_trailing_comma, uint8_t flags, params_t params)
 {
@@ -584,6 +636,9 @@ bool change_node_types(parse_state_t* state, parse_list_node_t* list_node, bool 
             case pnt_initialized_name: {
                node_as(initialized_name, parse_node, init_name);
                if(!is_a_binding_identifier(state, init_name->left, params)) return false;
+               if(flags & change_flag_binding) {
+                  assert_lexical_uniqueness(init_name->left, flags & LOOSE, NONE);
+               }
                remove_from_cover_list(init_name);
                break;
             }
@@ -617,10 +672,12 @@ bool change_node_types(parse_state_t* state, parse_list_node_t* list_node, bool 
                   if(!is_an_assignment_target(parse_node, params)) {
                      return_error(lvalue, false);
                   }
-               } else if(flags & change_flag_binding) {
+               }
+               if(flags & change_flag_binding) {
                   if(node_type_is(rest_element, parse_node)) return true;
                   //if(!node_type_is(identifier, parse_node)) {
                   if(!is_a_binding_identifier(state, parse_node, params)) return false;
+                  assert_lexical_uniqueness(parse_node, flags & LOOSE, NONE);
                }
             }
          }
@@ -2111,7 +2168,10 @@ void* parse_covering_parenthesized_expression(parse_state_t* state, parse_tree_s
          if(first_cover == nullptr) {
             first_cover = state->parse_token;
          }
-         parse(binding_rest_element);
+         //[REVIEW] should we parse as rest element or spread element
+         // rest element immediately add indentifiers to the scope whereas
+         // identifiers from earlier expression are yet to be added
+         parse(binding_rest_element, NONE, LOOSE);
          add_to_list(binding_rest_element);
          break;
       }
@@ -2143,8 +2203,8 @@ void* parse_covering_parenthesized_expression(parse_state_t* state, parse_tree_s
    } else {
       // [TODO] reuse memory used for expression list
       if(count != 0) {
-         uint8_t change_flags = change_flag_array_binding;
-         if(!change_node_types(state, expression->expressions, !!trailing_comma, change_flags, params)) {
+         uint8_t change_flags = change_flag_array_binding | change_flag_loose_binding;
+         if(!change_node_types(state, expression->expressions, !!trailing_comma, change_flags, params|UNIQUE)) {
             passon(nullptr);
          }
       }
@@ -2431,7 +2491,7 @@ void* parse_covering_call_only_expression(parse_state_t* state, parse_tree_state
       complete_node();
       if(exists(pnct_arrow) && !exists_newline()) {
          set_node_type_of(node, covered_call_expression);
-         change_node_types(state, node->arguments, false, change_flag_array_binding, params);
+         change_node_types(state, node->arguments, false, change_flag_array_binding | change_flag_loose_binding, params|UNIQUE);
          passon(node);
       } else {
          //[TODO] account of offending cover grammar
@@ -2966,25 +3026,33 @@ void* parse_assignment_expression(parse_state_t* state, parse_tree_state_t* tree
       passon_parsed(yield_expression, YLD, NONE);
    }
    bool has_async = exists_word(async) && !exists_newline_ahead();
-   bool has_arrow = false, needs_scope = has_async;
+   bool has_arrow = false, created_scope = false;
+   token_t const* const plus_one_token = next_token();
    if(has_async) {
-      new_scope(state, NONE, true, nullptr);
-      token_t const* const token_after_async = next_token();
+      new_scope(state, NONE, true, nullptr); created_scope = true;
       assign_parsed(conditional_expression, expression);
       // make sure we do not have an async expression
-      if(current_token() == token_after_async &&
+      if(current_token() == plus_one_token &&
          exists_ahead(pnct_arrow) && !exists_newline_ahead()
       ){
          assign_parsed(binding_identifier, expression, NONE, AWT);
+         assert_lexical_uniqueness(expression, LOOSE, NONE);
       }
    } else {
       bool has_parenthesis = exists('(');
-      needs_scope = has_parenthesis || exists_ahead(pnct_arrow);
       params_t add_params = (has_parenthesis ? PARAM : NONE);
-      if(needs_scope) new_scope(state, NONE, true, nullptr);
+      if(has_parenthesis || exists_ahead(pnct_arrow)) {
+         new_scope(state, NONE, true, nullptr); created_scope = true;
+      }
       assign_parsed(conditional_expression, expression, NULL, add_params);
    }
    if(exists(pnct_arrow) && !exists_newline()) {
+      if(current_token() == plus_one_token) {
+         if(!is_a_binding_identifier(state, expression, params)) {
+            return_error(expecting_binding_identifier, nullptr);
+         }
+         assert_lexical_uniqueness(expression, LOOSE, NONE);
+      }
       make_node(arrow_function_expression);
       assign_begin();
       switch(node_type(expression)) {
@@ -3015,7 +3083,7 @@ void* parse_assignment_expression(parse_state_t* state, parse_tree_state_t* tree
       end_scope(state);
       passon(arrow_function);
    }
-   if(needs_scope) end_scope(state);
+   if(created_scope) end_scope(state);
    if(!node_is_a(lhs_production, expression) || !exists_mask(mask_assign_ops)) {
       passon(expression);
    }

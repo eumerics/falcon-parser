@@ -61,6 +61,8 @@ define_error(0x0030, eval_or_arguments_in_strict_mode, "eval/arguments cannot be
 define_error(0x0031, duplicate_export, "duplicate export symbol");
 define_error(0x0032, duplicate_default_export, "duplicate default export");
 define_error(0x0033, missing_export_reference, "missing export reference");
+define_error(0x0034, elision_in_binding_pattern, "elisiion is not allowed in a destructuring pattern");
+define_error(0x0035, expecting_binding_identifier, "expecting a binding indentifier");
 
 define_error(0x1000, missing_assignment_or_binding_flag,
    "internal-error: change flags must have one of assignment or binding flag"
@@ -70,6 +72,9 @@ define_error(0x1001, is_not_a_property_node,
 );
 define_error(0x1002, null_node_in_change_types,
    "internal-error: null node encounted while changing node types of cover grammar"
+);
+define_error(0x1003, null_node_in_bind_nodes,
+   "internal-error: null node encounted while binding nodes of cover grammar"
 );
 
 #endif //_MESSAGES_H_

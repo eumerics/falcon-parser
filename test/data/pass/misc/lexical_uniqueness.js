@@ -21,9 +21,3 @@ try{} catch(a){ var a; } //<>
 //{ let a; {function a(){}} } //<>
 //{ { var a; { function b(){} }} let b; } //<>
 //{ { let a; { let b; { function a(){} }}} } //<>
-
-function a(b, b) {} //<>
-function a(b) { var b; } //<>
-function a([b]) { var b; } //<>
-function a() { 'use strict'; var b; var b; } //<>
-function a() { 'use strict'; for(var a, a;;); } //<>

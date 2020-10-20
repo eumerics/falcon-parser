@@ -62,32 +62,4 @@ let a; {for(var a;;);} //<>
 for(let a in {}) { var a; } //<>
 for(let a of []) { var a; } //<>
 
-function a(b, b = 0) {} //<>
-function a(b, [b]) {} //<>
-function a(b, {b}) {} //<>
-function a(b, ...b) {} //<>
-function a(b = 0, b) {} //<>
-function a([b], b) {} //<>
-function a({b}, b) {} //<>
-function a(b, b, c = 0) {} //<>
-function a(b, b, [c]) {} //<>
-function a(b, b, {c}) {} //<>
-function a(b) { let b; } //<>
-function a([b]) { let b; } //<>
-function a({b}) { let b; } //<>
-
-!function a(b, b = 0) {} //<>
-!function a(b, [b]) {} //<>
-!function a(b, {b}) {} //<>
-!function a(b, ...b) {} //<>
-!function a(b = 0, b) {} //<>
-!function a([b], b) {} //<>
-!function a({b}, b) {} //<>
-!function a(b, b, c = 0) {} //<>
-!function a(b, b, [c]) {} //<>
-!function a(b, b, {c}) {} //<>
-!function a(b) { let b; } //<>
-!function a([b]) { let b; } //<>
-!function a({b}) { let b; } //<>
-
 'use strict'; function a(b, b) {} //<>

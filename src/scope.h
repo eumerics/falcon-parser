@@ -235,6 +235,7 @@ uint8_t insert_symbol(
 ){
    symbol_t const* symbol = (node->compiled_string ? (symbol_t*)(node->compiled_string) : (symbol_t*)(node));
    size_t const symbol_length = symbol->end - symbol->begin;
+   //printf("inserting symbol %.*s %x\n", (int)(symbol_length), symbol->begin, binding_flag);
    uint16_t hash = (
       ((symbol_length & symbol_length_mask) << 5) |
       (*symbol->begin & symbol_first_letter_mask)

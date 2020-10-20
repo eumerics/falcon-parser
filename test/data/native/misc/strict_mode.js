@@ -274,6 +274,62 @@ class a { b(public){} } //? <->
 !class a { b(protected){} } //? <->
 !class a { b(public){} } //? <->
 ///
+'use strict'; eval => {}; //? <->
+'use strict'; arguments => {}; //? <->
+'use strict'; yield => {}; //? <->
+'use strict'; await => {}; //? <+>
+'use strict'; let => {}; //? <->
+'use strict'; static => {}; //? <->
+'use strict'; implements => {}; //? <->
+'use strict'; interface => {}; //? <->
+'use strict'; package => {}; //? <->
+'use strict'; private => {}; //? <->
+'use strict'; protected => {}; //? <->
+'use strict'; public => {}; //? <->
+///
+'use strict'; (eval) => {}; //? <->
+'use strict'; (arguments) => {}; //? <->
+'use strict'; (yield) => {}; //? <->
+'use strict'; (await) => {}; //? <+>
+'use strict'; (let) => {}; //? <->
+'use strict'; (static) => {}; //? <->
+'use strict'; (implements) => {}; //? <->
+'use strict'; (interface) => {}; //? <->
+'use strict'; (package) => {}; //? <->
+'use strict'; (private) => {}; //? <->
+'use strict'; (protected) => {}; //? <->
+'use strict'; (public) => {}; //? <->
+///
+await => {}; //? <-#>
+///
+eval => { 'use strict'; }; //? <->
+arguments => { 'use strict'; }; //? <->
+yield => { 'use strict'; }; //? <->
+await => { 'use strict'; }; //? <+>
+let => { 'use strict'; }; //? <->
+static => { 'use strict'; }; //? <->
+implements => { 'use strict'; }; //? <->
+interface => { 'use strict'; }; //? <->
+package => { 'use strict'; }; //? <->
+private => { 'use strict'; }; //? <->
+protected => { 'use strict'; }; //? <->
+public => { 'use strict'; }; //? <->
+///
+(await) => {}; //? <-#>
+///
+(eval) => { 'use strict'; }; //? <->
+(arguments) => { 'use strict'; }; //? <->
+(yield) => { 'use strict'; }; //? <->
+(await) => { 'use strict'; }; //? <+>
+(let) => { 'use strict'; }; //? <->
+(static) => { 'use strict'; }; //? <->
+(implements) => { 'use strict'; }; //? <->
+(interface) => { 'use strict'; }; //? <->
+(package) => { 'use strict'; }; //? <->
+(private) => { 'use strict'; }; //? <->
+(protected) => { 'use strict'; }; //? <->
+(public) => { 'use strict'; }; //? <->
+///
 function a(b, eval){ 'use strict'; } //? <->
 function a(b, arguments){ 'use strict'; } //? <->
 function a(eval, b){ 'use strict'; } //? <->
