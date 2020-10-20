@@ -325,7 +325,7 @@ export class Node {
    decode(begin, end) { return Parser.decoder.decode(this.buffer_view.code.view.subarray(begin, end)); }
    get_compiled_value(strip_length) {
       const type = 'u32';
-      const pointer = this.buffer_view[type][(this.pointer + 12) / sizeof[type]];
+      const pointer = this.buffer_view[type][(this.pointer + 16) / sizeof[type]];
       if(pointer == 0) {
          return Parser.decoder.decode(
             this.buffer_view.code.view.subarray(this.begin + strip_length, this.end - strip_length)

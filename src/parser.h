@@ -143,6 +143,7 @@
 #define assign_token() { \
    token_t const* const token = current_token(); \
    node->token_id = token->id; \
+   node->token_group = token->group; \
    node->compiled_string = token->detail; \
 }
 
@@ -304,17 +305,41 @@ inline_spec bool _property_key_is(parse_state_t* state, property_t* property, ch
    return (strncmp_impl(begin, name, length) == 0);
 }
 #define assert_unique_scope() if(!is_scope_unique(state)) return nullptr;
-#define assert_lexical_uniqueness(_node, binding_flag) \
-   if(!insert_symbol(state, (compiled_parse_node_t*)(_node), binding_flag, params)) { \
+#define assert_lexical_uniqueness(_node, binding_flag, symbol_type) \
+   if(!insert_symbol(state, (compiled_parse_node_t*)(_node), binding_flag, symbol_type, params)) { \
       return_error(duplicate_symbol, nullptr); \
    }
 #define assert_export_uniqueness(_node) \
-   if(!add_symbol(state, state->export_symbol_table, (compiled_parse_node_t*)(_node), NONE)) { \
+   if(!add_symbol(state, state->export_symbol_table, (compiled_parse_node_t*)(_node), NONE, NONE)) { \
       return_error(duplicate_export, nullptr); \
    }
+bool is_reserved_symbol(parse_state_t* state, compiled_parse_node_t const* const symbol_node)
+{
+   if(!symbol_node) return 0;
+   token_id_t token_id = symbol_node->token_id;
+   token_group_t token_group = symbol_node->token_group;
+   if(token_group & mask_strict_reserved_word) {
+      set_error(invalid_strict_mode_identifier); return 1;
+   } else if(token_id == rw_eval || token_id == rw_arguments) {
+      set_error(eval_args_in_strict_mode); return 1;
+   } else if(token_id == rw_yield) {
+      set_error(yield_in_strict_mode); return 1;
+   }
+   return 0;
+}
 bool retro_act_strict_mode(parse_state_t* state, parse_list_node_t* list_node)
 {
    assert_unique_scope();
+   scope_t const* const scope = state->current_scope_list_node->scope;
+   if(scope->identifier && is_reserved_symbol(state, scope->identifier)) {
+      return 0;
+   }
+   symbol_list_node_t const* symbol_list_node = scope->head;
+   while(symbol_list_node) {
+      if(is_reserved_symbol(state, symbol_list_node->symbol_node)) return 0;
+      if(symbol_list_node == scope->tail) break;
+      symbol_list_node = symbol_list_node->sequence_next;
+   }
    while(list_node->next != nullptr) {
       node_as(directive, list_node->parse_node, directive);
       node_as(string_literal, directive->expression, literal);
@@ -892,7 +917,7 @@ void* parse_binding_element(parse_state_t* state, parse_tree_state_t* tree_state
       // SingleNameBinding: BindingIdentifier Initializer_opt
       save_begin();
       parse(binding_identifier);
-      assert_lexical_uniqueness(binding_identifier, params & LOOSE);
+      assert_lexical_uniqueness(binding_identifier, params & LOOSE, NONE);
       if(params & EXPORT) { assert_export_uniqueness(binding_identifier); }
       if(optional('=')) {
          make_node(binding_assignment);
@@ -947,7 +972,7 @@ void* parse_object_binding_pattern(parse_state_t* state, parse_tree_state_t* tre
          make_node(rest_element);
          ensure(pnct_spread);
          parse(argument, binding_identifier);
-         assert_lexical_uniqueness(node->argument, params & LOOSE);
+         assert_lexical_uniqueness(node->argument, params & LOOSE, NONE);
          if(params & EXPORT) { assert_export_uniqueness(node->argument); }
          add_to_list(completed_node());
          break;
@@ -960,7 +985,7 @@ void* parse_object_binding_pattern(parse_state_t* state, parse_tree_state_t* tre
             save_begin();
             parse(binding_identifier);
             assign(key, binding_identifier);
-            assert_lexical_uniqueness(binding_identifier, params & LOOSE);
+            assert_lexical_uniqueness(binding_identifier, params & LOOSE, NONE);
             if(params & EXPORT) { assert_export_uniqueness(binding_identifier); }
             assign(flags, property_flag_shorthand);
             if(optional('=')) {
@@ -1012,7 +1037,7 @@ void* parse_binding_rest_element(parse_state_t* state, parse_tree_state_t* tree_
    if(exists_mask(mask_identifier)) {
       // BindingIdentifier
       parse(argument, binding_identifier);
-      assert_lexical_uniqueness(node->argument, params & LOOSE);
+      assert_lexical_uniqueness(node->argument, params & LOOSE, NONE);
       if(params & EXPORT) { assert_export_uniqueness(node->argument); }
    } else {
       // BindingPattern
@@ -1094,7 +1119,7 @@ void* parse_formal_parameter_list(parse_state_t* state, parse_tree_state_t* tree
    while(!exists(')')) {
       if(exists_mask(mask_identifier) && !exists_ahead('=')) {
          parse(binding_identifier);
-         assert_lexical_uniqueness(binding_identifier, params & LOOSE);
+         assert_lexical_uniqueness(binding_identifier, params & LOOSE, NONE);
          add_to_list(binding_identifier);
       } else {
          // if any of the formal parameters is a binding pattern switch to
@@ -1220,11 +1245,11 @@ void* parse_hoistable_declaration(parse_state_t* state, parse_tree_state_t* tree
       parse(id, binding_identifier);
       scope_t const* const scope = state->current_scope_list_node->scope;
       uint8_t binding_flag = ((scope->type & (scope_flag_script | scope_flag_function)) ? LOOSE : NONE);
-      assert_lexical_uniqueness(node->id, binding_flag);
+      assert_lexical_uniqueness(node->id, binding_flag, symbol_flag_function_id);
       //assert_lexical_uniqueness(node->id, LOOSE);
       if(saved_params & EXPORT) { assert_export_uniqueness(node->id); }
    }
-   new_scope(state, scope_flag_function, true);
+   new_scope(state, scope_flag_function, true, node->id);
    expect('('); list_parse(params, formal_parameters, YLD|AWT|VFUN, add_params|LOOSE); expect(')');
    //expect('{'); parse(body, function_body, YLD|AWT, flags); expect('}');
    parse(body, function_body_container, YLD|AWT|VFUN, add_params);
@@ -1269,7 +1294,7 @@ void* parse_function_expression(parse_state_t* state, parse_tree_state_t* tree_s
    } else {
       assign(id, nullptr);
    }
-   new_scope(state, scope_flag_function, true);
+   new_scope(state, scope_flag_function, true, node->id);
    expect('('); list_parse(params, formal_parameters, YLD|AWT, add_params|LOOSE); expect(')');
    //expect('{'); list_parse(body, function_body); expect('}');
    //list_parse(body, function_body_container);
@@ -1322,7 +1347,7 @@ inline_spec void* parse_method_function(parse_state_t* state, parse_tree_state_t
    params |= (FUNC | METHOD);
    make_node(function_expression);
    assign(id, nullptr);
-   new_scope(state, scope_flag_function, true);
+   new_scope(state, scope_flag_function, true, nullptr);
    ensure('('); list_parse(params, unique_formal_parameters); expect(')');
    //expect('{'); list_parse(body, function_body); expect('}');
    //list_parse(body, function_body_container);
@@ -1373,7 +1398,7 @@ method_definition_t* parse_method_only_definition(parse_state_t* state, parse_tr
       return_error(invalid_constructor, nullptr);
    }
    {
-      new_scope(state, scope_flag_function, true);
+      new_scope(state, scope_flag_function, true, nullptr);
       make_child_node(function_expression);
       assign(id, nullptr);
       expect('(');
@@ -1514,7 +1539,7 @@ void* parse_class_declaration(parse_state_t* state, parse_tree_state_t* tree_sta
       assign(id, nullptr);
    } else {
       parse(id, binding_identifier);
-      assert_lexical_uniqueness(node->id, NONE);
+      assert_lexical_uniqueness(node->id, NONE, NONE);
       if(params & EXPORT) { assert_export_uniqueness(node->id); }
    }
    if(optional_word(extends)) {
@@ -1592,7 +1617,7 @@ void* parse_import_declaration(parse_state_t* state, parse_tree_state_t* tree_st
       if(exists_mask(mask_identifier)) {
          make_node(import_default_specifier);
          parse(binding_identifier, YLD|AWT, NONE);
-         assert_lexical_uniqueness(binding_identifier, NONE);
+         assert_lexical_uniqueness(binding_identifier, NONE, NONE);
          assign(local, binding_identifier);
          add_to_list(completed_node());
          has_specifiers = optional(',');
@@ -1602,7 +1627,7 @@ void* parse_import_declaration(parse_state_t* state, parse_tree_state_t* tree_st
             make_node(import_namespace_specifier);
             ensure('*'); expect_word(as);
             parse(binding_identifier, YLD|AWT, NONE);
-            assert_lexical_uniqueness(binding_identifier, NONE);
+            assert_lexical_uniqueness(binding_identifier, NONE, NONE);
             assign(local, binding_identifier);
             add_to_list(completed_node());
          } else if(exists('{')) {
@@ -1613,11 +1638,11 @@ void* parse_import_declaration(parse_state_t* state, parse_tree_state_t* tree_st
                   parse(imported, identifier_name);
                   ensure_word(as);
                   parse(binding_identifier, YLD|AWT, NONE);
-                  assert_lexical_uniqueness(binding_identifier, NONE);
+                  assert_lexical_uniqueness(binding_identifier, NONE, NONE);
                   assign(local, binding_identifier);
                } else {
                   parse(binding_identifier, YLD|AWT, NONE);
-                  assert_lexical_uniqueness(binding_identifier, NONE);
+                  assert_lexical_uniqueness(binding_identifier, NONE, NONE);
                   assign(imported, binding_identifier);
                   assign(local, binding_identifier);
                }
@@ -1695,7 +1720,7 @@ void* parse_export_declaration(parse_state_t* state, parse_tree_state_t* tree_st
             assign(local, identifier_name);
             assert_export_uniqueness(node->exported);
          }
-         _add_symbol(state, &reference_list, reference_list, (compiled_parse_node_t*)(node->local), NONE);
+         _add_symbol(state, &reference_list, reference_list, (compiled_parse_node_t*)(node->local), NONE, NONE);
          add_to_list(completed_node());
          if(!optional(',')) break;
       }
@@ -2943,7 +2968,7 @@ void* parse_assignment_expression(parse_state_t* state, parse_tree_state_t* tree
    bool has_async = exists_word(async) && !exists_newline_ahead();
    bool has_arrow = false, needs_scope = has_async;
    if(has_async) {
-      new_scope(state, NONE, true);
+      new_scope(state, NONE, true, nullptr);
       token_t const* const token_after_async = next_token();
       assign_parsed(conditional_expression, expression);
       // make sure we do not have an async expression
@@ -2956,7 +2981,7 @@ void* parse_assignment_expression(parse_state_t* state, parse_tree_state_t* tree
       bool has_parenthesis = exists('(');
       needs_scope = has_parenthesis || exists_ahead(pnct_arrow);
       params_t add_params = (has_parenthesis ? PARAM : NONE);
-      if(needs_scope) new_scope(state, NONE, true);
+      if(needs_scope) new_scope(state, NONE, true, nullptr);
       assign_parsed(conditional_expression, expression, NULL, add_params);
    }
    if(exists(pnct_arrow) && !exists_newline()) {
@@ -3022,7 +3047,7 @@ Block[Yield, Await, Return]:
 */
 void* parse_block_statement(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
-   if(!(params & NOSCOPE)) new_scope(state, NONE, false);
+   if(!(params & NOSCOPE)) new_scope(state, NONE, false, nullptr);
    make_node(block_statement);
    expect('{'); list_parse(body, block_statement_list, NOSCOPE, NONE); expect('}');
    if(!(params & NOSCOPE)) end_scope(state);
@@ -3066,7 +3091,7 @@ void* parse_lexical_binding_list(parse_state_t* state, parse_tree_state_t* tree_
             return_error(let_in_lexical, nullptr);
          }
          parse(id, binding_identifier);
-         assert_lexical_uniqueness(node->id, params & LOOSE);
+         assert_lexical_uniqueness(node->id, params & LOOSE, NONE);
          if(params & EXPORT) { assert_export_uniqueness(node->id); }
          if(token_id == rw_const && !exists('=')) {
             if(first_element && optional_binding_init) {
@@ -3178,7 +3203,7 @@ void* parse_if_statement(parse_state_t* state, parse_tree_state_t* tree_state, p
       parse(test, expression, RET, IN);
    expect(')');
    if(exists_word(function) && allow_annex()) {
-      new_scope(state, NONE, false);
+      new_scope(state, NONE, false, nullptr);
       parse(consequent, hoistable_declaration, DEF, param_flag_vanilla_function);
       end_scope(state);
    } else {
@@ -3186,7 +3211,7 @@ void* parse_if_statement(parse_state_t* state, parse_tree_state_t* tree_state, p
    }
    if(optional_word(else)) {
       if(exists_word(function) && allow_annex()) {
-         new_scope(state, NONE, false);
+         new_scope(state, NONE, false, nullptr);
          parse(alternate, hoistable_declaration, DEF, param_flag_vanilla_function);
          end_scope(state);
       } else {
@@ -3304,7 +3329,7 @@ void* parse_for_statement(parse_state_t* state, parse_tree_state_t* tree_state, 
    bool has_let = false;
 
    save_begin();
-   new_scope(state, NONE, false);
+   new_scope(state, NONE, false, nullptr);
 
    ensure_word(for);
    bool is_await = optional_word(await);
@@ -3646,14 +3671,14 @@ void* parse_try_statement(parse_state_t* state, parse_tree_state_t* tree_state, 
       has_handler = true;
       // we will created a scope for containing catch parameters
       // [TODO] annex allow var bindings to collide with catch parameters
-      new_scope(state, NONE, false);
+      new_scope(state, NONE, false, nullptr);
       make_child_node(catch_clause);
       ensure_word(catch);
       if(optional('(')) {
          if(exists_mask(mask_identifier)) {
             parse(param, binding_identifier, RET, NONE);
-            //assert_lexical_uniqueness(node->param, NONE);
-            assert_lexical_uniqueness(node->param, LOOSE);
+            //assert_lexical_uniqueness(node->param, NONE, NONE);
+            assert_lexical_uniqueness(node->param, LOOSE, NONE);
          } else {
             parse(param, binding_pattern, RET, NONE);
          }
@@ -3916,6 +3941,7 @@ parse_result_t parse(char_t const* code_begin, char_t const* code_end, bool is_m
       .cover_node_list = {.head = nullptr, .tail = nullptr, .count = 0},
       .depth = 0,
       .semantic_flags = flag_none,
+      .symbol_list_node = nullptr,
       .scope_list_node = nullptr,
       .current_scope_list_node = nullptr,
       .hoisting_scope_list_node = nullptr,
@@ -3930,7 +3956,7 @@ parse_result_t parse(char_t const* code_begin, char_t const* code_end, bool is_m
    };
    parse_state_t* state = &_state;
    if(is_module) { state->export_symbol_table = new_symbol_table(state); }
-   new_scope(state, (is_module ? scope_flag_module : scope_flag_script), true);
+   new_scope(state, (is_module ? scope_flag_module : scope_flag_script), true, nullptr);
    if(params & param_flag_streaming) {
       scan_next_token(state, params);
       scan_next_token(state, params);

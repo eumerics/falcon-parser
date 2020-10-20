@@ -36,7 +36,7 @@ symbol_list_t** new_symbol_table(parse_state_t* state)
    memset(symbol_table, 0, size);
    return symbol_table;
 }
-void new_scope(parse_state_t* state, uint8_t scope_type, uint8_t is_hoisting)
+void new_scope(parse_state_t* state, uint8_t scope_type, uint8_t is_hoisting, compiled_parse_node_t* identifier)
 {
    //printf("starting new scope\n"); fflush(stdout);
    size_t const size = symbol_hash_table_size * sizeof(symbol_list_t*);
@@ -46,7 +46,8 @@ void new_scope(parse_state_t* state, uint8_t scope_type, uint8_t is_hoisting)
    if(scope_list_node == nullptr || scope_list_node->next == nullptr) {
       child_scope = parser_malloc(sizeof(scope_t));
       *child_scope = (scope_t){
-         .type = scope_type,
+         .type = scope_type, .identifier = identifier,
+         .head = nullptr, .tail = nullptr,
          .first_duplicate = nullptr,
          .lexical_symbol_table = parser_malloc(size),
          .var_symbol_table = parser_malloc(size)
@@ -62,6 +63,7 @@ void new_scope(parse_state_t* state, uint8_t scope_type, uint8_t is_hoisting)
    } else {
       next_scope_list_node = scope_list_node->next;
       child_scope = next_scope_list_node->scope;
+      child_scope->head = child_scope->tail = nullptr;
       child_scope->type = scope_type;
       child_scope->first_duplicate = nullptr;
       next_scope_list_node->child_list =
@@ -179,14 +181,21 @@ uint16_t symbol_hash(parse_state_t* state, compiled_parse_node_t* node)
    return hash;
 }
 
-void _add_symbol(
+symbol_list_node_t* _add_symbol(
    parse_state_t* state, symbol_list_t** symbol_list_ref, symbol_list_t* symbol_list,
-   compiled_parse_node_t const* node, uint8_t binding_flag
+   compiled_parse_node_t const* node, uint8_t binding_flag, uint8_t symbol_type
 ){
    symbol_list_node_t* new_symbol_list_node = parser_malloc(sizeof(symbol_list_node_t));
    *new_symbol_list_node = (symbol_list_node_t){
-      .symbol_node = node, .binding_flag = binding_flag, .next = nullptr
+      .symbol_node = node, .binding_flag = binding_flag,
+      .symbol_type = symbol_type,
+      .next = nullptr, .sequence_next = nullptr,
+      .sequence_prev = state->symbol_list_node
    };
+   if(state->symbol_list_node != nullptr) {
+      state->symbol_list_node->sequence_next = new_symbol_list_node;
+   }
+   state->symbol_list_node = new_symbol_list_node;
    if(!symbol_list) {
       symbol_list = parser_malloc(sizeof(symbol_list_t));
       *symbol_list = (symbol_list_t){
@@ -197,11 +206,12 @@ void _add_symbol(
       symbol_list->tail->next = new_symbol_list_node;
       symbol_list->tail = new_symbol_list_node;
    }
+   return new_symbol_list_node;
 }
 
 uint8_t add_symbol(
    parse_state_t* state, symbol_list_t** symbol_table,
-   compiled_parse_node_t const* node, uint8_t binding_flag
+   compiled_parse_node_t const* node, uint8_t binding_flag, uint8_t symbol_type
 ){
    symbol_t const* symbol = (node->compiled_string ? (symbol_t*)(node->compiled_string) : (symbol_t*)(node));
    size_t const symbol_length = symbol->end - symbol->begin;
@@ -215,12 +225,14 @@ uint8_t add_symbol(
       uint8_t has_symbol = get_symbol(symbol, symbol_length, hash, &symbol_list_node);
       if(has_symbol) return 0;
    }
-   _add_symbol(state, &symbol_table[hash], symbol_list, node, binding_flag);
+   _add_symbol(state, &symbol_table[hash], symbol_list, node, binding_flag, symbol_type);
    return 1;
 }
 
-uint8_t insert_symbol(parse_state_t* state, compiled_parse_node_t const* node, uint8_t binding_flag, params_t params)
-{
+uint8_t insert_symbol(
+   parse_state_t* state, compiled_parse_node_t const* node,
+   uint8_t binding_flag, uint8_t symbol_type, params_t params
+){
    symbol_t const* symbol = (node->compiled_string ? (symbol_t*)(node->compiled_string) : (symbol_t*)(node));
    size_t const symbol_length = symbol->end - symbol->begin;
    uint16_t hash = (
@@ -271,7 +283,11 @@ uint8_t insert_symbol(parse_state_t* state, compiled_parse_node_t const* node, u
          return 0;
       }
    }
-   _add_symbol(state, &symbol_table[hash], symbol_list, node, binding_flag);
+   symbol_list_node_t* new_symbol_list_node = _add_symbol(
+      state, &symbol_table[hash], symbol_list, node, binding_flag, symbol_type
+   );
+   if(scope->head == nullptr) scope->head = new_symbol_list_node;
+   scope->tail = new_symbol_list_node;
    return 1;
 }
 

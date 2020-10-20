@@ -34,6 +34,7 @@ typedef struct {
 } cover_node_list_t;
 
 typedef uint8_t token_id_t;
+typedef uint16_t token_group_t;
 typedef union {
    struct {
       union {
@@ -86,6 +87,8 @@ typedef uint32_t params_t;
 #define embed_compiled_parse_node() \
    embed_parse_node() \
    uint8_t flags; \
+   uint8_t token_id; \
+   uint16_t token_group; \
    compiled_string_t* compiled_string;
 
 typedef struct {
@@ -104,22 +107,14 @@ typedef struct {
 
 // parser node
 typedef struct {
-   //embed_compiled_parse_node();
-   embed_parse_node();
-   uint8_t flags;
-   uint8_t token_id;
-   compiled_string_t* compiled_string;
+   embed_compiled_parse_node();
 } identifier_t;
 typedef struct {
    embed_parse_node();
    uint8_t token_id;
 } literal_t;
 typedef struct {
-   //embed_compiled_parse_node();
-   embed_parse_node();
-   uint8_t flags;
-   uint8_t token_id;
-   compiled_string_t* compiled_string;
+   embed_compiled_parse_node();
 } string_literal_t;
 typedef struct {
    embed_parse_node();
@@ -538,7 +533,10 @@ typedef string_t symbol_t;
 typedef struct _symbol_list_node_t {
    compiled_parse_node_t const* symbol_node;
    uint8_t binding_flag;
+   uint8_t symbol_type;
    struct _symbol_list_node_t* next;
+   struct _symbol_list_node_t* sequence_prev; // not used anywhere yet
+   struct _symbol_list_node_t* sequence_next;
 } symbol_list_node_t;
 typedef struct {
    symbol_list_node_t* head;
@@ -555,7 +553,10 @@ typedef struct _scope_child_list_t {
 } scope_child_list_t;
 typedef struct _scope_t {
    uint8_t type;
+   compiled_parse_node_t* identifier;
    repeated_symbol_t* first_duplicate;
+   symbol_list_node_t* head;
+   symbol_list_node_t* tail;
    symbol_list_t** lexical_symbol_table;
    symbol_list_t** var_symbol_table;
 } scope_t;

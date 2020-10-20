@@ -125,6 +125,7 @@ function test_segmented_file(file_path, is_module, is_negative)
          while(++index < length && utf8_view[index] != cr && utf8_view[index] != lf);
       } else if(utf8_view[index] == question) {
          while(++index < length && utf8_view[index] == space);
+         is_negative = false, is_module = false;
          if(index != length && utf8_view[index] == lesser) {
             while(++index != length) {
                if(utf8_view[index] == greater) break;
@@ -132,7 +133,7 @@ function test_segmented_file(file_path, is_module, is_negative)
                   case '+'.charCodeAt(0): is_negative = false; break;
                   case '-'.charCodeAt(0): is_negative = true; break;
                   case '#'.charCodeAt(0): is_module = true; break;
-                  default: is_negative = false; is_module = false; break;
+                  default: break;
                }
             }
             if(index == length) {

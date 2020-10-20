@@ -495,6 +495,8 @@ uint8_t const scope_flag_script = 0x01;
 uint8_t const scope_flag_module = 0x02;
 uint8_t const scope_flag_function = 0x04;
 
+uint8_t const symbol_flag_function_id = 0x01;
+
 #undef NONE
 #undef LHS
 #undef ASSIGN
