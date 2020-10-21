@@ -551,6 +551,10 @@ typedef struct _scope_child_list_t {
    scope_child_list_node_t* head;
    scope_child_list_node_t* tail;
 } scope_child_list_t;
+typedef struct _label_list_node_t {
+   compiled_parse_node_t const* symbol_node;
+   struct _label_list_node_t* parent;
+} label_list_node_t;
 typedef struct _scope_t {
    uint8_t type;
    compiled_parse_node_t* identifier;
@@ -559,6 +563,7 @@ typedef struct _scope_t {
    symbol_list_node_t* tail;
    symbol_list_t** lexical_symbol_table;
    symbol_list_t** var_symbol_table;
+   label_list_node_t* label_list_node;
 } scope_t;
 typedef struct _scope_list_node_t scope_list_node_t;
 typedef struct _scope_list_node_t {

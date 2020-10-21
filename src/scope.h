@@ -50,7 +50,8 @@ void new_scope(parse_state_t* state, uint8_t scope_type, uint8_t is_hoisting, co
          .head = nullptr, .tail = nullptr,
          .first_duplicate = nullptr,
          .lexical_symbol_table = parser_malloc(size),
-         .var_symbol_table = parser_malloc(size)
+         .var_symbol_table = parser_malloc(size),
+         .label_list_node = nullptr,
       };
       next_scope_list_node = parser_malloc(sizeof(scope_list_node_t));
       *next_scope_list_node = (scope_list_node_t){
@@ -66,6 +67,7 @@ void new_scope(parse_state_t* state, uint8_t scope_type, uint8_t is_hoisting, co
       child_scope->head = child_scope->tail = nullptr;
       child_scope->type = scope_type;
       child_scope->first_duplicate = nullptr;
+      child_scope->label_list_node = nullptr;
       next_scope_list_node->child_list =
          (scope_child_list_t){.head = nullptr, .tail = nullptr};
    }
@@ -107,20 +109,28 @@ uint8_t is_scope_unique(parse_state_t const* const state)
    return 1;
 }
 
+uint8_t symbol_matches(
+   compiled_parse_node_t const* const compare_node,
+   symbol_t const* const symbol, size_t const symbol_length
+){
+   symbol_t const* compare_symbol = (
+      compare_node->compiled_string ? (symbol_t*)(compare_node->compiled_string) : (symbol_t*)(compare_node)
+   );
+   size_t const compare_symbol_length = compare_symbol->end - compare_symbol->begin;
+   return (
+      symbol_length == compare_symbol_length &&
+      strncmp_impl(symbol->begin, compare_symbol->begin, compare_symbol_length) == 0
+   );
+}
+
 uint8_t get_symbol(
    symbol_t const* const symbol, size_t const symbol_length,
    uint16_t hash, symbol_list_node_t** symbol_list_node_ref
 ){
    symbol_list_node_t* symbol_list_node = *symbol_list_node_ref;
    while(symbol_list_node) {
-      compiled_parse_node_t const* compare_node = symbol_list_node->symbol_node;
-      symbol_t const* compare_symbol = (
-         compare_node->compiled_string ? (symbol_t*)(compare_node->compiled_string) : (symbol_t*)(compare_node)
-      );
-      size_t const compare_symbol_length = compare_symbol->end - compare_symbol->begin;
-      if(symbol_length == compare_symbol_length &&
-         strncmp_impl(symbol->begin, compare_symbol->begin, compare_symbol_length) == 0
-      ){
+      compiled_parse_node_t const* const compare_node = symbol_list_node->symbol_node;
+      if(symbol_matches(compare_node, symbol, symbol_length)) {
          *symbol_list_node_ref = symbol_list_node;
          return 1;
       }
@@ -290,6 +300,42 @@ uint8_t insert_symbol(
    if(scope->head == nullptr) scope->head = new_symbol_list_node;
    scope->tail = new_symbol_list_node;
    return 1;
+}
+
+uint8_t has_label(
+   parse_state_t* state, compiled_parse_node_t const* node, params_t params
+){
+   symbol_t const* symbol = (node->compiled_string ? (symbol_t*)(node->compiled_string) : (symbol_t*)(node));
+   size_t const symbol_length = symbol->end - symbol->begin;
+   //printf("inserting label %.*s\n", (int)(symbol_length), symbol->begin); fflush(stdout);
+   label_list_node_t* label_list_node = state->hoisting_scope_list_node->scope->label_list_node;
+   while(label_list_node) {
+      compiled_parse_node_t const* const compare_node = label_list_node->symbol_node;
+      if(symbol_matches(compare_node, symbol, symbol_length)) {
+         //[TODO] set error location
+         return 1;
+      }
+      label_list_node = label_list_node->parent;
+   }
+   return 0;
+}
+uint8_t insert_label(
+   parse_state_t* state, compiled_parse_node_t const* node, params_t params
+){
+   if(has_label(state, node, params)) return 0;
+   label_list_node_t* new_label_list_node = parser_malloc(sizeof(label_list_node_t));
+   scope_t* const hoisting_scope = state->hoisting_scope_list_node->scope;
+   *new_label_list_node = (label_list_node_t){
+      .symbol_node = node, .parent = hoisting_scope->label_list_node
+   };
+   hoisting_scope->label_list_node = new_label_list_node;
+   return 1;
+}
+void ascend_label_chain(parse_state_t* state)
+{
+   //printf("ascending label chain\n");
+   scope_t* const hoisting_scope = state->hoisting_scope_list_node->scope;
+   hoisting_scope->label_list_node = hoisting_scope->label_list_node->parent;
 }
 
 #endif //_SCOPE_H_

@@ -321,6 +321,10 @@ inline_spec bool _property_key_is(parse_state_t* state, property_t* property, ch
    if(!insert_symbol(state, (compiled_parse_node_t*)(_node), binding_flag, symbol_type, params)) { \
       return_error(duplicate_symbol, nullptr); \
    }
+#define assert_label_uniqueness(_node) \
+   if(!insert_label(state, (compiled_parse_node_t*)(_node), params)) { \
+      return_error(duplicate_label, nullptr); \
+   }
 #define assert_export_uniqueness(_node) \
    if(!add_symbol(state, state->export_symbol_table, (compiled_parse_node_t*)(_node), NONE, NONE)) { \
       return_error(duplicate_export, nullptr); \
@@ -3329,6 +3333,7 @@ void* parse_if_statement(parse_state_t* state, parse_tree_state_t* tree_state, p
       parse(consequent, hoistable_declaration, DEF, param_flag_vanilla_function);
       end_scope(state);
    } else {
+      current_token()->flags |= token_flag_no_labeled_function;
       parse(consequent, statement);
    }
    if(optional_word(else)) {
@@ -3337,6 +3342,7 @@ void* parse_if_statement(parse_state_t* state, parse_tree_state_t* tree_state, p
          parse(alternate, hoistable_declaration, DEF, param_flag_vanilla_function);
          end_scope(state);
       } else {
+         current_token()->flags |= token_flag_no_labeled_function;
          parse(alternate, statement);
       }
    } else {
@@ -3355,7 +3361,8 @@ void* parse_do_statement(parse_state_t* state, parse_tree_state_t* tree_state, p
    ensure_word(do);
    uint32_t saved_semantic_flags = state->semantic_flags;
    state->semantic_flags |= (semantic_flag_break | semantic_flag_continue);
-   current_token()->flags |= token_flag_loop;
+   //current_token()->flags |= token_flag_loop;
+   current_token()->flags |= token_flag_no_labeled_function;
    parse(body, statement);
    state->semantic_flags = saved_semantic_flags;
    expect_word(while); expect('(');
@@ -3379,7 +3386,8 @@ void* parse_while_statement(parse_state_t* state, parse_tree_state_t* tree_state
    expect(')');
    uint32_t saved_semantic_flags = state->semantic_flags;
    state->semantic_flags |= (semantic_flag_break | semantic_flag_continue);
-   current_token()->flags |= token_flag_loop;
+   //current_token()->flags |= token_flag_loop;
+   current_token()->flags |= token_flag_no_labeled_function;
    parse(body, statement);
    state->semantic_flags = saved_semantic_flags;
    return_node();
@@ -3547,7 +3555,8 @@ void* parse_for_statement(parse_state_t* state, parse_tree_state_t* tree_state, 
    for_statement_t* node = for_statement;
    uint32_t saved_semantic_flags = state->semantic_flags;
    state->semantic_flags |= (semantic_flag_break | semantic_flag_continue);
-   current_token()->flags |= token_flag_for | token_flag_loop;
+   //current_token()->flags |= token_flag_for | token_flag_loop;
+   current_token()->flags |= token_flag_no_labeled_function;
    parse(body, statement);
    end_scope(state);
    state->semantic_flags = saved_semantic_flags;
@@ -3604,6 +3613,9 @@ void* parse_continue_statement(parse_state_t* state, parse_tree_state_t* tree_st
       //if(!exists(';')) expect_mask(mask_idname);
       if(!exists(';') && !exists_newline()) {
          parse(label, label_identifier);
+         if(!has_label(state, node->label, params)) {
+            return_error(undefined_label, nullptr);
+         }
       } else {
          assign(label, nullptr);
       }
@@ -3623,9 +3635,11 @@ void* parse_break_statement(parse_state_t* state, parse_tree_state_t* tree_state
    make_node(break_statement);
    ensure_word(break);
    if(!exists('}')) {
-      //if(!exists(';')) expect_mask(mask_idname);
       if(!exists(';') && !exists_newline()) {
          parse(label, label_identifier);
+         if(!has_label(state, node->label, params)) {
+            return_error(undefined_label, nullptr);
+         }
       } else {
          if(!(state->semantic_flags & semantic_flag_break)) {
             return_error(unsyntatic_break, nullptr);
@@ -3671,7 +3685,9 @@ void* parse_with_statement(parse_state_t* state, parse_tree_state_t* tree_state,
    make_node(with_statement);
    ensure_word(with); expect('(');
       parse(object, expression, RET, IN);
-   expect(')'); parse(body, statement);
+   expect(')');
+   current_token()->flags |= token_flag_no_labeled_function;
+   parse(body, statement);
    return_node();
 }
 /*
@@ -3744,14 +3760,19 @@ Static Semantics:
 */
 void* parse_labeled_statement(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
-   bool in_loop = current_token()->flags & token_flag_loop;
+   //bool in_loop = current_token()->flags & token_flag_loop;
+   uint8_t no_label = current_token()->flags & token_flag_no_labeled_function;
    make_node(labeled_statement);
    parse(label, label_identifier, RET, NONE); expect(':');
-   if(exists_word(function) && !in_loop && allow_annex()) {
+   assert_label_uniqueness(node->label);
+   if(exists_word(function) && allow_annex()) {
+      if(no_label) { return_error(no_labeled_function, nullptr); }
       parse(body, hoistable_declaration, DEF|RET, param_flag_vanilla_function);
    } else {
+      current_token()->flags |= no_label;
       parse(body, statement);
    }
+   ascend_label_chain(state);
    return_node();
 }
 /*

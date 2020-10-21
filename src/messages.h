@@ -50,14 +50,17 @@ define_error(0x0020, eval_args_in_strict_mode, "eval and arguments are invalid a
 define_error(0x0021, invalid_update, "invalid increment/decrement operand");
 define_error(0x0022, invalid_labeled, "labeled statement is not allowed here");
 define_error(0x0023, duplicate_symbol, "redeclaration of variable");
-define_error(0x0024, let_in_lexical, "a lexical declaration cannot declare a variable named let");
-define_error(0x0025, with_in_strict_mode, "with statement cannot be used in strict mode");
-define_error(0x0026, invalid_constructor, "constructor must not be a getter, setter, async, generator or async-generator");
-define_error(0x0027, unsyntatic_continue, "continue statement must be inside a loop");
-define_error(0x0028, unsyntatic_break, "unlabeled break statement must be inside a loop or switch");
-define_error(0x0029, misplaced_super_property, "super property can only be accessed inside methods");
-define_error(0x0029, misplaced_super_call, "super call can only appear in class constructors");
-define_error(0x0030, eval_or_arguments_in_strict_mode, "eval/arguments cannot be used as a binding identifier in strict mode");
+define_error(0x0024, duplicate_label, "redeclaration of label");
+define_error(0x0025, let_in_lexical, "a lexical declaration cannot declare a variable named let");
+define_error(0x0026, with_in_strict_mode, "with statement cannot be used in strict mode");
+define_error(0x0027, invalid_constructor, "constructor must not be a getter, setter, async, generator or async-generator");
+define_error(0x0028, unsyntatic_continue, "continue statement must be inside a loop");
+define_error(0x0029, unsyntatic_break, "unlabeled break statement must be inside a loop or switch statement");
+define_error(0x002a, unsyntatic_return, "return statement must be inside a function");
+define_error(0x002b, undefined_label, "undefined label");
+define_error(0x002c, misplaced_super_property, "super property can only be accessed inside methods");
+define_error(0x002d, misplaced_super_call, "super call can only appear in class constructors");
+define_error(0x002e, eval_or_arguments_in_strict_mode, "eval/arguments cannot be used as a binding identifier in strict mode");
 define_error(0x0031, duplicate_export, "duplicate export symbol");
 define_error(0x0032, duplicate_default_export, "duplicate default export");
 define_error(0x0033, missing_export_reference, "missing export reference");
@@ -67,6 +70,7 @@ define_error(0x0036, duplicate_constructor, "duplicate constructor");
 define_error(0x0037, static_prototype, "static prototype method is not allowed");
 define_error(0x0038, identifier_deletion, "deleting a variable is not allowed in strict mode");
 define_error(0x0039, invalid_strict_mode, "strict mode is not allowed when formal parameters are not simple");
+define_error(0x003a, no_labeled_function, "labeled function cannot be used here");
 
 define_error(0x1000, missing_assignment_or_binding_flag,
    "internal-error: change flags must have one of assignment or binding flag"
