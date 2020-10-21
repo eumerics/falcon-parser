@@ -6,6 +6,7 @@ import {a} from 'a'; //? <+#>
 import {a as b} from 'a'; //? <+#>
 import a, * as b from 'a'; //? <+#>
 import a, {b, c as d, e,} from 'a'; //? <+#>
+import('a'); ///? <+#>
 
 /// lexical uniqueness of import declarations
 import a from 'a'; var a; //? <-#>

@@ -348,3 +348,44 @@ function a({b, eval}){ 'use strict'; } //? <->
 function a({b, arguments}){ 'use strict'; } //? <->
 function a({eval, b}){ 'use strict'; } //? <->
 function a({arguments, b}){ 'use strict'; } //? <->
+///
+!{a(){ 'use strict'; }} //? <+>
+!function(){ 'use strict'; } //? <+>
+!class{ a(){ 'use strict'; }} //? <+>
+() => { 'use strict'; }; //? <+>
+function a(){ 'use strict'; } //? <+>
+class a{ b(){ 'use strict'; }} //? <+>
+///
+!{a(b = 0){ 'use strict'; }} //? <->
+!function(a = 0){ 'use strict'; } //? <->
+!class{ a(b = 0){ 'use strict'; }} //? <->
+(a = 0) => { 'use strict'; }; //? <->
+function a(b = 0){ 'use strict'; } //? <->
+class a{ b(c = 0){ 'use strict'; }} //? <->
+///
+!{a([b]){ 'use strict'; }} //? <->
+!function([a]){ 'use strict'; } //? <->
+!class{ a([b]){ 'use strict'; }} //? <->
+([a]) => { 'use strict'; }; //? <->
+function a([b]){ 'use strict'; } //? <->
+class a{ b([c]){ 'use strict'; }} //? <->
+///
+!{a({b}){ 'use strict'; }} //? <->
+!function({a}){ 'use strict'; } //? <->
+!class{ a({b}){ 'use strict'; }} //? <->
+({a}) => { 'use strict'; }; //? <->
+function a({b}){ 'use strict'; } //? <->
+class a{ b({c}){ 'use strict'; }} //? <->
+///
+!{a(...b){ 'use strict'; }} //? <->
+!function(...a){ 'use strict'; } //? <->
+!class{ a(...b){ 'use strict'; }} //? <->
+(...a) => { 'use strict'; }; //? <->
+function a(...b){ 'use strict'; } //? <->
+class a{ b(...c){ 'use strict'; }} //? <->
+///
+a => { 'use strict'; } //? <+>
+(a) => { 'use strict'; } //? <+>
+!{set a(b = 0){ 'use strict'; }} //? <->
+!{set a([b]){ 'use strict'; }} //? <->
+!{set a({b}){ 'use strict'; }} //? <->

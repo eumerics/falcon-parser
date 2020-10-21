@@ -17,18 +17,45 @@ class a { constructor(){} } //? <+>
 class a { 'constructor'(){} } //? <+>
 class a { ['constructor'](){} } //? <+>
 class a { static constructor(){} } //? <+>
+class a { static get constructor(){} } //? <+>
+class a { static set constructor(b){} } //? <+>
 
 /// early errors
 class a { constructor(){ super(); } } //? <->
-///class a { constructor(){} constructor(){} } //? <->
 class a extends b { c(){ super(); } } //? <->
+///
+class a { constructor(){} constructor(){} } //? <->
+class a { constructor(){} 'constructor'(){} } //? <->
+class a { constructor(){} ['constructor'](){} } //? <+>
+///
 class a { * constructor(){} } //? <->
 class a { async constructor(){} } //? <->
 class a { async* constructor(){} } //? <->
 class a { get constructor(){} } //? <->
 class a { set constructor(b){} } //? <->
+///
+class a { * 'constructor'(){} } //? <->
+class a { async 'constructor'(){} } //? <->
+class a { async* 'constructor'(){} } //? <->
+class a { get 'constructor'(){} } //? <->
+class a { set 'constructor'(b){} } //? <->
+///
+class a { * ['constructor'](){} } //? <+>
+class a { async ['constructor'](){} } //? <+>
+class a { async* ['constructor'](){} } //? <+>
+class a { get ['constructor'](){} } //? <+>
+class a { set ['constructor'](b){} } //? <+>
+///
 class a { static b(){ super(); } } //? <->
-///class a { static prototype(){} } //? <->
+class a { static prototype(){} } //? <->
+class a { static get prototype(){} } //? <->
+class a { static set prototype(b){} } //? <->
+class a { static ['prototype'](){} } //? <+>
+class a { static get ['prototype'](){} } //? <+>
+class a { static set ['prototype'](b){} } //? <+>
+class a { prototype(){} } //? <+>
+class a { get prototype(){} } //? <+>
+class a { set prototype(b){} } //? <+>
 
 /// method definitions
 ///   regular methods

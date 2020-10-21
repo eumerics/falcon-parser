@@ -63,6 +63,10 @@ define_error(0x0032, duplicate_default_export, "duplicate default export");
 define_error(0x0033, missing_export_reference, "missing export reference");
 define_error(0x0034, elision_in_binding_pattern, "elisiion is not allowed in a destructuring pattern");
 define_error(0x0035, expecting_binding_identifier, "expecting a binding indentifier");
+define_error(0x0036, duplicate_constructor, "duplicate constructor");
+define_error(0x0037, static_prototype, "static prototype method is not allowed");
+define_error(0x0038, identifier_deletion, "deleting a variable is not allowed in strict mode");
+define_error(0x0039, invalid_strict_mode, "strict mode is not allowed when formal parameters are not simple");
 
 define_error(0x1000, missing_assignment_or_binding_flag,
    "internal-error: change flags must have one of assignment or binding flag"

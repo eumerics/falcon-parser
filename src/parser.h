@@ -262,6 +262,18 @@ inline_spec bool is_a_binding_identifier(parse_state_t* state, void* node, param
    }
    return true;
 }
+bool is_an_eventual_identifier(void* node)
+{
+   node_type_t type = node_type(node);
+   if(type == pnt_identifier) return true;
+   while(type == pnt_parenthesized_expression)
+   {
+      node = node_as(parenthesized_expression, node)->expression;
+      type = node_type(node);
+      if(type == pnt_identifier) return true;
+   }
+   return false;
+}
 inline_spec bool is_an_assignment_target(void* node, params_t params)
 {
    //[TODO] strict mode exclusions of 'eval' and 'arguments'
@@ -327,6 +339,10 @@ bool is_reserved_symbol(parse_state_t* state, compiled_parse_node_t const* const
    }
    return 0;
 }
+#define validate_strict_mode() \
+   if(state->current_scope_list_node->scope->type & scope_flag_non_strict) { \
+      return_error(invalid_strict_mode, nullptr); \
+   }
 bool retro_act_strict_mode(parse_state_t* state, parse_list_node_t* list_node)
 {
    assert_unique_scope();
@@ -590,6 +606,7 @@ bool change_lhs_node_type(parse_state_t* state, void* node, uint8_t flags, param
 bool change_node_types(parse_state_t* state, parse_list_node_t* list_node, bool has_trailing_comma, uint8_t flags, params_t params)
 {
    while(list_node != nullptr) {
+      bool enforce_non_strict_mode = true;
       parse_node_t* parse_node = (parse_node_t*)(list_node->parse_node);
       if(parse_node != nullptr) {
          // get the RestElement argument
@@ -674,12 +691,18 @@ bool change_node_types(parse_state_t* state, parse_list_node_t* list_node, bool 
                   }
                }
                if(flags & change_flag_binding) {
-                  if(node_type_is(rest_element, parse_node)) return true;
-                  //if(!node_type_is(identifier, parse_node)) {
+                  if(node_type_is(rest_element, parse_node)) {
+                     if(list_node->next != nullptr) return_error(middle_rest, false);
+                     break;
+                  }
                   if(!is_a_binding_identifier(state, parse_node, params)) return false;
                   assert_lexical_uniqueness(parse_node, flags & LOOSE, NONE);
+                  enforce_non_strict_mode = false;
                }
             }
+         }
+         if(enforce_non_strict_mode && (flags & change_flag_binding)) {
+            state->current_scope_list_node->scope->type |= scope_flag_non_strict;
          }
       } else {
          if(!(flags & change_flag_array)) return false;
@@ -832,6 +855,7 @@ void* parse_directive_statement_list_with_end_token(
    parse_state_t* state, parse_tree_state_t* tree_state, uint8_t end_token_id, params_t params
 ){
    bool look_for_directive = true;
+   bool look_for_strict_directive = true;
    start_list();
    while(!exists(end_token_id)) {
       optional_parse(declaration, RET, NONE);
@@ -844,12 +868,16 @@ void* parse_directive_statement_list_with_end_token(
          parse(statement);
          add_to_list(statement);
          if(look_for_directive && is_a_directive(token)) {
-            if(!(params & param_flag_strict_mode) && is_use_strict(directive_token)) {
-               to_strict_mode();
+            // this seems to be a bug in language definition
+            // how can a method definition defined in strict mode can be executed in non-strict mode
+            //if(!(params & param_flag_strict_mode) && is_use_strict(directive_token)) {
+            if(look_for_strict_directive && is_use_strict(directive_token)) {
+               validate_strict_mode(); to_strict_mode();
                unwind_for_use_strict(state->parse_token);
                if(!retro_act_strict_mode(state, raw_list_head())) {
                   passon(nullptr);
                }
+               look_for_strict_directive = false;
             }
             set_node_type_of(statement, directive);
          } else {
@@ -905,7 +933,7 @@ inline_spec void* parse_module_body(parse_state_t* state, parse_tree_state_t* tr
    bool look_for_directive = true;
    start_list();
    while(!exists(tkn_eot)) {
-      if(exists_word(import) && !exists_ahead('.')) {
+      if(exists_word(import) && !exists_ahead('.') && !exists_ahead('(')) {
          parse(import_declaration);
          add_to_list(import_declaration);
       } else if(exists_word(export)) {
@@ -924,7 +952,7 @@ inline_spec void* parse_module_body(parse_state_t* state, parse_tree_state_t* tr
             if(look_for_directive && is_a_directive(token)) {
                //(strncmp_impl(token->begin + 1, stringize(use strict), strlen("use strict")) == 0)
                if(!(params & param_flag_strict_mode) && is_use_strict(directive_token)) {
-                  to_strict_mode();
+                  validate_strict_mode(); to_strict_mode();
                   unwind_for_use_strict(state->parse_token);
                   if(!retro_act_strict_mode(state, raw_list_head())) {
                      passon(nullptr);
@@ -1183,6 +1211,7 @@ void* parse_formal_parameter_list(parse_state_t* state, parse_tree_state_t* tree
          // unique formal parameter list; before proceeding though ensure all
          // the existing formal parameters are unique
          if(!(params & UNIQUE)) { assert_unique_scope(); params |= UNIQUE; }
+         state->current_scope_list_node->scope->type |= scope_flag_non_strict;
          if(exists(pnct_spread)) {
             parse(binding_rest_element);
             add_to_list(binding_rest_element);
@@ -1367,6 +1396,9 @@ PropertySetParameterList:
 */
 inline_spec void* parse_property_set_parameter_list(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
+   if(!exists_mask(mask_identifier) || exists_ahead('=')) {
+      state->current_scope_list_node->scope->type |= scope_flag_non_strict;
+   }
    start_list(); parse(formal_parameter);
    add_to_list(formal_parameter);
    passon(list_head());
@@ -1420,7 +1452,7 @@ inline_spec void* parse_method_function(parse_state_t* state, parse_tree_state_t
    passon(nullptr);
 }
 */
-method_definition_t* parse_method_only_definition(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
+method_definition_t* parse_method_only_definition(parse_state_t* state, parse_tree_state_t* tree_state, uint8_t state_flags, params_t params)
 {
    params |= (FUNC | METHOD);
    bool is_get_set = false, is_get = false, is_set = false;
@@ -1451,8 +1483,14 @@ method_definition_t* parse_method_only_definition(parse_state_t* state, parse_tr
    }
    if(exists('[')) property_flags |= property_flag_computed;
    parse(key, property_name);
-   if((params & CLASS) && property_key_is(constructor, node)){
-      return_error(invalid_constructor, nullptr);
+   if((params & CLASS) && !(property_flags & property_flag_computed)) {
+      if(state_flags & method_flag_static){
+         if(property_key_is(prototype, node)){
+            return_error(static_prototype, nullptr);
+         }
+      } else if(property_key_is(constructor, node)) {
+         return_error(invalid_constructor, nullptr);
+      }
    }
    {
       new_scope(state, scope_flag_function, true, nullptr);
@@ -1476,7 +1514,7 @@ method_definition_t* parse_method_only_definition(parse_state_t* state, parse_tr
    assign(flags, property_flags);
    return_node();
 }
-method_definition_t* parse_method_definition(parse_state_t* state, parse_tree_state_t* tree_state, uint8_t method_flags, params_t params)
+method_definition_t* parse_method_definition(parse_state_t* state, parse_tree_state_t* tree_state, uint8_t state_flags, params_t params)
 {
    bool computed = false;
    //[NOTE] this criterion must be subject to review with grammar changes
@@ -1491,9 +1529,17 @@ method_definition_t* parse_method_definition(parse_state_t* state, parse_tree_st
       uint8_t flags = (computed ? property_flag_computed : flag_none);
       uint8_t kind = property_kind_method;
       parse(key, property_name);
-      if((params & CLASS) && !computed && !(method_flags & method_flag_static)){
-         if(property_key_is(constructor, node)) {
+      if((params & CLASS) && !computed){
+         if(state_flags & method_flag_static){
+            if(property_key_is(prototype, node)) {
+               return_error(static_prototype, nullptr);
+            }
+         } else if(property_key_is(constructor, node)) {
+            if(state_flags & method_flag_constructor) {
+               return_error(duplicate_constructor, nullptr);
+            }
             kind = property_kind_constructor;
+            flags |= method_flag_constructor;
             params |= param_flag_constructor;
          }
       }
@@ -1508,7 +1554,8 @@ method_definition_t* parse_method_definition(parse_state_t* state, parse_tree_st
       assign(flags, flags);
       return_node();
    }
-   passon_parsed(method_only_definition);
+   parse_with_arg(state_flags, method_only_definition);
+   passon(method_only_definition);
 }
 // ====== FUNCTIONS::YieldExpression ====== //
 /*
@@ -1559,6 +1606,7 @@ ClassElement[Yield, Await]:
 void* parse_class_element_list(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    start_list();
+   uint8_t state_flags = 0;
    while(!exists('}')) {
       if(optional(';')) continue;
       uint8_t method_flags = 0;
@@ -1568,8 +1616,9 @@ void* parse_class_element_list(parse_state_t* state, parse_tree_state_t* tree_st
          ensure_word(static);
          method_flags = method_flag_static;
       }
-      parse_with_arg(method_flags, method_definition);
+      parse_with_arg(method_flags | state_flags, method_definition);
       node_as(method_definition, method_definition, md);
+      state_flags |= (md->flags & method_flag_constructor);
       md->begin = begin;
       md->flags |= method_flags;
       add_to_list(method_definition);
@@ -1972,7 +2021,7 @@ void* parse_object_literal(parse_state_t* state, parse_tree_state_t* tree_state,
          }
          add_to_list(completed_node());
       } else {
-         parse(method_only_definition, DERIVED|CLASS|CONSTR, NONE);
+         parse_with_arg(NONE, method_only_definition, DERIVED|CLASS|CONSTR, NONE);
          set_node_type_of(method_only_definition, property);
          node_as(property, method_only_definition, property);
          if(!(property->flags & method_flag_special)) {
@@ -2722,6 +2771,11 @@ void* parse_unary_only_expression(parse_state_t* state, parse_tree_state_t* tree
       assign(flags, operator_flag_prefix);
       ensure_mask(mask_unary_ops);
       parse(argument, unary_expression);
+      if(node->operator.id == rw_delete && (params & STRICT) &&
+         is_an_eventual_identifier(node->argument)
+      ){
+         return_error(identifier_deletion, nullptr);
+      }
       return_node();
    } else if(exists_word(await) && (params & param_flag_await)) {
       passon_parsed(await_expression, AWT, NONE);

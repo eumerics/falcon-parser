@@ -427,7 +427,8 @@ uint8_t const property_flag_method = 0x01;
 uint8_t const property_flag_shorthand = 0x02;
 uint8_t const property_flag_computed = 0x04;
 uint8_t const method_flag_special = 0x08;
-uint8_t const method_flag_static = 0x20;
+uint8_t const method_flag_static = 0x10;
+uint8_t const method_flag_constructor = 0x20;
 //
 uint8_t const function_flag_expression = 0x01;
 uint8_t const function_flag_generator = 0x02;
@@ -495,6 +496,7 @@ uint32_t const semantic_flag_continue = 0x02;
 uint8_t const scope_flag_script = 0x01;
 uint8_t const scope_flag_module = 0x02;
 uint8_t const scope_flag_function = 0x04;
+uint8_t const scope_flag_non_strict = 0x08;
 
 uint8_t const symbol_flag_function_id = 0x01;
 
