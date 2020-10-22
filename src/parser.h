@@ -302,8 +302,6 @@ inline_spec bool is_an_assignment_target(void* node, params_t params)
 #define property_key_is(name, node) _property_key_is(state, node, stringize(name), strlen_impl(stringize(name)))
 inline_spec bool _property_key_is(parse_state_t* state, property_t* property, char_t const* name, size_t const length)
 {
-   if(property == nullptr) return false;
-   if(property->key == nullptr) return false;
    parse_node_t* key = (parse_node_t*)(property->key);
    char_t const* begin;
    char_t const* end;
@@ -1968,6 +1966,7 @@ void* parse_object_literal(parse_state_t* state, parse_tree_state_t* tree_state,
    start_list();
    ensure('{');
    bool has_trailing_comma = false;
+   bool has_prototype = false;
    while(!exists('}')) {
       if(exists(pnct_spread)) {
          // ... AssignmentExpression[+In, ?Yield, ?Await]
@@ -1986,9 +1985,14 @@ void* parse_object_literal(parse_state_t* state, parse_tree_state_t* tree_state,
          //       ( UniqueFormalParameters[~Yield, ~Await] )
          //       { FunctionBody[~Yield, ~Await] }
          make_node(property);
-         uint8_t flags = (exists('[') ? property_flag_computed: flag_none);
+         bool is_computed = exists('[');
+         uint8_t flags = (is_computed ? property_flag_computed: flag_none);
          parse(key, property_name);
          if(optional(':')) {
+            if(!is_computed && (params & param_flag_annex) && property_key_is(__proto__, node)) {
+               if(has_prototype) { return_error(duplicate_prototype, nullptr); }
+               has_prototype = true;
+            }
             parse(value, assignment_expression, NONE, IN);
          } else if(exists('(')) {
             parse(value, method_function, YLD|AWT|DERIVED|CLASS|CONSTR|PARAM, NULL);

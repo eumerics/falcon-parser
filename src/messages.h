@@ -72,6 +72,7 @@ define_error(0x0038, identifier_deletion, "deleting a variable is not allowed in
 define_error(0x0039, invalid_strict_mode, "strict mode is not allowed when formal parameters are not simple");
 define_error(0x003a, no_labeled_function, "labeled function cannot be used here");
 define_error(0x003b, yield_await_in_arrow_params, "yield or arrow expression in arrow parameters");
+define_error(0x003c, duplicate_prototype, "duplicate __proto__ property");
 
 define_error(0x1000, missing_assignment_or_binding_flag,
    "internal-error: change flags must have one of assignment or binding flag"
