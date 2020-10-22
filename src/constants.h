@@ -218,7 +218,6 @@ uint8_t const node_group_lhs_production = 0x80;
 #define NONE    node_group_none
 #define LHS     node_group_lhs_production
 #define ASSIGN  node_group_assignment_target
-#define COVER   node_group_offending_cover_grammar
 #define LITERAL node_group_literal
 
 // dummy node types
@@ -237,9 +236,9 @@ uint8_t const png_string_literal = LHS | LITERAL;
 uint8_t const pnt_regexp_literal = 7;
 uint8_t const png_regexp_literal = LHS;
 uint8_t const pnt_array_expression = 8;
-uint8_t const png_array_expression = LHS | COVER;
+uint8_t const png_array_expression = LHS;
 uint8_t const pnt_object_expression = 9;
-uint8_t const png_object_expression = LHS | COVER;
+uint8_t const png_object_expression = LHS;
 uint8_t const pnt_template_literal = 10;
 uint8_t const png_template_literal = LHS;
 
@@ -267,9 +266,9 @@ uint8_t const pnt_covered_call_expression = expression_base + 9;
 uint8_t const pnt_chain_expression = expression_base + 10;
 uint8_t const png_chain_expression = LHS;
 uint8_t const pnt_array_assignment_pattern = expression_base + 11;
-uint8_t const png_array_assignment_pattern = LHS | ASSIGN | COVER;
+uint8_t const png_array_assignment_pattern = LHS | ASSIGN;
 uint8_t const pnt_object_assignment_pattern = expression_base + 12;
-uint8_t const png_object_assignment_pattern = LHS | ASSIGN | COVER;
+uint8_t const png_object_assignment_pattern = LHS | ASSIGN;
 uint8_t const pnt_lhs_expression = expression_base + 13;
 uint8_t const png_lhs_expression = LHS; // for inheritence checks only
 uint8_t const pnt_update_expression = expression_base + 14;
@@ -301,7 +300,7 @@ uint8_t const png_await_expression = NONE;
 uint8_t const pnt_import_expression = expression_base + 27;
 uint8_t const png_import_expression = NONE;
 uint8_t const pnt_parenthesized_expression = expression_base + 28;
-uint8_t const png_parenthesized_expression = LHS | COVER;
+uint8_t const png_parenthesized_expression = LHS;
 /*
 uint8_t const pnt__expression = expression_base + ;
 uint8_t const png__expression = NONE;
@@ -504,7 +503,6 @@ uint8_t const symbol_flag_function_id = 0x01;
 #undef NONE
 #undef LHS
 #undef ASSIGN
-#undef COVER
 #undef LITERAL
 
 #endif //_CONSTANTS_H_

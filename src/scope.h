@@ -49,6 +49,7 @@ void new_scope(parse_state_t* state, uint8_t scope_type, uint8_t is_hoisting, co
          .type = scope_type, .identifier = identifier,
          .head = nullptr, .tail = nullptr,
          .first_duplicate = nullptr,
+         .first_yield_or_await = nullptr,
          .lexical_symbol_table = parser_malloc(size),
          .var_symbol_table = parser_malloc(size),
          .label_list_node = nullptr,
@@ -67,6 +68,7 @@ void new_scope(parse_state_t* state, uint8_t scope_type, uint8_t is_hoisting, co
       child_scope->head = child_scope->tail = nullptr;
       child_scope->type = scope_type;
       child_scope->first_duplicate = nullptr;
+      child_scope->first_yield_or_await = nullptr;
       child_scope->label_list_node = nullptr;
       next_scope_list_node->child_list =
          (scope_child_list_t){.head = nullptr, .tail = nullptr};

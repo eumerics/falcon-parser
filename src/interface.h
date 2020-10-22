@@ -99,12 +99,6 @@ typedef struct {
    embed_compiled_parse_node();
 } compiled_parse_node_t;
 
-// every covered parse node must have the following binary compatibility
-typedef struct {
-   embed_parse_node();
-   token_t const* first_cover;
-} covered_parse_node_t;
-
 // parser node
 typedef struct {
    embed_compiled_parse_node();
@@ -129,7 +123,6 @@ typedef struct {
 typedef struct {
    embed_parse_node();
    uint8_t has_trailing_comma;
-   token_t const* first_cover;
    void* elements;
 } array_expression_t;
 // keep array_expression_t and array_pattern_t binary compatible
@@ -144,7 +137,6 @@ typedef struct {
 typedef struct {
    embed_parse_node();
    uint8_t has_trailing_comma;
-   token_t const* first_cover;
    void* properties;
 } object_expression_t;
 // keep object_expression_t and object_pattern_t binary compatible
@@ -173,7 +165,6 @@ typedef property_t method_definition_t;
 
 typedef struct {
    embed_parse_node();
-   token_t const* first_cover;
    void* expression;
 } parenthesized_expression_t;
 
@@ -559,6 +550,7 @@ typedef struct _scope_t {
    uint8_t type;
    compiled_parse_node_t* identifier;
    repeated_symbol_t* first_duplicate;
+   void* first_yield_or_await;
    symbol_list_node_t* head;
    symbol_list_node_t* tail;
    symbol_list_t** lexical_symbol_table;

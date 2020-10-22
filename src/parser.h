@@ -14,19 +14,23 @@
 #define RET param_flag_return
 #define YLD param_flag_yield
 #define TAG param_flag_tagged
-#define PARAM cover_flag_parameters
-#define FUNC param_flag_function
-#define FORMAL param_flag_formal
-#define VFUN param_flag_vanilla_function
-#define CLASS param_flag_class
-#define DERIVED param_flag_derived
-#define METHOD param_flag_method
-#define CONSTR param_flag_constructor
-#define UNIQUE param_flag_unique_params
-#define LOOSE param_flag_loose_binding
+
 #define STRICT param_flag_strict_mode
 #define NOSCOPE param_flag_no_scope
+
+#define PARAM cover_flag_parameters
+#define FUNC param_flag_function
+#define VFUN param_flag_vanilla_function
+#define METHOD param_flag_method
+#define CONSTR param_flag_constructor
+#define CLASS param_flag_class
+#define DERIVED param_flag_derived
+#define FORMAL param_flag_formal
+#define UNIQUE param_flag_unique_params
+#define LOOSE param_flag_loose_binding
 #define EXPORT param_flag_export
+
+#define RESET_FLAGS
 
 #define _get_3rd_arg(arg1, arg2, arg3, ...) arg3
 #define _get_4th_arg(arg1, arg2, arg3, arg4, ...) arg4
@@ -1306,7 +1310,7 @@ AsyncGeneratorBody:
 void* parse_hoistable_declaration(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    params_t saved_params = params;
-   params = make_params(DERIVED|CLASS|METHOD|CONSTR|UNIQUE|EXPORT, FUNC);
+   params = make_params(DERIVED|CLASS|METHOD|CONSTR|UNIQUE|EXPORT|PARAM, FUNC);
    params_t add_params = 0;
    uint8_t function_flags = flag_none;
    save_begin();
@@ -1366,7 +1370,7 @@ AsyncGeneratorExpression:
 */
 void* parse_function_expression(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
-   params = make_params(DERIVED|CLASS|METHOD|CONSTR|UNIQUE, FUNC);
+   params = make_params(DERIVED|CLASS|METHOD|CONSTR|UNIQUE|PARAM, FUNC);
    make_node(function_expression);
    params_t add_params = flag_none;
    uint8_t function_flags = flag_none;
@@ -1458,7 +1462,7 @@ inline_spec void* parse_method_function(parse_state_t* state, parse_tree_state_t
 */
 method_definition_t* parse_method_only_definition(parse_state_t* state, parse_tree_state_t* tree_state, uint8_t state_flags, params_t params)
 {
-   params |= (FUNC | METHOD);
+   params = make_params(UNIQUE|PARAM, METHOD|FUNC);
    bool is_get_set = false, is_get = false, is_set = false;
    uint8_t property_kind = property_kind_method;
    uint8_t property_flags = property_flag_method;
@@ -1572,6 +1576,8 @@ void* parse_yield_expression(parse_state_t* state, parse_tree_state_t* tree_stat
 {
    uint8_t yield_flags = flag_none;
    make_node(yield_expression)
+   scope_t* hoisting_scope = state->hoisting_scope_list_node->scope;
+   if(!hoisting_scope->first_yield_or_await) hoisting_scope->first_yield_or_await = node;
    expect_word(yield);
    if(!exists_newline()) {
       if(optional('*')) {
@@ -1932,7 +1938,6 @@ void* parse_array_literal(parse_state_t* state, parse_tree_state_t* tree_state, 
    };
    expect(']');
    assign(elements, raw_list_head());
-   assign(first_cover, nullptr);
    assign(has_trailing_comma, has_trailing_comma);
    return_node();
 }
@@ -1986,7 +1991,7 @@ void* parse_object_literal(parse_state_t* state, parse_tree_state_t* tree_state,
          if(optional(':')) {
             parse(value, assignment_expression, NONE, IN);
          } else if(exists('(')) {
-            parse(value, method_function, YLD|AWT|DERIVED|CLASS|CONSTR, NULL);
+            parse(value, method_function, YLD|AWT|DERIVED|CLASS|CONSTR|PARAM, NULL);
             flags |= property_flag_method;
          } else {
             passon(nullptr);
@@ -2025,7 +2030,7 @@ void* parse_object_literal(parse_state_t* state, parse_tree_state_t* tree_state,
          }
          add_to_list(completed_node());
       } else {
-         parse_with_arg(NONE, method_only_definition, DERIVED|CLASS|CONSTR, NONE);
+         parse_with_arg(NONE, method_only_definition, DERIVED|CLASS|CONSTR|PARAM, NONE);
          set_node_type_of(method_only_definition, property);
          node_as(property, method_only_definition, property);
          if(!(property->flags & method_flag_special)) {
@@ -2037,7 +2042,6 @@ void* parse_object_literal(parse_state_t* state, parse_tree_state_t* tree_state,
    };
    expect('}');
    assign(properties, raw_list_head());
-   assign(first_cover, nullptr);
    assign(has_trailing_comma, has_trailing_comma);
    return_node();
 }
@@ -2214,6 +2218,8 @@ void* parse_covering_parenthesized_expression(parse_state_t* state, parse_tree_s
    ensure('(');
    make_node(expression);
    start_list();
+   scope_t* hoisting_scope = state->hoisting_scope_list_node->scope;
+   if(!(params & PARAM)) hoisting_scope->first_yield_or_await = nullptr;
    while(!exists(')')) {
       ++count;
       trailing_comma = nullptr;
@@ -2230,12 +2236,6 @@ void* parse_covering_parenthesized_expression(parse_state_t* state, parse_tree_s
       }
       params_t add_params = ((exists('[') || exists('{')) ? PARAM : NONE) | IN;
       parse(assignment_expression, NONE, add_params);
-      if(node_has(offending_cover_grammar, assignment_expression)) {
-         if(first_cover == nullptr) {
-            node_as(covered_parse_node, assignment_expression, expression);
-            first_cover = expression->first_cover;
-         }
-      }
       add_to_list(assignment_expression);
       if(exists(',')) {
          trailing_comma = state->parse_token;
@@ -2255,6 +2255,9 @@ void* parse_covering_parenthesized_expression(parse_state_t* state, parse_tree_s
       if(count == 1) expression = raw_list_head()->parse_node;
    } else {
       // [TODO] reuse memory used for expression list
+      if(hoisting_scope->first_yield_or_await) {
+         return_error(yield_await_in_arrow_params, nullptr);
+      }
       if(count != 0) {
          uint8_t change_flags = change_flag_array_binding | change_flag_loose_binding;
          if(!change_node_types(state, expression->expressions, !!trailing_comma, change_flags, params|UNIQUE)) {
@@ -2266,7 +2269,6 @@ void* parse_covering_parenthesized_expression(parse_state_t* state, parse_tree_s
    {
       make_node(parenthesized_expression);
       assign_begin();
-      assign(first_cover, first_cover);
       assign(expression, expression);
       return_node();
    }
@@ -2763,6 +2765,8 @@ void* parse_unary_expression(parse_state_t* state, parse_tree_state_t* tree_stat
 void* parse_await_expression(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    make_node(await_expression);
+   scope_t* hoisting_scope = state->hoisting_scope_list_node->scope;
+   if(!hoisting_scope->first_yield_or_await) hoisting_scope->first_yield_or_await = node;
    ensure_word(await);
    parse(argument, unary_expression, NONE, AWT);
    return_node();
@@ -3141,7 +3145,15 @@ void* parse_assignment_expression(parse_state_t* state, parse_tree_state_t* tree
       end_scope(state);
       passon(arrow_function);
    }
-   if(created_scope) end_scope(state);
+   if(created_scope) {
+      // adjust for introduction of new scope while parsing covering_parenthesized_expression
+      scope_t* hoisting_scope = state->hoisting_scope_list_node->scope;
+      scope_t* parent_hoisting_scope = state->hoisting_scope_list_node->parent->hoisting_parent->scope;
+      if(!parent_hoisting_scope->first_yield_or_await) {
+         parent_hoisting_scope->first_yield_or_await = hoisting_scope->first_yield_or_await;
+      }
+      end_scope(state);
+   }
    if(!node_is_a(lhs_production, expression) || !exists_mask(mask_assign_ops)) {
       passon(expression);
    }

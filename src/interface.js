@@ -1048,15 +1048,15 @@ export class Parser {
       define_interface(SpreadElement, {nodes: {argument: 12}});
       define_interface(RestElement, {nodes: {argument: 12}});
       //define_interface(Identifier, {bind_value: 'name'});
-      define_interface(ArrayExpression, {lists: {elements: 16}});
-      define_interface(ObjectExpression, {lists: {properties: 16}});
+      define_interface(ArrayExpression, {lists: {elements: 12}});
+      define_interface(ObjectExpression, {lists: {properties: 12}});
       define_interface(TemplateLiteral, {lists: {quasis: 12, expressions: 16}});
       define_interface(TemplateElement, {
          flags: {flags: {type: 'u08', offset: 10, flags: {
             tail: Parser.constants.template_flag_tail
          }}}
       });
-      define_interface(ParenthesizedExpression, {nodes: {expression: 16}});
+      define_interface(ParenthesizedExpression, {nodes: {expression: 12}});
       define_interface(Function, {
          nodes: {id: 12, body: 20},
          lists: {params: 16},
@@ -1159,18 +1159,18 @@ export class Parser {
          nodes: {left: 12, right: 16}
       }, 'AssignmentPattern');
       define_interface(ArrayPattern, {
-         lists: {elements: 16}
+         lists: {elements: 12}
       });
       define_interface(ObjectPattern, {
-         lists: {properties: 16}
+         lists: {properties: 12}
       });
       //[COMPATIBILITY] estree does not distinguish between assignment patterns and
       // binding patterns
       define_interface(ArrayAssignmentPattern, {
-         lists: {elements: 16}
+         lists: {elements: 12}
       }, 'ArrayPattern');
       define_interface(ObjectAssignmentPattern, {
-         lists: {properties: 16}
+         lists: {properties: 12}
       }, 'ObjectPattern');
       define_interface(VariableDeclarator, {
          nodes: {id: 12, init: 16}
