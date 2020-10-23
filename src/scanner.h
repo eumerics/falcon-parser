@@ -633,13 +633,37 @@ inline_spec int scan_regexp_literal(parse_state_t* const state, params_t params)
    return 1;
 }
 
-inline_spec int scan_comment(parse_state_t* const state, params_t params)
+inline_spec int get_comment_begin_chars(parse_state_t* const state, params_t params)
+{
+   char_t const* const end = state->code_end;
+   char_t const* code = state->code;
+   char_t const c = *code;
+   if(c == '/') {
+      char_t const n = (++code < end ? *code : 0);
+      return ((n == '/' || n == '*') ? 2 : 0);
+   }
+   if(!(params & param_flag_annex) || (params & param_flag_module)) return 0;
+   if(c == '<') {
+      if(code + 4 > end) return 0;
+      if(*++code == '!' && *++code == '-' && *++code == '-') return 4;
+      return 0;
+   }
+   if(!(state->token_flags & (token_flag_begin | token_flag_newline))) return 0;
+   if(c == '-') {
+      if(code + 3 > end) return 0;
+      if(*++code == '-' && *++code == '>') return 3;
+      return 0;
+   }
+   return 0;
+}
+inline_spec int scan_comment(parse_state_t* const state, int comment_chars, params_t params)
 {
    char_t const* const begin = state->code;
    char_t const* const end = state->code_end;
    char_t const* code = state->code;
    char_t type = *(++code);
-   if(type == '/') {
+   if(type == '/' || comment_chars > 2) {
+      code += comment_chars - 2;
       while(++code != end) {
          if(is_line_terminator(*code)) goto _make_comment_token;
       }
@@ -1354,14 +1378,17 @@ int scan_uncommon(parse_state_t* state, params_t params)
       char_t const* const code_end = state->code_end;
       while(++state->code < code_end && is_line_terminator(*state->code));
       state->current_token_flags |= token_flag_newline;
+      state->is_continuer = 1;
    } else if(is_whitespace(c)) {
       token_t const* const token = (state->token_count > 0 ? previous_scan_token() : nullptr);
       int can_continue = token && (token->end == state->code) && (token->id & tkn_whitespace);
       char_t const* const begin = (can_continue ? token->begin : state->code);
       char_t const* const code_end = state->code_end;
       while(++state->code < code_end && is_whitespace(*state->code));
-      state->current_token_flags = state->token_flags;
-      state->is_comment = state->was_comment;
+      if(state->was_continuer) {
+         state->current_token_flags |= (state->token_flags & token_flag_continuer);
+         state->is_continuer = 1;
+      }
    } else return 0;
    return 1;
    // Comment - Nothing to handle
@@ -1377,8 +1404,8 @@ int scan_uncommon(parse_state_t* state, params_t params)
 
 inline_spec int scan(parse_state_t* state, params_t params)
 {
-   int result = 0;
-   state->is_comment = 0;
+   int result = 0, comment_chars = 0;
+   state->is_continuer = 0;
    state->current_token_flags = token_flag_none;
    char_t current = *(state->code);
    char_t next = (state->code + 1 < state->code_end ? *(state->code + 1) : 0);
@@ -1394,8 +1421,10 @@ inline_spec int scan(parse_state_t* state, params_t params)
          char_t const* const code_end = state->code_end;
          while(++state->code < code_end && is_common_whitespace(*state->code));
          //make_token(state, begin, tkn_whitespace, mask_none, precedence_none, nullptr);
-         state->current_token_flags = state->token_flags;
-         state->is_comment = state->was_comment;
+         if(state->was_continuer) {
+            state->current_token_flags |= (state->token_flags & token_flag_continuer);
+            state->is_continuer = 1;
+         }
          result = 1;
       );
    } else if(is_common_line_terminator(current)) {
@@ -1404,6 +1433,7 @@ inline_spec int scan(parse_state_t* state, params_t params)
          while(++state->code < code_end && is_common_line_terminator(*state->code));
          //make_token(state, begin, tkn_terminator, mask_none, precedence_none, nullptr);
          state->current_token_flags |= token_flag_newline;
+         state->is_continuer = 1;
          result = 1;
       );
    } else if(is_decimal(current) || (current == '.' && is_decimal(next))) {
@@ -1417,16 +1447,16 @@ inline_spec int scan(parse_state_t* state, params_t params)
          //if(!scan_string_literal(state, params)) { errored = 1; break; }
          result = compile_string_literal(state, params);
       );
+   } else if((comment_chars = get_comment_begin_chars(state, params))) {
+      debug_wrap("comment", comment,
+         result = scan_comment(state, comment_chars, params);
+         if(state->was_continuer) {
+            state->current_token_flags |= (state->token_flags & token_flag_continuer);
+         }
+         state->is_continuer = 1;
+      );
    } else if(current == '/') {
-      if(next == '/' || next == '*') {
-         debug_wrap("comment", comment,
-            state->is_comment = 1;
-            if(state->was_comment) {
-               state->current_token_flags |= state->token_flags & token_flag_newline;
-            }
-            result = scan_comment(state, params);
-         );
-      } else if(state->in_regexp_context) {
+      if(state->in_regexp_context) {
          debug_wrap("regexp", regexp_literal,
             result = scan_regexp_literal(state, params);
          );
@@ -1446,7 +1476,7 @@ inline_spec int scan(parse_state_t* state, params_t params)
       }
    }
    state->token_flags = state->current_token_flags;
-   state->was_comment = state->is_comment;
+   state->was_continuer = state->is_continuer;
    return result;
 }
 

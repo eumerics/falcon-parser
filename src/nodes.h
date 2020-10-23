@@ -32,8 +32,8 @@ typedef struct {
    uint8_t current_token_flags;
    uint8_t in_template_expression; // bool
    uint8_t in_regexp_context; // bool
-   uint8_t is_comment; // bool
-   uint8_t was_comment; // bool
+   uint8_t is_continuer; // bool
+   uint8_t was_continuer; // bool
    uint32_t template_level;
    uint32_t parenthesis_level;
    uint32_t curly_parenthesis_level;

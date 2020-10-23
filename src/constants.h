@@ -36,6 +36,8 @@ uint8_t const token_flag_escaped = 0x02;
 //uint8_t const token_flag_for = 0x04;
 //uint8_t const token_flag_loop = 0x08;
 uint8_t const token_flag_no_labeled_function = 0x04;
+uint8_t const token_flag_begin = 0x08;
+uint8_t const token_flag_continuer = (token_flag_begin | token_flag_newline);
 
 // token types
 uint8_t const tkn_base = 0x80;
