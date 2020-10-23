@@ -635,11 +635,22 @@ inline_spec int scan_regexp_literal(parse_state_t* const state, params_t params)
    // parse flags
    char_t const* flags_begin = code;
    if(code < end) {
-      char_t c = *code;
-      while(c == 'g' || c == 'i' || c == 'm' || c == 's' || c == 'u' || c == 'y'){
-         if(++code == end) break;
-         c = *code;
-      }
+      uint8_t has_duplicate = 0, end_of_flags = 0;
+      uint8_t has_g = 0, has_i = 0, has_m = 0, has_s = 0, has_u = 0, has_y = 0;
+      do {
+         char_t c = *code;
+         switch(c) {
+            case 'g': if(has_g) has_duplicate = 1; else has_g = 1; break;
+            case 'i': if(has_i) has_duplicate = 1; else has_i = 1; break;
+            case 'm': if(has_m) has_duplicate = 1; else has_m = 1; break;
+            case 's': if(has_s) has_duplicate = 1; else has_s = 1; break;
+            case 'u': if(has_u) has_duplicate = 1; else has_u = 1; break;
+            case 'y': if(has_y) has_duplicate = 1; else has_y = 1; break;
+            default: set_error(invalid_regexp_flag); end_of_flags = 1; break; //pre-empted error
+         }
+         if(has_duplicate) { return_error(duplicate_regexp_flag, 0); }
+         if(end_of_flags) break;
+      } while(++code < end);
    }
    state->code = code;
    make_token(state, begin, tkn_regexp_literal, mask_none, code - flags_begin, nullptr);

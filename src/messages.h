@@ -73,6 +73,8 @@ define_error(0x0039, invalid_strict_mode, "strict mode is not allowed when forma
 define_error(0x003a, no_labeled_function, "labeled function cannot be used here");
 define_error(0x003b, yield_await_in_arrow_params, "yield or arrow expression in arrow parameters");
 define_error(0x003c, duplicate_prototype, "duplicate __proto__ property");
+define_error(0x003d, duplicate_regexp_flag, "duplicate regular expression flag");
+define_error(0x003e, invalid_regexp_flag, "invalid regular expression flag");
 
 define_error(0x1000, missing_assignment_or_binding_flag,
    "internal-error: change flags must have one of assignment or binding flag"
