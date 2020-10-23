@@ -1808,8 +1808,16 @@ void* parse_export_declaration(parse_state_t* state, parse_tree_state_t* tree_st
       make_node(export_all_declaration);
       assign_begin();
       if(optional_word(as)) {
-         parse(exported, identifier_name);
-         assert_export_uniqueness(node->exported);
+         if(exists_word(default)) {
+            if(state->has_default_export) {
+               return_error(duplicate_default_export, nullptr);
+            }
+            parse(exported, identifier_name);
+            state->has_default_export = true;
+         } else {
+            parse(exported, identifier_name);
+            assert_export_uniqueness(node->exported);
+         }
       } else {
          assign(exported, nullptr);
       }
@@ -1827,8 +1835,16 @@ void* parse_export_declaration(parse_state_t* state, parse_tree_state_t* tree_st
          parse(identifier_name);
          if(optional_word(as)) {
             assign(local, identifier_name);
-            parse(exported, identifier_name);
-            assert_export_uniqueness(node->exported);
+            if(exists_word(default)) {
+               if(state->has_default_export) {
+                  return_error(duplicate_default_export, nullptr);
+               }
+               parse(exported, identifier_name);
+               state->has_default_export = true;
+            } else {
+               parse(exported, identifier_name);
+               assert_export_uniqueness(node->exported);
+            }
          } else {
             assign(exported, identifier_name);
             assign(local, identifier_name);

@@ -122,6 +122,8 @@ export default a; export let a; //? <+#>
 export var a; export default function a(){}; //? <-#>
 export let a; export default function a(){}; //? <-#>
 export default a; export default b; //? <-#>
+export default a; var b; export {b as default}; //? <-#>
+var a; export {a as default}; export default b; //? <-#>
 
 /// missing exported reference
 export {a}; //? <-#>
