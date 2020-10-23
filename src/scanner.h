@@ -401,7 +401,11 @@ compiled_string_t* compile_string(
                break;
             }
             default: {
-               if(!for_template && allow_annex() && c >= '0' && c <= '9') {
+               if(c == '0' && !is_decimal(*(code + 1))){
+                  *compiled++ = 0;
+               } else if(!is_decimal(c)){
+                  *compiled++ = c;
+               } else if(!for_template && allow_annex()) {
                   if(compile_flags == 0) {
                      compile_flags = compile_flag_octal;
                      offending_index = code - 1 - state->code_begin;
@@ -419,10 +423,6 @@ compiled_string_t* compile_string(
                   value = (value << 3) | (o - '0');
                   *compiled++ = value;
                   ++code;
-               } else if(c == '0' && !is_decimal(*(code + 1))){
-                  *compiled++ = 0;
-               } else if(!is_decimal(c)){
-                  *compiled++ = c;
                } else {
                   return_not_escape_string();
                }
@@ -527,13 +527,14 @@ inline_spec int scan_numeric_literal(parse_state_t* const state, params_t params
    char_t const* const end = state->code_end;
    char_t const* code = state->code;
    char_t c = *code;
-   int decimal_like = 0;
+   int decimal_like = 0, numeric_annex = 0;
    // parse the integer part
    if(c == '0') {
       if(++code == end) goto _make_numeric_token;
       char_t c = *code;
       //[TODO] octal compilation
       if(allow_annex() && (c >= '0' && c <= '9')) {
+         numeric_annex = 1;
          decimal_like = c & 0x08; // '8' = 0x38, '9' = 0x39
          while(++code < end){
             char_t c = *code;
@@ -585,7 +586,19 @@ _verify_and_make_numeric_token:
    if(is_identifier_start(*code) || is_decimal(*code)) return 0;
 _make_numeric_token:
    state->code = code;
+#ifdef MEMOPT
    make_token(state, begin, tkn_numeric_literal, mask_literal, precedence_none, nullptr);
+#else
+   compiled_number_t* cn = nullptr;
+   if(numeric_annex) {
+      cn = parser_malloc(sizeof(compiled_number_t));
+      *cn = (compiled_number_t){
+         //.offending_index = 0,
+         .compile_flags = compile_flag_numeric_annex
+      };
+   }
+   make_token(state, begin, tkn_numeric_literal, mask_literal, precedence_none, cn);
+#endif
    return 1;
 }
 

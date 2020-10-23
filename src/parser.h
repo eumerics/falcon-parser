@@ -69,6 +69,7 @@
 
 //#define consume_token() (++state->parse_token)
 #define consume_token() ( \
+   ++state->tokens_consumed, \
    increment_current_token(), \
    (params & param_flag_streaming) && scan_next_token(state, params) \
 )
@@ -111,6 +112,29 @@
 #define ensure_mask(mask) expect_mask(mask)
 #define exists_ahead(token_id) (next_token()->id == token_id)
 #define exists_ahead_word(name) (next_token()->id == word(name))
+#ifndef MEMOPT
+   #define ensure_non_annex_number() { \
+      token_t const* const token = current_token(); \
+      if(token->detail && (params & STRICT)) { \
+         compiled_number_t* cn = token->detail; \
+         if(cn->compile_flags & compile_flag_numeric_annex) { \
+            return nullptr; \
+         } \
+      } \
+   }
+   #define ensure_non_annex_string() { \
+      token_t const* const token = current_token(); \
+      if(token->detail && (params & STRICT)) { \
+         compiled_string_t* cs = token->detail; \
+         if(cs->compile_flags & compile_flag_octal) { \
+            return nullptr; \
+         } \
+      } \
+   }
+#else
+   #define ensure_non_annex_number()
+   #define ensure_non_annex_string()
+#endif
 
 #define initialize_node(node_type) \
    print_make_node(node_type); \
@@ -440,10 +464,10 @@ bool retro_act_strict_mode(parse_state_t* state, parse_list_node_t* list_node)
    }
 #define _optional_parse1(type) _optional_parse3(type, NONE, NONE)
 #define _optional_parse3(type, remove_filter, add_filter) \
-   size_t const type##_token_count = state->token_count; \
+   size_t const type##_tokens_consumed = state->tokens_consumed; \
    _print_parse_descent(type, remove_filter, add_filter); \
    void* type = parse_##type(state, tree_state, make_params(remove_filter, add_filter)); \
-   if(type == nullptr && state->token_count != type##_token_count) { \
+   if(type == nullptr && state->tokens_consumed != type##_tokens_consumed) { \
       passon(nullptr); \
    }
 #define _try_parse1(type) _try_parse3(type, NONE, NONE)
@@ -779,6 +803,7 @@ inline_spec identifier_t* parse_identifier_name(parse_state_t* state, parse_tree
 }
 inline_spec literal_t* parse_literal(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
+   ensure_non_annex_number();
    make_node(literal);
    assign(token_id, current_token_id());
    ensure_mask(mask_literal);
@@ -786,6 +811,7 @@ inline_spec literal_t* parse_literal(parse_state_t* state, parse_tree_state_t* t
 }
 inline_spec string_literal_t* parse_string_literal(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
+   ensure_non_annex_string();
    make_node(string_literal);
    assign_token();
    ensure(tkn_string_literal);
@@ -4099,6 +4125,7 @@ parse_result_t parse(char_t const* code_begin, char_t const* code_end, bool is_m
       .token_end = token_end,
       .scan_token = token_begin,
       .token_count = 0,
+      .tokens_consumed = 0,
       // scanner flags
       .token_flags = token_flag_begin,
       .current_token_flags = token_flag_none,

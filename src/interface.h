@@ -11,6 +11,11 @@ typedef struct {
    size_t offending_index;
    uint8_t compile_flags;
 } compiled_string_t;
+// incomplete
+typedef struct {
+   //size_t offending_index;
+   uint8_t compile_flags;
+} compiled_number_t;
 
 typedef struct _parse_list_node_t {
    void* parse_node;

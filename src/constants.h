@@ -491,6 +491,7 @@ uint8_t const change_flag_object_assignment = change_flag_object | change_flag_a
 uint8_t const compile_flag_source = 0x01;
 uint8_t const compile_flag_octal = 0x02;
 uint8_t const compile_flag_not_escape = 0x04;
+uint8_t const compile_flag_numeric_annex = 0x08;
 
 uint32_t const semantic_flag_break = 0x01;
 uint32_t const semantic_flag_continue = 0x02;
