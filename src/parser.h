@@ -19,6 +19,7 @@
 #define NOSCOPE param_flag_no_scope
 
 #define PARAM cover_flag_parameters
+#define EXPR param_flag_expression
 #define FUNC param_flag_function
 #define VFUN param_flag_vanilla_function
 #define METHOD param_flag_method
@@ -66,6 +67,10 @@
 #define current_token_id() (current_token()->id)
 #define current_token_length() (token_length(current_token()))
 #define current_token_is(name) token_is(name, current_token())
+#define disable_pending_regexp_context() \
+   if(state->tokenization_status & status_flag_pending) state->in_regexp_context = 0;
+#define enable_pending_regexp_context() \
+   if(state->tokenization_status & status_flag_pending) state->in_regexp_context = 1;
 
 //#define consume_token() (++state->parse_token)
 #define consume_token() ( \
@@ -1292,7 +1297,10 @@ inline_spec void* parse_function_body_container(parse_state_t* state, parse_tree
    uint32_t saved_semantic_flags = state->semantic_flags;
    state->semantic_flags = flag_none;
    make_node(block_statement);
-   expect('{'); list_parse(body, function_statement_list); expect('}');
+   expect('{');
+      list_parse(body, function_statement_list);
+      if(params & EXPR) disable_pending_regexp_context();
+   expect('}');
    state->semantic_flags = saved_semantic_flags;
    return_node();
 }
@@ -1334,7 +1342,7 @@ AsyncGeneratorBody:
 void* parse_hoistable_declaration(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    params_t saved_params = params;
-   params = make_params(DERIVED|CLASS|METHOD|CONSTR|UNIQUE|EXPORT|PARAM, FUNC);
+   params = make_params(DERIVED|CLASS|METHOD|CONSTR|UNIQUE|EXPORT|PARAM|EXPR, FUNC);
    params_t add_params = 0;
    uint8_t function_flags = flag_none;
    save_begin();
@@ -1394,7 +1402,7 @@ AsyncGeneratorExpression:
 */
 void* parse_function_expression(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
-   params = make_params(DERIVED|CLASS|METHOD|CONSTR|UNIQUE|PARAM, FUNC);
+   params = make_params(DERIVED|CLASS|METHOD|CONSTR|UNIQUE|PARAM, FUNC|EXPR);
    make_node(function_expression);
    params_t add_params = flag_none;
    uint8_t function_flags = flag_none;
@@ -1486,7 +1494,7 @@ inline_spec void* parse_method_function(parse_state_t* state, parse_tree_state_t
 */
 method_definition_t* parse_method_only_definition(parse_state_t* state, parse_tree_state_t* tree_state, uint8_t state_flags, params_t params)
 {
-   params = make_params(UNIQUE|PARAM, METHOD|FUNC);
+   params = make_params(UNIQUE|PARAM|EXPR, METHOD|FUNC);
    bool is_get_set = false, is_get = false, is_set = false;
    uint8_t property_kind = property_kind_method;
    uint8_t property_flags = property_flag_method;
@@ -1577,7 +1585,7 @@ method_definition_t* parse_method_definition(parse_state_t* state, parse_tree_st
       }
       assign(flags, flags); // this is needed for property_is
       if(exists('(')) {
-         parse(value, method_function, YLD|AWT, NONE);
+         parse(value, method_function, YLD|AWT|EXPR, NONE);
          flags |= property_flag_method;
       } else {
          passon(nullptr);
@@ -1602,6 +1610,7 @@ void* parse_yield_expression(parse_state_t* state, parse_tree_state_t* tree_stat
    make_node(yield_expression)
    scope_t* hoisting_scope = state->hoisting_scope_list_node->scope;
    if(!hoisting_scope->first_yield_or_await) hoisting_scope->first_yield_or_await = node;
+   enable_pending_regexp_context();
    expect_word(yield);
    if(!exists_newline()) {
       if(optional('*')) {
@@ -1668,7 +1677,10 @@ void* parse_class_body(parse_state_t* state, parse_tree_state_t* tree_state, par
 void* parse_class_body_container(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    make_node(class_body);
-   expect('{'); list_parse(body, class_element_list, NONE, CLASS); expect('}');
+   expect('{');
+      list_parse(body, class_element_list, NONE, CLASS);
+      if(params & EXPR) disable_pending_regexp_context();
+   expect('}');
    return_node();
 }
 void* parse_class_declaration(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
@@ -1689,7 +1701,7 @@ void* parse_class_declaration(parse_state_t* state, parse_tree_state_t* tree_sta
       assign(super_class, nullptr);
    }
    //expect('{'); parse(body, class_body); expect('}');
-   parse(body, class_body_container, EXPORT, NONE);
+   parse(body, class_body_container, EXPORT|EXPR, NONE);
    return_node();
 }
 void* parse_class_expression(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
@@ -1708,7 +1720,7 @@ void* parse_class_expression(parse_state_t* state, parse_tree_state_t* tree_stat
       assign(super_class, nullptr);
    }
    //expect('{'); parse(body, class_body); expect('}');
-   parse(body, class_body_container);
+   parse(body, class_body_container, NONE, EXPR);
    return_node();
 }
 
@@ -2037,7 +2049,7 @@ void* parse_object_literal(parse_state_t* state, parse_tree_state_t* tree_state,
             }
             parse(value, assignment_expression, NONE, IN);
          } else if(exists('(')) {
-            parse(value, method_function, YLD|AWT|DERIVED|CLASS|CONSTR|PARAM, NULL);
+            parse(value, method_function, YLD|AWT|DERIVED|CLASS|CONSTR|PARAM|EXPR, NULL);
             flags |= property_flag_method;
          } else {
             passon(nullptr);
@@ -2086,6 +2098,7 @@ void* parse_object_literal(parse_state_t* state, parse_tree_state_t* tree_state,
       }
       if(!(has_trailing_comma = optional(','))) break;
    };
+   disable_pending_regexp_context();
    expect('}');
    assign(properties, raw_list_head());
    assign(has_trailing_comma, has_trailing_comma);
@@ -2813,6 +2826,7 @@ void* parse_await_expression(parse_state_t* state, parse_tree_state_t* tree_stat
    make_node(await_expression);
    scope_t* hoisting_scope = state->hoisting_scope_list_node->scope;
    if(!hoisting_scope->first_yield_or_await) hoisting_scope->first_yield_or_await = node;
+   enable_pending_regexp_context();
    ensure_word(await);
    parse(argument, unary_expression, NONE, AWT);
    return_node();
@@ -3385,6 +3399,7 @@ void* parse_if_statement(parse_state_t* state, parse_tree_state_t* tree_state, p
    make_node(if_statement);
    ensure_word(if); expect('(');
       parse(test, expression, RET, IN);
+   enable_pending_regexp_context();
    expect(')');
    if(exists_word(function) && allow_annex()) {
       new_scope(state, NONE, false, nullptr);
@@ -3441,6 +3456,7 @@ void* parse_while_statement(parse_state_t* state, parse_tree_state_t* tree_state
    make_node(while_statement);
    ensure_word(while); expect('(');
       parse(test, expression, RET, IN);
+   enable_pending_regexp_context();
    expect(')');
    uint32_t saved_semantic_flags = state->semantic_flags;
    state->semantic_flags |= (semantic_flag_break | semantic_flag_continue);
@@ -3520,7 +3536,11 @@ void* parse_for_statement(parse_state_t* state, parse_tree_state_t* tree_state, 
    new_scope(state, NONE, false, nullptr);
 
    ensure_word(for);
-   bool is_await = optional_word(await);
+   bool is_await = exists_word(await);
+   if(is_await) {
+      enable_pending_regexp_context();
+      ensure_word(await);
+   }
    expect('(');
    if(is_await || !exists(';')) {
       if(is_await && !(params & param_flag_await)) {
@@ -3569,13 +3589,13 @@ void* parse_for_statement(parse_state_t* state, parse_tree_state_t* tree_state, 
             return_error(invalid_for_assignment, nullptr);
          }
       }
+      enable_pending_regexp_context();
       expect_word(of);
       make_node(for_of_statement);
       assign_begin();
       assign(left, production);
       parse(right, assignment_expression, RET, IN);
       assign(flags, (is_await ? for_flag_await : flag_none));
-      expect(')');
       for_statement = node;
    } else if(in_of_possible && optional_word(in)) {
       if(has_invalid_initializer) { return_error(initializer_in_for, nullptr); }
@@ -3588,7 +3608,6 @@ void* parse_for_statement(parse_state_t* state, parse_tree_state_t* tree_state, 
       assign_begin();
       assign(left, production);
       parse(right, expression, RET, IN);
-      expect(')');
       for_statement = node;
    } else {
       make_node(for_statement);
@@ -3606,9 +3625,10 @@ void* parse_for_statement(parse_state_t* state, parse_tree_state_t* tree_state, 
       } else {
          assign(update, nullptr);
       }
-      expect(')');
       for_statement = node;
    }
+   enable_pending_regexp_context();
+   expect(')');
 
    for_statement_t* node = for_statement;
    uint32_t saved_semantic_flags = state->semantic_flags;
@@ -4133,6 +4153,7 @@ parse_result_t parse(char_t const* code_begin, char_t const* code_end, bool is_m
       .in_regexp_context = 1,
       .is_continuer = 0,
       .was_continuer = 1,
+      .was_contextual = 0,
       .template_level = 0,
       .parenthesis_level = 0,
       .curly_parenthesis_level = 0,

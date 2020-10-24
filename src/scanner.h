@@ -1245,16 +1245,19 @@ inline_spec int scan_ascii_identifier(parse_state_t* const state, params_t param
    char_t const* const begin = state->code;
    char_t const* const end = state->code_end;
    while(++state->code < end && is_ascii_identifier_continue(*state->code));
-   uint32_t reserved_word_id = is_reserved(state, begin, *begin, state->code - begin, params);
-   if(reserved_word_id == 0) {
+   aggregate_id_t reserved_word = {
+      .aggregated_id = is_reserved(state, begin, *begin, state->code - begin, params)
+   };
+   if(reserved_word.aggregated_id == 0) {
       make_token(state, begin, tkn_identifier, mask_identifier, precedence_none, nullptr);
       if_verbose(print_string("identifier: "));
    } else {
-      //if(state->scan_token == state->token_begin || (state->scan_token - 1)->id != '.') {
-      if(state->token_count == 0 || previous_scan_token()->id != '.') {
+      if((reserved_word.group & mask_always_a_reserved_word) &&
+         (state->token_count == 0 || previous_scan_token()->id != '.')
+      ){
          state->in_regexp_context = 1;
       }
-      make_aggregated_token(state, begin, reserved_word_id, nullptr);
+      make_aggregated_token(state, begin, reserved_word.aggregated_id, nullptr);
       if_verbose(print_string("reserved_word: "));
    }
    return 1;
@@ -1426,7 +1429,7 @@ int scan_uncommon(parse_state_t* state, params_t params)
    // TemplateSubstitutionTail - Nothing to handle
 }
 
-inline_spec int scan(parse_state_t* state, params_t params)
+inline_spec int scan(parse_state_t* state, uint8_t incremental, params_t params)
 {
    int result = 0, comment_chars = 0;
    state->is_continuer = 0;
@@ -1480,6 +1483,11 @@ inline_spec int scan(parse_state_t* state, params_t params)
          state->is_continuer = 1;
       );
    } else if(current == '/') {
+      if(incremental && token_diff(state->scan_token, state->parse_token) != 0) {
+         state->tokenization_status = (status_flag_incomplete | status_flag_pending);
+         state->scan_token->aggregated_id = 0;
+         return 1;
+      }
       if(state->in_regexp_context) {
          debug_wrap("regexp", regexp_literal,
             result = scan_regexp_literal(state, params);
@@ -1506,7 +1514,7 @@ inline_spec int scan(parse_state_t* state, params_t params)
 
 int scan_next_token(parse_state_t* const state, uint32_t params)
 {
-   if(state->tokenization_status != status_flag_incomplete) return 0;
+   if(!(state->tokenization_status & status_flag_incomplete)) return 0;
    while(token_diff(state->scan_token, state->parse_token) < 2) {
       if(state->code == state->code_end) {
          make_token(state, state->code, tkn_eot, 0, precedence_none, nullptr);
@@ -1514,12 +1522,14 @@ int scan_next_token(parse_state_t* const state, uint32_t params)
          if_debug(print_string("tokenization successful\n"););
          return 1;
       }
-      if(!scan(state, params)) {
+      state->tokenization_status = status_flag_incomplete;
+      if(!scan(state, 1, params)) {
          make_token(state, state->code, tkn_error, 0, precedence_none, nullptr);
          state->tokenization_status = status_flag_failed;
          if_debug(print_string("tokenization failed\n"););
          return 0;
       }
+      if(state->tokenization_status & status_flag_pending) return 1;
    }
    return 0;
 }
@@ -1530,7 +1540,7 @@ wasm_export void tokenize(parse_state_t* const state, uint32_t params)
    int result = 1;
    start_clock();
    char_t const* const code_end = state->code_end;
-   while(state->code < code_end && (result = scan(state, params)));
+   while(state->code < code_end && (result = scan(state, 0, params)));
    if(result == 0) {
       if_debug(print_string("tokenization failed\n"););
       if_debug(if(state->error_message) print_string(state->error_message););
