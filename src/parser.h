@@ -1370,7 +1370,10 @@ void* parse_hoistable_declaration(parse_state_t* state, parse_tree_state_t* tree
    } else {
       parse(id, binding_identifier);
       scope_t const* const scope = state->current_scope_list_node->scope;
-      uint8_t binding_flag = ((scope->type & (scope_flag_script | scope_flag_function)) ? LOOSE : allow_annex() ? binding_flag_function: NONE);
+      uint8_t binding_flag = (
+         (scope->type & (scope_flag_script | scope_flag_function)) ? LOOSE :
+         (function_flags == NONE) && allow_annex() ? binding_flag_function: NONE
+      );
       assert_lexical_uniqueness(node->id, binding_flag, symbol_flag_function_id);
       //assert_lexical_uniqueness(node->id, LOOSE);
       if(saved_params & EXPORT) { assert_export_uniqueness(node->id); }

@@ -11,8 +11,18 @@ const incorrect_fail_tests = [
    '8af69d8f15295ed2.js', // '<PS>'
    'e3fbcf63d7e43ead.js'  // for-in var initializer
 ];
+const incorrect_early_tests = [
+   '12a74c60f52a60de.js',
+   '1aff49273f3e3a98.js',
+   'be7329119eaa3d47.js',
+   'ec31fa5e521c5df4.js'
+];
 for(const test_name of incorrect_fail_tests) {
    const file_path = path.normalize(`${base}/fail/${test_name}`);
+   if(fs.existsSync(file_path)) fs.renameSync(file_path, `${base}/pass/${test_name}`);
+}
+for(const test_name of incorrect_early_tests) {
+   const file_path = path.normalize(`${base}/early/${test_name}`);
    if(fs.existsSync(file_path)) fs.renameSync(file_path, `${base}/pass/${test_name}`);
 }
 for(const suite of ['pass', 'pass-explicit', 'fail', 'early']) {
