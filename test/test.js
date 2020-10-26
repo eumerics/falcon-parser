@@ -21,6 +21,7 @@ const color = {
    cyan: x => `\x1b[38;2;0;255;255m${x}\x1b[0m`,
    yellow: x => `\x1b[38;2;255;255;0m${x}\x1b[0m`,
    magenta: x => `\x1b[35m${x}\x1b[0m`,
+   gray: x => `\x1b[38;2;128;128;128m${x}\x1b[0m`,
 };
 
 function test_file(utf8_view, script, is_module, is_negative)
@@ -37,8 +38,8 @@ function test_file(utf8_view, script, is_module, is_negative)
       //console.log(e);
    }
    let reference_result;
+   const source_type = (is_module ? 'module' : 'script');
    try {
-      const source_type = (is_module ? 'module' : 'script');
       const options = {ecmaVersion: 2020, sourceType: source_type};
       reference_result = acorn.parse(script, options);
       //reference_result = Tenko(script, {goalMode: source_type, ranges: true}).ast;
@@ -50,7 +51,10 @@ function test_file(utf8_view, script, is_module, is_negative)
    if(is_negative) {
       result = (program ? undefined : null);
       //result = (!program && !reference_result ? null : undefined);
-      //if(!program && reference_result) console.log('refernce implementation failed the test');
+      if(!program && reference_result) {
+         const type = (is_negative ? 'negative' : 'positive');
+         console.log(color.gray(`[${source_type}][${type}] ${script}`));
+      }
    } else {
       result = (program && reference_result ? object_diff(program, reference_result) : undefined);
    }

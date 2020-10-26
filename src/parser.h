@@ -1370,7 +1370,7 @@ void* parse_hoistable_declaration(parse_state_t* state, parse_tree_state_t* tree
    } else {
       parse(id, binding_identifier);
       scope_t const* const scope = state->current_scope_list_node->scope;
-      uint8_t binding_flag = ((scope->type & (scope_flag_script | scope_flag_function)) ? LOOSE : NONE);
+      uint8_t binding_flag = ((scope->type & (scope_flag_script | scope_flag_function)) ? LOOSE : allow_annex() ? binding_flag_function: NONE);
       assert_lexical_uniqueness(node->id, binding_flag, symbol_flag_function_id);
       //assert_lexical_uniqueness(node->id, LOOSE);
       if(saved_params & EXPORT) { assert_export_uniqueness(node->id); }
@@ -3817,9 +3817,12 @@ void* parse_switch_statement(parse_state_t* state, parse_tree_state_t* tree_stat
    make_node(switch_statement);
    ensure_word(switch); expect('(');
       parse(discriminant, expression, RET, IN);
-   expect(')'); expect('{');
+   expect(')');
+   new_scope(state, NONE, false, nullptr);
+   expect('{');
       list_parse(cases, case_clause_list);
    expect('}');
+   end_scope(state);
    return_node();
 }
 /*
