@@ -12,6 +12,7 @@ const incorrect_fail_tests = [
    'e3fbcf63d7e43ead.js'  // for-in var initializer
 ];
 const incorrect_early_tests = [
+   '0f5f47108da5c34e.js',
    '12a74c60f52a60de.js',
    '1aff49273f3e3a98.js',
    'be7329119eaa3d47.js',

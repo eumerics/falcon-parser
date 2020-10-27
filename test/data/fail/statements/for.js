@@ -18,6 +18,8 @@ for(const [a] = x in {};;); //<>
 for(let in;;); //<>
 for(let of []); //<>
 for(let.a of []); //<>
+for(let() of []); //<>
+for(let().a of []); //<>
 
 // invalid initialization
 'use strict'; for(var a=1 in {}); //<>

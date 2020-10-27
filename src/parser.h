@@ -3600,7 +3600,7 @@ void* parse_for_statement(parse_state_t* state, parse_tree_state_t* tree_state, 
       parse(right, assignment_expression, RET, IN);
       assign(flags, (is_await ? for_flag_await : flag_none));
       for_statement = node;
-   } else if(in_of_possible && optional_word(in)) {
+   } else if(!is_await && in_of_possible && optional_word(in)) {
       if(has_invalid_initializer) { return_error(initializer_in_for, nullptr); }
       if(!is_declarator) {
          if(!change_lhs_node_type(state, production, change_flag_assignment, params)) {
@@ -3896,16 +3896,27 @@ void* parse_try_statement(parse_state_t* state, parse_tree_state_t* tree_state, 
    bool has_handler = false;
    if(exists_word(catch)) {
       has_handler = true;
-      // we will created a scope for containing catch parameters
-      // [TODO] annex allow var bindings to collide with catch parameters
-      new_scope(state, NONE, false, nullptr);
+      // we will create a scope for containing catch parameters
+      // [TODO] annex allows var bindings to collide with catch parameters
+      new_scope(state, scope_flag_catch, false, nullptr);
       make_child_node(catch_clause);
       ensure_word(catch);
       if(optional('(')) {
          if(exists_mask(mask_identifier)) {
             parse(param, binding_identifier, RET, NONE);
+            /* in non-annex mode we will induce catch parameter as a symbol
+               bound lexically in the scope, this will ensure lexical uniquess
+               criterion without polluting the scope
+               in annex mode we will save the identifier in scope->identifier to
+               not pollute a scope and will check against it for lexical collisions
+            */
+            if(params & param_flag_annex) {
+               state->current_scope_list_node->scope->identifier = node->param;
+            } else {
+               assert_lexical_uniqueness(node->param, NONE, NONE);
+            }
             //assert_lexical_uniqueness(node->param, NONE, NONE);
-            assert_lexical_uniqueness(node->param, LOOSE, NONE);
+            //assert_lexical_uniqueness(node->param, LOOSE, NONE);
          } else {
             parse(param, binding_pattern, RET, NONE);
          }

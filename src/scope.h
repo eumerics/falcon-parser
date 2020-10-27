@@ -280,6 +280,11 @@ uint8_t insert_symbol(
       has_symbol = get_symbol_from_lexical_tree(
          state, scope, symbol, symbol_length, hash, &symbol_list_node
       );
+      if((scope->type & scope_flag_catch) && (params & param_flag_annex)) {
+         if(symbol_matches(scope->identifier, symbol, symbol_length)) {
+            return 0;
+         }
+      }
       if(!has_symbol) {
          symbol_table = scope->lexical_symbol_table;
          symbol_list = symbol_table[hash];
