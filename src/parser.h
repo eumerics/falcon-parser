@@ -146,14 +146,21 @@
    node->begin = current_token()->begin; \
    node->type = pnt_##node_type; \
    node->group = png_##node_type;
+#if defined(TEST)
+   #define test_memset(p, i, n) memset(p, i, n)
+#else
+   #define test_memset(p, i, n)
+#endif
 #define make_node(node_type) \
    typedef node_type##_t parent_node_t; \
    node_type##_t* node = (node_type##_t*) parser_malloc(sizeof(node_type##_t)); \
+   test_memset(node, 0xff, sizeof(node_type##_t)); \
    initialize_node(node_type);
 #define make_child_node(node_type) \
    parent_node_t* parent = node; \
    typedef node_type##_t parent_node_t; \
    node_type##_t* node = (node_type##_t*) parser_malloc(sizeof(node_type##_t)); \
+   test_memset(node, 0xff, sizeof(node_type##_t)); \
    initialize_node(node_type);
 #define complete_node() (node->end = previous_token()->end)
 #define completed_node() (complete_node(), node)
@@ -337,11 +344,7 @@ inline_spec bool _property_key_is(parse_state_t* state, property_t* property, ch
    if(key->type == pnt_identifier) {
       begin = key->begin; end = key->end;
    } else if(key->type == pnt_string_literal) {
-      if(!(property->flags & property_flag_computed)) {
-         begin = key->begin + 1; end = key->end - 1;
-      } else {
-         return false;
-      }
+      begin = key->begin + 1; end = key->end - 1;
    } else {
       return false;
    }
@@ -394,7 +397,7 @@ bool retro_act_strict_mode(parse_state_t* state, parse_list_node_t* list_node)
    while(list_node->next != nullptr) {
       node_as(directive, list_node->parse_node, directive);
       node_as(string_literal, directive->expression, literal);
-      if(literal->compiled_string && literal->compiled_string->compile_flags & compile_flag_octal) {
+      if(literal->compiled_string && (literal->compiled_string->compile_flags & compile_flag_octal)) {
          //[TODO] provide proper error location
          set_error(octal_in_strict); return false;
       }
@@ -1134,6 +1137,7 @@ void* parse_object_binding_pattern(parse_state_t* state, parse_tree_state_t* tre
          if(!optional(',')) break;
       }
    }
+   assign(has_trailing_comma, false);
    assign(properties, raw_list_head());
    expect('}');
    return_node();
@@ -1187,6 +1191,7 @@ void* parse_array_binding_pattern(parse_state_t* state, parse_tree_state_t* tree
       }
       if(!optional(',')) break;
    }
+   assign(has_trailing_comma, false);
    assign(elements, raw_list_head());
    expect(']');
    return_node();
@@ -1379,7 +1384,9 @@ void* parse_hoistable_declaration(parse_state_t* state, parse_tree_state_t* tree
       if(saved_params & EXPORT) { assert_export_uniqueness(node->id); }
    }
    new_scope(state, scope_flag_function, true, node->id);
-   expect('('); list_parse(params, formal_parameters, YLD|AWT|VFUN, add_params|LOOSE); expect(')');
+   expect('(');
+      list_parse(params, formal_parameters, YLD|AWT|VFUN, add_params|LOOSE);
+   expect(')');
    //expect('{'); parse(body, function_body, YLD|AWT, flags); expect('}');
    parse(body, function_body_container, YLD|AWT|VFUN, add_params);
    assign(flags, function_flags);
@@ -1424,7 +1431,9 @@ void* parse_function_expression(parse_state_t* state, parse_tree_state_t* tree_s
       assign(id, nullptr);
    }
    new_scope(state, scope_flag_function, true, node->id);
-   expect('('); list_parse(params, formal_parameters, YLD|AWT, add_params|LOOSE); expect(')');
+   expect('(');
+      list_parse(params, formal_parameters, YLD|AWT, add_params|LOOSE);
+   expect(')');
    //expect('{'); list_parse(body, function_body); expect('}');
    //list_parse(body, function_body_container);
    parse(body, function_body_container, YLD|AWT, add_params);
@@ -1543,7 +1552,11 @@ method_definition_t* parse_method_only_definition(parse_state_t* state, parse_tr
       if(!is_get_set) {
          list_parse(params, unique_formal_parameters, YLD|AWT, param_flags);
       } else {
-         if(is_set) { list_parse(params, property_set_parameter_list, YLD|AWT, param_flags); }
+         if(is_set) {
+            list_parse(params, property_set_parameter_list, YLD|AWT, param_flags);
+         } else {
+            assign(params, nullptr);
+         }
       }
       expect(')');
       //expect('{'); list_parse(body, function_body, YLD|AWT, flags); expect('}');
@@ -1586,7 +1599,6 @@ method_definition_t* parse_method_definition(parse_state_t* state, parse_tree_st
             params |= param_flag_constructor;
          }
       }
-      assign(flags, flags); // this is needed for property_is
       if(exists('(')) {
          parse(value, method_function, YLD|AWT|EXPR, NONE);
          flags |= property_flag_method;
@@ -1623,6 +1635,8 @@ void* parse_yield_expression(parse_state_t* state, parse_tree_state_t* tree_stat
          optional_parse(assignment_expression, NONE, YLD);
          assign(argument, assignment_expression);
       }
+   } else {
+      assign(argument, nullptr);
    }
    assign(flags, yield_flags);
    return_node();
@@ -2641,6 +2655,7 @@ void* parse_call_only_expression(parse_state_t* state, parse_tree_state_t* tree_
          ensure_word(super);
          assign_to_parent(callee, completed_node());
       }
+      assign(flags, flag_none);
       list_parse(arguments, arguments_list);
       return_node();
    } else if(exists_word(import)) {
@@ -3180,6 +3195,7 @@ void* parse_assignment_expression(parse_state_t* state, parse_tree_state_t* tree
       }
       make_node(arrow_function_expression);
       assign_begin();
+      assign(id, nullptr);
       switch(node_type(expression)) {
          case pnt_parenthesized_expression: {
             node_as(parenthesized_expression, expression, pe);
@@ -3703,6 +3719,8 @@ void* parse_continue_statement(parse_state_t* state, parse_tree_state_t* tree_st
       parse_semicolon();
       //expect(';');
       //if(!exists('}')) expect(';');
+   } else {
+      assign(label, nullptr);
    }
    return_node();
 }
@@ -3730,6 +3748,8 @@ void* parse_break_statement(parse_state_t* state, parse_tree_state_t* tree_state
       parse_semicolon();
       //expect(';');
       //if(!exists('}')) expect(';');
+   } else {
+      assign(label, nullptr);
    }
    return_node();
 }
@@ -3751,6 +3771,8 @@ void* parse_return_statement(parse_state_t* state, parse_tree_state_t* tree_stat
       parse_semicolon();
       //expect(';');
       //if(!exists('}')) expect(';');
+   } else {
+      assign(argument, nullptr);
    }
    return_node();
 }
@@ -3921,6 +3943,8 @@ void* parse_try_statement(parse_state_t* state, parse_tree_state_t* tree_state, 
             parse(param, binding_pattern, RET, NONE);
          }
          expect(')');
+      } else {
+         assign(param, nullptr);
       }
       parse(body, block_statement, NONE, NOSCOPE);
       end_scope(state);
@@ -4142,13 +4166,14 @@ parse_result_t parse(char_t const* code_begin, char_t const* code_end, bool is_m
    memory_state_t memory_state = {
       .head = nullptr, .current = nullptr, .page_count = 0
    };
+   memory_state_t* memory = &memory_state;
 #if defined(MEMOPT)
    params |= param_flag_streaming;
-   token_t* token_begin = (token_t *) malloc(token_capacity * sizeof(token_t));
+   token_t* token_begin = (token_t *) parser_malloc_impl(memory, token_capacity * sizeof(token_t));
    token_t* token_end = token_begin + token_capacity;
 #else
    size_t predicted_tokens = ((code_end - code_begin) / 1) + 3 + 128;
-   token_t* token_begin = (token_t*) malloc(predicted_tokens * sizeof(token_t));
+   token_t* token_begin = (token_t*) parser_malloc_impl(memory, predicted_tokens * sizeof(token_t));
    token_t* token_end = token_begin + predicted_tokens;
 #endif
    parse_state_t _state = {

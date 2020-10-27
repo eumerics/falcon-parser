@@ -37,7 +37,11 @@ void* parser_malloc_impl(memory_state_t* const memory, size_t size)
          if(size >= page_size) {
             current->prev = memory->current->prev;
             current->next = memory->current;
-            if(current->prev) current->prev->next = current;
+            if(current->prev) {
+               current->prev->next = current;
+            } else {
+               memory->head = current;
+            }
             memory->current->prev = current;
          } else {
             memory->current->next = current;

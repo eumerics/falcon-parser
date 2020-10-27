@@ -1312,8 +1312,10 @@ int scan_identifier(parse_state_t* const state, params_t params)
       }
       identifier_length = identifier_code - identifier_begin;
       compiled_identifier = parser_malloc(sizeof(compiled_string_t));
-      compiled_identifier->begin = identifier_begin;
-      compiled_identifier->end = identifier_code;
+      *compiled_identifier = (compiled_string_t) {
+         .begin = identifier_begin, .end = identifier_code,
+         .offending_index = 0, .compile_flags = flag_none
+      };
    } else {
       identifier_begin = begin;
       identifier_length = state->code - begin;

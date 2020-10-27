@@ -59,7 +59,7 @@ function test_file(utf8_view, script, is_module, is_negative)
       result = (program && reference_result ? object_diff(program, reference_result) : undefined);
    }
    //if(result !== null) { console.log(program, reference_result); }
-   //parser.free();
+   parser.free();
    return result;
 }
 
@@ -190,6 +190,7 @@ function test_falcon_suite_dir(suite_path, is_negative, segmented)
          readline.cursorTo(process.stdout, 0);
          if(diff !== null) {
             console.log(color.bold_red(`test262/${file_path}`));
+            console.log(JSON.stringify(diff, null, '   '));
          }
       }
    }

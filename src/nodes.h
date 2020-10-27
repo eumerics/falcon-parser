@@ -68,7 +68,7 @@ typedef struct {
 
 void parser_free(parse_state_t* state)
 {
-   free((void *)(state->token_begin));
+   //free((void *)(state->token_begin));
    memory_page_t* current = state->memory->head;
    while(current != nullptr) {
       free(current->buffer);

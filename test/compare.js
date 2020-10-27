@@ -32,24 +32,27 @@ import Tenko from 'tenko';
             }
             const elapsed = (new Date - start) / iterations;
             const program = parse_result.program;
-
-            const script = parser.code.utf8_view.toString();
-            const acorn = await import('acorn');
-            const options = {ecmaVersion: 2020, sourceType: is_module ? 'module' : 'script'};
-            let acorn_result;
-            start = new Date();
-            for(let it = 0; it < iterations; ++it) {
-               acorn_result = acorn.parse(script, options);
+            if(args.s) {
+               console.log(elapsed);
+            } else {
+               const script = parser.code.utf8_view.toString();
+               const acorn = await import('acorn');
+               const options = {ecmaVersion: 2020, sourceType: is_module ? 'module' : 'script'};
+               let acorn_result;
+               start = new Date();
+               for(let it = 0; it < iterations; ++it) {
+                  acorn_result = acorn.parse(script, options);
+               }
+               const acorn_elpased = (new Date - start) / iterations;
+               const meriyah = (await import('meriyah')).default;
+               let meriyah_result;
+               start = new Date();
+               for(let it = 0; it < iterations; ++it) {
+                  meriyah_result = meriyah.parseScript(script);
+               }
+               const meriyah_elpased = (new Date - start) / iterations;
+               console.log(elapsed, acorn_elpased, meriyah_elpased);
             }
-            const acorn_elpased = (new Date - start) / iterations;
-            const meriyah = (await import('meriyah')).default;
-            let meriyah_result;
-            start = new Date();
-            for(let it = 0; it < iterations; ++it) {
-               meriyah_result = meriyah.parseScript(script);
-            }
-            const meriyah_elpased = (new Date - start) / iterations;
-            console.log(elapsed, acorn_elpased, meriyah_elpased);
          } else {
             const parse_result = await parser.parse_file(args.f, is_module, params);
             const program = parse_result.program;
