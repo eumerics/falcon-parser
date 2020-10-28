@@ -30,6 +30,8 @@
       state->code = token->begin, \
       state->token_count -= (state->scan_token - token + token_capacity) % token_capacity, \
       state->scan_token = (token_t*) token, \
+      state->line_number = token->location.begin.line, \
+      state->line_begin = token->begin - token->location.begin.column, \
       scan_next_token(state, params) \
    )
 #else
@@ -240,13 +242,41 @@ inline_spec int is_line_terminator(char_t c)
       return (c == '\r' || c == '\n');
    #endif
 }
+inline_spec int consume_terminator_sequence(parse_state_t* state, char_t const** code, params_t flags)
+{
+   char_t const c = **code;
+   if(c == '\r') { ++*code; if(*code < state->code_end && **code == '\n') ++*code; }
+   else if(c == '\n') { ++*code; }
+#if defined(UTF16)
+   else if(c == 0x2028 || c == 0x2029) {
+      ++*code; if(flags & param_flag_inconsistent_lines) return 1;
+   }
+#endif
+   else return 0;
+   ++state->line_number;
+   state->line_begin = *code;
+   return 1;
+}
+
+inline_spec position_t make_position(parse_state_t const* const state)
+{
+   return (position_t){
+      .line = state->line_number, .column = state->code - state->line_begin \
+   };
+}
+
 inline_spec void make_char_token(parse_state_t* state, uint8_t const id)
 {
    //size_t offset = state->code - state->code_begin;
+   position_t const begin_position = make_position(state);
+   position_t const end_position = {
+      .line = state->line_number, .column = state->code - state->line_begin + 1
+   };
    *(state->scan_token) = (token_t){
       .begin = state->code, .end = state->code + 1,
       .id = id, .group = mask_none, .flags = token_flag_none,
-      .detail = nullptr
+      .detail = nullptr,
+      .location = {.begin = begin_position, .end = end_position}
    };
    increment_current_scan_token();
    ++state->code;
@@ -254,6 +284,7 @@ inline_spec void make_char_token(parse_state_t* state, uint8_t const id)
 
 inline_spec void make_token(
    parse_state_t* const state, char_t const* begin,
+   position_t const begin_position,
    uint8_t const id, uint16_t const group,
    uint8_t const contextual, void* detail
 ){
@@ -261,20 +292,23 @@ inline_spec void make_token(
       .begin = begin,
       .end = state->code,
       .id = id, .group = group, .flags = (contextual << 4 | state->token_flags),
-      .detail = detail
+      .detail = detail,
+      .location = {.begin = begin_position, .end = make_position(state)}
    };
    increment_current_scan_token();
 }
 
 inline_spec void make_aggregated_token(
    parse_state_t* const state, char_t const* begin,
+   position_t const begin_position,
    uint32_t const aggregated_id, void* detail
 ){
    *(state->scan_token) = (token_t){
       .begin = begin,
       .end = state->code,
       .aggregated_id = aggregated_id,
-      .detail = detail
+      .detail = detail,
+      .location = {.begin = begin_position, .end = make_position(state)}
    };
    increment_current_scan_token();
 }
@@ -283,7 +317,7 @@ inline_spec void make_aggregated_token(
 // support i.e, 1 << (size(ptrdiff_t) * 8 - 1), for nearly all cases this
 // should not be a problem at all
 ptrdiff_t escaped_string_flag = (ptrdiff_t)(1) << (sizeof(ptrdiff_t)*8 - 1);
-inline_spec ptrdiff_t prescan_string_literal(char_t const* code, char_t const* const end, params_t params)
+inline_spec ptrdiff_t prescan_string_literal(parse_state_t* state, char_t const* code, char_t const* const end, params_t params)
 {
    char_t const* const begin = code;
    char_t const quote = *code;
@@ -292,11 +326,17 @@ inline_spec ptrdiff_t prescan_string_literal(char_t const* code, char_t const* c
       char_t c = *code;
       switch(c) {
          case '\r': case '\n': return 0;
+#if defined(UTF16)
+         case 0x2028: case 0x2029:
+            if(!(params & param_flag_inconsistent_lines)) {
+               ++state->line_number;
+               state->line_begin = code + 1;
+            }
+            break;
+#endif
          case '\\': {
             string_type = escaped_string_flag;
-            if(*++code == '\r') {
-               if(*(code + 1) == '\n') ++code;
-            }
+            ++code; if(consume_terminator_sequence(state, &code, params)) --code;
             break;
          }
          default: if(c == quote) return (++code - begin) | string_type;
@@ -440,9 +480,10 @@ compiled_string_t* compile_string(
 }
 inline_spec int compile_string_literal(parse_state_t* const state, params_t params)
 {
+   position_t const begin_position = make_position(state);
    char_t const* const begin = state->code;
    char_t const* const end = state->code_end;
-   ptrdiff_t length_and_flag = prescan_string_literal(begin, end, params);
+   ptrdiff_t length_and_flag = prescan_string_literal(state, begin, end, params);
    if(length_and_flag == 0) return 0;
    void* compiled_string = nullptr;
    size_t length = (length_and_flag & ~escaped_string_flag);
@@ -451,11 +492,12 @@ inline_spec int compile_string_literal(parse_state_t* const state, params_t para
       if(compiled_string == nullptr) return 0;
    }
    state->code = begin + length;
-   make_token(state, begin, tkn_string_literal, mask_literal, precedence_none, compiled_string);
+   make_token(state, begin, begin_position, tkn_string_literal, mask_literal, precedence_none, compiled_string);
    return 1;
 }
 inline_spec int scan_string_literal(parse_state_t* const state, params_t params)
 {
+   position_t const begin_position = make_position(state);
    char_t const* const begin = state->code;
    char_t const* const end = state->code_end;
    char_t const* code = state->code;
@@ -516,13 +558,14 @@ inline_spec int scan_string_literal(parse_state_t* const state, params_t params)
    return 0;
 _make_string_token:
    state->code = code;
-   make_token(state, begin, tkn_string_literal, mask_literal, precedence_none, nullptr);
+   make_token(state, begin, begin_position, tkn_string_literal, mask_literal, precedence_none, nullptr);
    return 1;
 }
 
 inline_spec int scan_numeric_literal(parse_state_t* const state, params_t params)
 {
    //[TODO] spacing character _
+   position_t const begin_position = make_position(state);
    char_t const* const begin = state->code;
    char_t const* const end = state->code_end;
    char_t const* code = state->code;
@@ -587,7 +630,7 @@ _verify_and_make_numeric_token:
 _make_numeric_token:
    state->code = code;
 #ifdef MEMOPT
-   make_token(state, begin, tkn_numeric_literal, mask_literal, precedence_none, nullptr);
+   make_token(state, begin, begin_position, tkn_numeric_literal, mask_literal, precedence_none, nullptr);
 #else
    compiled_number_t* cn = nullptr;
    if(numeric_annex) {
@@ -597,7 +640,7 @@ _make_numeric_token:
          .compile_flags = compile_flag_numeric_annex
       };
    }
-   make_token(state, begin, tkn_numeric_literal, mask_literal, precedence_none, cn);
+   make_token(state, begin, begin_position, tkn_numeric_literal, mask_literal, precedence_none, cn);
 #endif
    return 1;
 }
@@ -605,6 +648,7 @@ _make_numeric_token:
 //[LIMITATION]: maximum number of allowed flags 1<<5 = 32.
 inline_spec int scan_regexp_literal(parse_state_t* const state, params_t params)
 {
+   position_t const begin_position = make_position(state);
    char_t const* const begin = state->code;
    char_t const* const end = state->code_end;
    char_t const* code = state->code;
@@ -612,22 +656,24 @@ inline_spec int scan_regexp_literal(parse_state_t* const state, params_t params)
       if(++code == end) return 0;
       char_t current = *code;
       if(current == '/') { ++code; break; }
-      if(current == '\n' || current == '\r') return 0;
+      if(is_line_terminator(current)) return 0;
       // take care of scenarios where '/' fails to serve as a closing tag
       if(current == '\\') {
          // for scanning it is enough to eat next character
          // as long as it is not a line terminator
          if(++code == end) return 0;
          char_t next = *code;
-         if(next == '\n' || next == '\r') return 0;
+         if(is_line_terminator(next)) return 0;
       } else if(current == '[') {
          while(1) {
             if(++code == end) return 0;
-            if(*code == ']') break;
-            if(*code == '\\') {
+            current = *code;
+            if(current == ']') break;
+            if(is_line_terminator(current)) return 0;
+            if(current == '\\') {
                if(++code == end) return 0;
                char_t next = *code;
-               if(next == '\n' || next == '\r') return 0;
+               if(is_line_terminator(next)) return 0;
             }
          }
       }
@@ -653,7 +699,7 @@ inline_spec int scan_regexp_literal(parse_state_t* const state, params_t params)
       } while(++code < end);
    }
    state->code = code;
-   make_token(state, begin, tkn_regexp_literal, mask_none, code - flags_begin, nullptr);
+   make_token(state, begin, begin_position, tkn_regexp_literal, mask_none, code - flags_begin, nullptr);
    return 1;
 }
 
@@ -699,8 +745,9 @@ inline_spec int scan_comment(parse_state_t* const state, int comment_chars, para
             if(*(code + 1) == '/') {
                code += 2; goto _make_comment_token;
             }
-         } else if(is_line_terminator(c)) {
+         } else if(consume_terminator_sequence(state, &code, 0)) {
             state->current_token_flags |= token_flag_newline;
+            --code;
          }
       }
       return 0;
@@ -780,6 +827,7 @@ inline_spec int scan_punctuator(parse_state_t* const state, params_t params)
       goto _make_punctuator_token; \
    }
    uint32_t aggregated_id;
+   position_t const begin_position = make_position(state);
    char_t const* const begin = state->code;
    char_t const* const end = state->code_end;
    char_t const* code = state->code;
@@ -929,26 +977,27 @@ inline_spec int scan_punctuator(parse_state_t* const state, params_t params)
    return 0;
 _make_punctuator_token:
    state->code = code;
-   make_aggregated_token(state, begin, aggregated_id, nullptr);
+   make_aggregated_token(state, begin, begin_position, aggregated_id, nullptr);
    return 1;
    #undef return_scan
 }
 
 inline_spec int scan_template_characters(parse_state_t* const state, params_t params)
 {
+   position_t const begin_position = make_position(state);
    char_t const* const begin = state->code;
    char_t const* const end = state->code_end;
    int needs_compilation = 0;
    while(state->code < end) {
       switch(*state->code) {
-         case '\r': needs_compilation = 1; break;
+         // \r, \r\n, \n are normalized to \n and hence require compiling
          case '`': {
             void* compiled_string = nullptr;
             if(needs_compilation) {
                compiled_string = compile_string(state, 1, begin, state->code, params);
                if(compiled_string == nullptr) return 0;
             }
-            make_token(state, begin, tkn_template_string, mask_none, precedence_none, compiled_string);
+            make_token(state, begin, begin_position, tkn_template_string, mask_none, precedence_none, compiled_string);
             make_char_token(state, '`');
             --state->template_level;
             state->in_template_expression = (state->template_level > 0);
@@ -967,7 +1016,7 @@ inline_spec int scan_template_characters(parse_state_t* const state, params_t pa
                   compiled_string = compile_string(state, 1, begin, state->code, params);
                   if(compiled_string == nullptr) return 0;
                }
-               make_token(state, begin, tkn_template_string, mask_none, precedence_none, compiled_string);
+               make_token(state, begin, begin_position, tkn_template_string, mask_none, precedence_none, compiled_string);
                make_char_token(state, '$');
                make_char_token(state, '{');
                ++state->curly_parenthesis_level;
@@ -982,10 +1031,11 @@ inline_spec int scan_template_characters(parse_state_t* const state, params_t pa
             }
             break;
          }
-         case '\\': {
-            needs_compilation = 1;
-            if(*++state->code == '\r') {
-               if(*(state->code + 1) == '\n') ++state->code;
+         case '\\': ++state->code; // fallthrough
+         case '\r': needs_compilation = 1; // fallthrough
+         default: {
+            if(consume_terminator_sequence(state, &state->code, params)) {
+               --state->code;
             }
             break;
          }
@@ -1242,6 +1292,7 @@ inline_spec uint32_t is_reserved(parse_state_t* const state, char_t const* strin
 
 inline_spec int scan_ascii_identifier(parse_state_t* const state, params_t params)
 {
+   position_t const begin_position = make_position(state);
    char_t const* const begin = state->code;
    char_t const* const end = state->code_end;
    while(++state->code < end && is_ascii_identifier_continue(*state->code));
@@ -1249,7 +1300,7 @@ inline_spec int scan_ascii_identifier(parse_state_t* const state, params_t param
       .aggregated_id = is_reserved(state, begin, *begin, state->code - begin, params)
    };
    if(reserved_word.aggregated_id == 0) {
-      make_token(state, begin, tkn_identifier, mask_identifier, precedence_none, nullptr);
+      make_token(state, begin, begin_position, tkn_identifier, mask_identifier, precedence_none, nullptr);
       if_verbose(print_string("identifier: "));
    } else {
       if((reserved_word.group & mask_always_a_reserved_word) &&
@@ -1257,7 +1308,7 @@ inline_spec int scan_ascii_identifier(parse_state_t* const state, params_t param
       ){
          state->in_regexp_context = 1;
       }
-      make_aggregated_token(state, begin, reserved_word.aggregated_id, nullptr);
+      make_aggregated_token(state, begin, begin_position, reserved_word.aggregated_id, nullptr);
       if_verbose(print_string("reserved_word: "));
    }
    return 1;
@@ -1276,6 +1327,9 @@ int scan_identifier(parse_state_t* const state, params_t params)
    int can_continue = token && (token->end == state->code) && (token->group & mask_idname);
    char_t const* const begin = (can_continue ? token->begin : state->code);
    char_t const* const end = state->code_end;
+   position_t const begin_position = {
+      .line = state->line_number, .column = begin - state->line_begin
+   };
    int has_escape_sequence = 0;
    if(begin == state->code) {
       has_escape_sequence = (*state->code == '\\');
@@ -1329,10 +1383,10 @@ int scan_identifier(parse_state_t* const state, params_t params)
    }
    uint8_t token_flags = (has_escape_sequence ? token_flag_escaped : flag_none);
    if(reserved_word.aggregated_id == 0) {
-      make_token(state, begin, tkn_identifier, mask_identifier, token_flags, compiled_identifier);
+      make_token(state, begin, begin_position, tkn_identifier, mask_identifier, token_flags, compiled_identifier);
       if_verbose(print_string("identifier: "));
    } else {
-      make_aggregated_token(state, begin, reserved_word.aggregated_id | token_flags, compiled_identifier);
+      make_aggregated_token(state, begin, begin_position, reserved_word.aggregated_id | token_flags, compiled_identifier);
       if_verbose(print_string("reserved_word: "));
       state->in_regexp_context = 1;
    }
@@ -1456,10 +1510,12 @@ inline_spec int scan(parse_state_t* state, uint8_t incremental, params_t params)
          }
          result = 1;
       );
-   } else if(is_common_line_terminator(current)) {
+   //} else if(is_common_line_terminator(current)) {
+   } else if(is_line_terminator(current)) {
       debug_wrap("newline", terminator,
          char_t const* const code_end = state->code_end;
-         while(++state->code < code_end && is_common_line_terminator(*state->code));
+         //while(++state->code < code_end && is_common_line_terminator(*state->code));
+         while(state->code < code_end && consume_terminator_sequence(state, &state->code, 0));
          //make_token(state, begin, tkn_terminator, mask_none, precedence_none, nullptr);
          state->current_token_flags |= token_flag_newline;
          state->is_continuer = 1;
@@ -1519,14 +1575,16 @@ int scan_next_token(parse_state_t* const state, uint32_t params)
    if(!(state->tokenization_status & status_flag_incomplete)) return 0;
    while(token_diff(state->scan_token, state->parse_token) < 2) {
       if(state->code == state->code_end) {
-         make_token(state, state->code, tkn_eot, 0, precedence_none, nullptr);
+         position_t const begin_position = make_position(state);
+         make_token(state, state->code, begin_position, tkn_eot, 0, precedence_none, nullptr);
          state->tokenization_status = status_flag_complete;
          if_debug(print_string("tokenization successful\n"););
          return 1;
       }
       state->tokenization_status = status_flag_incomplete;
       if(!scan(state, 1, params)) {
-         make_token(state, state->code, tkn_error, 0, precedence_none, nullptr);
+         position_t const begin_position = make_position(state);
+         make_token(state, state->code, begin_position, tkn_error, 0, precedence_none, nullptr);
          state->tokenization_status = status_flag_failed;
          if_debug(print_string("tokenization failed\n"););
          return 0;
@@ -1550,7 +1608,8 @@ wasm_export void tokenize(parse_state_t* const state, uint32_t params)
       //printf("\nparse failed at %ld\n", string - begin);
    } else {
       if_debug(print_string("tokenization successful\n"););
-      make_token(state, state->code, tkn_eot, 0, precedence_none, nullptr);
+      position_t const begin_position = make_position(state);
+      make_token(state, state->code, begin_position, tkn_eot, 0, precedence_none, nullptr);
       state->tokenization_status = status_flag_complete;
       print_elapsed_time("tokenization");
    }

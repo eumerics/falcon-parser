@@ -36,8 +36,9 @@ import Tenko from 'tenko';
                console.log(elapsed);
             } else {
                const script = parser.code.utf8_view.toString();
+               const source_type = (is_module ? 'module' : 'script');
                const acorn = await import('acorn');
-               const options = {ecmaVersion: 2020, sourceType: is_module ? 'module' : 'script'};
+               const options = {ecmaVersion: 2020, sourceType: source_type, locations: true, sourceFile: ''};
                let acorn_result;
                start = new Date();
                for(let it = 0; it < iterations; ++it) {
@@ -45,13 +46,21 @@ import Tenko from 'tenko';
                }
                const acorn_elpased = (new Date - start) / iterations;
                const meriyah = (await import('meriyah')).default;
+               //
                let meriyah_result;
                start = new Date();
                for(let it = 0; it < iterations; ++it) {
-                  meriyah_result = meriyah.parseScript(script);
+                  meriyah_result = meriyah.parseScript(script, {loc: true});
                }
                const meriyah_elpased = (new Date - start) / iterations;
-               console.log(elapsed, acorn_elpased, meriyah_elpased);
+               //
+               let tenko_result;
+               start = new Date();
+               for(let it = 0; it < iterations; ++it) {
+                  tenko_result = Tenko(script, {goalMode: source_type, sourceField: ''});
+               }
+               const tenko_elpased = (new Date - start) / iterations;
+               console.log(elapsed, acorn_elpased, meriyah_elpased, tenko_elpased);
             }
          } else {
             const parse_result = await parser.parse_file(args.f, is_module, params);
@@ -59,12 +68,13 @@ import Tenko from 'tenko';
             if(args.c) {
                const acorn = await import('acorn');
                const source_type = (is_module ? 'module' : 'script');
-               const options = {ecmaVersion: 2020, sourceType: source_type};
+               const options = {ecmaVersion: 2020, sourceType: source_type, locations: true, sourceFile: ''};
                const fs = await import('fs');
                const script = fs.readFileSync(args.f).toString();
                let reference_result;
                reference_result = acorn.parse(script, options);
-               //reference_result = Tenko(script, {goalMode: source_type, ranges: true}).ast;
+               //reference_result = Tenko(script, {goalMode: source_type, sourceField: '', ranges: true}).ast;
+               //reference_result = Tenko(script, {goalMode: source_type, sourceField: ''}).ast;
                const {object_diff} = await import('./object_diff.js');
                let sb = new Date; const s = JSON.stringify(program); let se = new Date - sb;
                let tb = new Date; const t = JSON.stringify(reference_result); let te = new Date - tb;

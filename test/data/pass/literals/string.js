@@ -6,6 +6,8 @@
 '\p';
 // null character
 '\0';
+// line and paragraph separators
+' ', ' ';
 // HexEscapeSequence
 '\x00', '\x80', '\xff';
 // UnicodeEscapeSequence
@@ -14,13 +16,13 @@
 // LineContinuation
 '\', '\
 ', '\
-', '\ ', ' '; // line and paragraph separators
+', '\ ', '\ '; // line and paragraph separators
 ///*
 // legacy octal
 '\0', '\1', '\2', '\3', '\4', '\5', '\6', '\7';
 '\00', '\01', '\77', '\000', '\001', '\377';
 // legacy non-octal
-'\8', '\9';
+//'\8', '\9';
 // mixed octal
-'\08', '\78', '\81', '\91', '\378', '\381', '\401';
+//'\08', '\78', '\81', '\91', '\378', '\381', '\401';
 //*/

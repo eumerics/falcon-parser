@@ -132,7 +132,7 @@ function define_interface(Class, type_info, type_name)
 
    function _make_node(parent, node_pointer) {
       if(node_pointer == 0) return null;
-      let type_id = parent.buffer_view.u08[node_pointer + 8];
+      let type_id = parent.buffer_view.u08[node_pointer + 12];
       let constructor = Parser.constructors[type_id];
       if(!constructor){
          //console.log(parent.pointer, new Uint32Array(parent.buffer_view.buffer, parent.pointer, 6));
@@ -325,7 +325,7 @@ export class Node {
    decode(begin, end) { return Parser.decoder.decode(this.buffer_view.code.view.subarray(begin, end)); }
    get_compiled_value(strip_length) {
       const type = 'u32';
-      const pointer = this.buffer_view[type][(this.pointer + 16) / sizeof[type]];
+      const pointer = this.buffer_view[type][(this.pointer + 20) / sizeof[type]];
       if(pointer == 0) {
          return Parser.decoder.decode(
             this.buffer_view.code.view.subarray(this.begin + strip_length, this.end - strip_length)
@@ -342,13 +342,27 @@ export class Node {
    }
 
    get type() { return this.constructor.name; }
-   get type_id() { return this.buffer_view.u08[this.pointer + 8]; }
+   get type_id() { return this.buffer_view.u08[this.pointer + 12]; }
    get start() { return (this.buffer_view.u32[this.pointer/4] - this.buffer_view.code.pointer) / Parser.char_bytes; } // for compatibility with acorn
    set start(value) { this.buffer_view.u32[this.pointer/4] = Parser.char_bytes * value - this.buffer_view.code.pointer; } // for compatibility with acorn
    get begin() { return (this.buffer_view.u32[this.pointer/4] - this.buffer_view.code.pointer) / Parser.char_bytes; }
    set begin(value) { this.buffer_view.u32[this.pointer/4] = Parser.char_bytes * value + this.buffer_view.code.pointer; }
    get end() { return (this.buffer_view.u32[this.pointer/4 + 1] - this.buffer_view.code.pointer) / Parser.char_bytes; }
    set end(value) { this.buffer_view.u32[this.pointer/4 + 1] = Parser.char_bytes * value + this.buffer_view.code.pointer; }
+   get loc() {
+      const location_pointer = this.buffer_view.u32[(this.pointer + 8)/4];
+      if(location_pointer == 0) return undefined;
+      const begin_line = this.buffer_view.u32[(location_pointer + 0)/4];
+      const begin_column = this.buffer_view.u32[(location_pointer + 4)/4];
+      const end_line = this.buffer_view.u32[(location_pointer + 8)/4];
+      const end_column = this.buffer_view.u32[(location_pointer + 12)/4];
+      const source_pointer = this.buffer_view.u32[(location_pointer + 16)/4];
+      return {
+         start: {line: begin_line, column: begin_column},
+         end: {line: end_line, column: end_column},
+         source: ''
+      };
+   }
 
    toJSON() {
       let begin = new Date;
@@ -374,7 +388,8 @@ export class Node {
       ++Parser.visitation_count;
    }
 }
-Node.prototype.enumerables = ['type', 'start', 'end'];
+Node.prototype.enumerables = ['type', 'start', 'end', 'loc'];
+//Node.prototype.enumerables = ['type', 'loc'];
 
 export class Statement extends Node {}
 export class Declaration extends Node {}
@@ -415,7 +430,7 @@ export class Literal extends Expression {
    }
    */
    get value() {
-      const prop_offset = this.pointer + 10;
+      const prop_offset = this.pointer + 14;
       const token_id = this.buffer_view.u08[prop_offset];
       return this.token_to_value(this.buffer_view.u08[prop_offset]);
    }
@@ -430,7 +445,7 @@ change_node_type(StringLiteral, 'Literal');
 //Literal.prototype.enumerables = Array.from(Node.prototype.enumerables).concat(['value', 'raw']);
 export class RegExpLiteral extends Literal {
    get regex() {
-      const flags_length = this.buffer_view.u08[this.pointer + 10] >> 4;
+      const flags_length = this.buffer_view.u08[this.pointer + 14] >> 4;
       const middle = this.end - flags_length;
       return {
          pattern: this.decode(this.begin + 1, middle - 1),
@@ -970,11 +985,11 @@ export class Parser {
       program_kind_from_string.set('module', constants.program_kind_module);
       define_interface(Program, {
          strings: {sourceType: {
-            type: 'u08', offset: 10,
+            type: 'u08', offset: 14,
             to_string: program_kind_to_string,
             from_string: program_kind_from_string
          }},
-         lists: {body: 12}
+         lists: {body: 16}
       });
 
       const property_kind_to_string = new Map();
@@ -991,13 +1006,13 @@ export class Parser {
       property_kind_from_string.set('constructor', constants.property_kind_constructor);
       //
       const property_type_info = {
-         nodes: {key: 12, value: 16},
+         nodes: {key: 16, value: 20},
          strings: {kind: {
-            type: 'u08', offset: 10,
+            type: 'u08', offset: 14,
             to_string: property_kind_to_string,
             from_string: property_kind_from_string
          }},
-         flags: {flags: {type: 'u08', offset: 11, flags: {
+         flags: {flags: {type: 'u08', offset: 15, flags: {
             method: constants.property_flag_method,
             shorthand: constants.property_flag_shorthand,
             computed: constants.property_flag_computed
@@ -1005,7 +1020,7 @@ export class Parser {
       };
       // clone property_type_info
       const method_type_info = Object.assign({}, property_type_info);
-      method_type_info.flags = {flags: {type: 'u08', offset: 11, flags: {
+      method_type_info.flags = {flags: {type: 'u08', offset: 15, flags: {
          computed: constants.property_flag_computed,
          static: constants.method_flag_static
       }}};
@@ -1023,226 +1038,226 @@ export class Parser {
       declarator_kind_from_string.set('let', constants.rw_let);
       declarator_kind_from_string.set('const', constants.rw_const);
       define_interface(VariableDeclaration, {
-         lists: {declarations: 12},
+         lists: {declarations: 16},
          strings: {kind: {
-            type: 'u08', offset: 10,
+            type: 'u08', offset: 14,
             to_string: declarator_kind_to_string,
             from_string: declarator_kind_from_string
          }},
       });
 
       define_interface(ImportDeclaration, {
-         lists: {specifiers: 12},
-         nodes: {source: 16}
+         lists: {specifiers: 16},
+         nodes: {source: 20}
       });
-      define_interface(ModuleSpecifier, {nodes: {local: 12}});
-      define_interface(ImportSpecifier, {nodes: {imported: 16}});
-      define_interface(ExportAllDeclaration, {nodes: {exported: 12, source: 16}});
+      define_interface(ModuleSpecifier, {nodes: {local: 16}});
+      define_interface(ImportSpecifier, {nodes: {imported: 20}});
+      define_interface(ExportAllDeclaration, {nodes: {exported: 16, source: 20}});
       define_interface(ExportNamedDeclaration, {
-         lists: {specifiers: 12},
-         nodes: {source: 16, declaration: 20}
+         lists: {specifiers: 16},
+         nodes: {source: 20, declaration: 24}
       });
-      define_interface(ExportDefaultDeclaration, {nodes: {declaration: 12}});
-      define_interface(ExportSpecifier, {nodes: {exported: 16}});
+      define_interface(ExportDefaultDeclaration, {nodes: {declaration: 16}});
+      define_interface(ExportSpecifier, {nodes: {exported: 20}});
 
-      define_interface(SpreadElement, {nodes: {argument: 12}});
-      define_interface(RestElement, {nodes: {argument: 12}});
+      define_interface(SpreadElement, {nodes: {argument: 16}});
+      define_interface(RestElement, {nodes: {argument: 16}});
       //define_interface(Identifier, {bind_value: 'name'});
-      define_interface(ArrayExpression, {lists: {elements: 12}});
-      define_interface(ObjectExpression, {lists: {properties: 12}});
-      define_interface(TemplateLiteral, {lists: {quasis: 12, expressions: 16}});
+      define_interface(ArrayExpression, {lists: {elements: 16}});
+      define_interface(ObjectExpression, {lists: {properties: 16}});
+      define_interface(TemplateLiteral, {lists: {quasis: 16, expressions: 20}});
       define_interface(TemplateElement, {
-         flags: {flags: {type: 'u08', offset: 10, flags: {
+         flags: {flags: {type: 'u08', offset: 14, flags: {
             tail: Parser.constants.template_flag_tail
          }}}
       });
-      define_interface(ParenthesizedExpression, {nodes: {expression: 12}});
+      define_interface(ParenthesizedExpression, {nodes: {expression: 16}});
       define_interface(Function, {
-         nodes: {id: 12, body: 20},
-         lists: {params: 16},
-         flags: {flags: {type: 'u08', offset: 10, flags: {
+         nodes: {id: 16, body: 24},
+         lists: {params: 20},
+         flags: {flags: {type: 'u08', offset: 14, flags: {
             expression: Parser.constants.function_flag_expression,
             generator: Parser.constants.function_flag_generator,
             async: Parser.constants.function_flag_async
          }}}
       });
       define_interface(Class, {
-         nodes: {id: 12, superClass: 16, body: 20}
+         nodes: {id: 16, superClass: 20, body: 24}
       });
       define_interface(MemberExpression, {
-         nodes: {object: 12, property: 16},
-         flags: {flags: {type: 'u08', offset: 10, flags: {
+         nodes: {object: 16, property: 20},
+         flags: {flags: {type: 'u08', offset: 14, flags: {
             computed: Parser.constants.member_flag_computed,
             optional: Parser.constants.optional_flag_optional
          }}}
       });
       define_interface(TaggedTemplateExpression, {
-         nodes: {tag: 12, quasi: 16}
+         nodes: {tag: 16, quasi: 20}
       });
       define_interface(NewExpression, {
-         nodes: {callee: 12},
-         lists: {arguments: 16}
+         nodes: {callee: 16},
+         lists: {arguments: 20}
       });
       define_interface(CallExpression, {
-         nodes: {callee: 12},
-         lists: {arguments: 16},
-         flags: {flags: {type: 'u08', offset: 10, flags: {
+         nodes: {callee: 16},
+         lists: {arguments: 20},
+         flags: {flags: {type: 'u08', offset: 14, flags: {
             optional: Parser.constants.optional_flag_optional
          }}}
       });
       define_interface(ChainExpression, {
-         nodes: {expression: 12}
+         nodes: {expression: 16}
       });
       define_interface(ImportExpression, {
-         nodes: {source: 12}
+         nodes: {source: 16}
       });
       define_interface(UpdateExpression, {
-         //nodes: {argument: 12},
-         //punctuators: {operator: 11}
-         nodes: {argument: 16},
-         punctuators: {operator: 12},
-         flags: {flags: {type: 'u08', offset: 10, flags: {
+         //nodes: {argument: 16},
+         //punctuators: {operator: 15}
+         nodes: {argument: 20},
+         punctuators: {operator: 16},
+         flags: {flags: {type: 'u08', offset: 14, flags: {
             prefix: Parser.constants.operator_flag_prefix
          }}}
       });
       define_interface(UnaryExpression, {
-         //nodes: {argument: 12},
-         //punctuators: {operator: 10}
-         nodes: {argument: 16},
-         punctuators: {operator: 12},
-         flags: {flags: {type: 'u08', offset: 10, flags: {
+         //nodes: {argument: 16},
+         //punctuators: {operator: 14}
+         nodes: {argument: 20},
+         punctuators: {operator: 16},
+         flags: {flags: {type: 'u08', offset: 14, flags: {
             prefix: Parser.constants.operator_flag_prefix
          }}}
       });
       define_interface(YieldExpression, {
-         nodes: {argument: 12},
-         flags: {flags: {type: 'u08', offset: 10, flags: {
+         nodes: {argument: 16},
+         flags: {flags: {type: 'u08', offset: 14, flags: {
             delegate: Parser.constants.yield_flag_delegate
          }}}
       });
       define_interface(AwaitExpression, {
-         nodes: {argument: 12}
+         nodes: {argument: 16}
       });
       define_interface(BinaryExpression, {
-         //nodes: {left: 12, right: 16},
-         //punctuators: {operator: 10}
-         nodes: {left: 16, right: 20},
-         punctuators: {operator: 12}
+         //nodes: {left: 16, right: 20},
+         //punctuators: {operator: 14}
+         nodes: {left: 20, right: 24},
+         punctuators: {operator: 16}
       });
       define_interface(LogicalExpression, {
-         //nodes: {left: 12, right: 16},
-         //punctuators: {operator: 10}
-         nodes: {left: 16, right: 20},
-         punctuators: {operator: 12}
+         //nodes: {left: 16, right: 20},
+         //punctuators: {operator: 14}
+         nodes: {left: 20, right: 24},
+         punctuators: {operator: 16}
       });
       define_interface(ConditionalExpression, {
-         nodes: {test: 12, consequent: 16, alternate: 20}
+         nodes: {test: 16, consequent: 20, alternate: 24}
       });
       define_interface(AssignmentExpression, {
-         //nodes: {left: 12, right: 16},
-         //punctuators: {operator: 10}
-         nodes: {left: 12, right: 16},
-         punctuators: {operator: 20}
+         //nodes: {left: 16, right: 20},
+         //punctuators: {operator: 20}
+         nodes: {left: 16, right: 20},
+         punctuators: {operator: 24}
       });
       define_interface(SequenceExpression, {
-         lists: {expressions: 12}
+         lists: {expressions: 16}
       });
       define_interface(AssignmentPattern, {
-         nodes: {left: 12, right: 16}
+         nodes: {left: 16, right: 20}
       });
       //[COMPATIBILITY] for estree compatibility type is set to AssignmentPattern
       define_interface(InitializedName, {
-         nodes: {left: 12, right: 16}
+         nodes: {left: 16, right: 20}
       }, 'AssignmentPattern');
       //[COMPATIBILITY] for estree compatibility type is set to AssignmentPattern
       define_interface(BindingAssignment, {
-         nodes: {left: 12, right: 16}
+         nodes: {left: 16, right: 20}
       }, 'AssignmentPattern');
       define_interface(ArrayPattern, {
-         lists: {elements: 12}
+         lists: {elements: 16}
       });
       define_interface(ObjectPattern, {
-         lists: {properties: 12}
+         lists: {properties: 16}
       });
       //[COMPATIBILITY] estree does not distinguish between assignment patterns and
       // binding patterns
       define_interface(ArrayAssignmentPattern, {
-         lists: {elements: 12}
+         lists: {elements: 16}
       }, 'ArrayPattern');
       define_interface(ObjectAssignmentPattern, {
-         lists: {properties: 12}
+         lists: {properties: 16}
       }, 'ObjectPattern');
       define_interface(VariableDeclarator, {
-         nodes: {id: 12, init: 16}
+         nodes: {id: 16, init: 20}
       });
       define_interface(MetaProperty, {
-         nodes: {meta: 12, property: 16}
+         nodes: {meta: 16, property: 20}
       });
       define_interface(BlockStatement, {
-         lists: {body: 12}
+         lists: {body: 16}
       });
       define_interface(ExpressionStatement, {
-         nodes: {expression: 12}
+         nodes: {expression: 16}
       });
-      define_interface(Directive, {nodes: {expression: 12}}, 'ExpressionStatement');
+      define_interface(Directive, {nodes: {expression: 16}}, 'ExpressionStatement');
       define_interface(IfStatement, {
-         nodes: {test: 12, consequent: 16, alternate: 20}
+         nodes: {test: 16, consequent: 20, alternate: 24}
       });
       define_interface(DoStatement, {
-         nodes: {body: 12, test: 16}
+         nodes: {body: 16, test: 20}
       }, 'DoWhileStatement');
       define_interface(WhileStatement, {
-         nodes: {test: 12, body: 16}
+         nodes: {test: 16, body: 20}
       });
       define_interface(ForStatement, {
-         nodes: {init: 16, test: 20, update: 24, body: 12}
+         nodes: {init: 20, test: 24, update: 28, body: 16}
       });
       define_interface(ForInStatement, {
-         nodes: {left: 16, right: 20, body: 12}
+         nodes: {left: 20, right: 24, body: 16}
       });
       define_interface(ForOfStatement, {
-         nodes: {left: 16, right: 20, body: 12},
-         flags: {flags: {type: 'u08', offset: 10, flags: {
+         nodes: {left: 20, right: 24, body: 16},
+         flags: {flags: {type: 'u08', offset: 14, flags: {
             await: Parser.constants.for_flag_await
          }}}
       });
       define_interface(CaseStatement, {
-         nodes: {test: 12, consequent: 16}
+         nodes: {test: 16, consequent: 20}
       });
       define_interface(SwitchStatement, {
-         nodes: {discriminant: 12},
-         lists: {cases: 16}
+         nodes: {discriminant: 16},
+         lists: {cases: 20}
       });
       define_interface(SwitchCase, {
-         nodes: {test: 12},
-         lists: {consequent: 16}
+         nodes: {test: 16},
+         lists: {consequent: 20}
       });
       define_interface(ContinueStatement, {
-         nodes: {label: 12}
+         nodes: {label: 16}
       });
       define_interface(BreakStatement, {
-         nodes: {label: 12}
+         nodes: {label: 16}
       });
       define_interface(ReturnStatement, {
-         nodes: {argument: 12}
+         nodes: {argument: 16}
       });
       define_interface(LabeledStatement, {
-         nodes: {label: 12, body: 16}
+         nodes: {label: 16, body: 20}
       });
       define_interface(WithStatement, {
-         nodes: {object: 12, body: 16}
+         nodes: {object: 16, body: 20}
       });
       define_interface(ThrowStatement, {
-         nodes: {argument: 12}
+         nodes: {argument: 16}
       });
       define_interface(TryStatement, {
-         nodes: {block: 12, handler: 16, finalizer: 20}
+         nodes: {block: 16, handler: 20, finalizer: 24}
       });
       define_interface(CatchClause, {
-         nodes: {param: 12, body: 16}
+         nodes: {param: 16, body: 20}
       });
       define_interface(ClassBody, {
-         lists: {body: 12}
+         lists: {body: 16}
       });
       group_end();
    }

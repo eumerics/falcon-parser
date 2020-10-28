@@ -40,9 +40,9 @@ function test_file(utf8_view, script, is_module, is_negative)
    let reference_result;
    const source_type = (is_module ? 'module' : 'script');
    try {
-      const options = {ecmaVersion: 2020, sourceType: source_type};
+      const options = {ecmaVersion: 2020, sourceType: source_type, locations: true, sourceFile: ''};
       reference_result = acorn.parse(script, options);
-      //reference_result = Tenko(script, {goalMode: source_type, ranges: true}).ast;
+      //reference_result = Tenko(script, {goalMode: source_type, loc: true, sourceField: ''}).ast;
       reference_result = JSON.parse(JSON.stringify(reference_result));
    } catch(e) {
       //console.log(e);
@@ -190,7 +190,7 @@ function test_falcon_suite_dir(suite_path, is_negative, segmented)
          readline.cursorTo(process.stdout, 0);
          if(diff !== null) {
             console.log(color.bold_red(`test262/${file_path}`));
-            console.log(JSON.stringify(diff, null, '   '));
+            //console.log(JSON.stringify(diff, null, '   '));
          }
       }
    }

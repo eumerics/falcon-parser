@@ -141,11 +141,18 @@
    #define ensure_non_annex_string()
 #endif
 
-#define initialize_node(node_type) \
+#define initialize_node(node_type) { \
    print_make_node(node_type); \
-   node->begin = current_token()->begin; \
+   token_t const* token = current_token(); \
+   node->begin = token->begin; \
+   node->location = parser_malloc(sizeof(location_t)); \
+   *node->location = (location_t) { \
+      .begin = token->location.begin, \
+      .source = token->location.source \
+   }; \
    node->type = pnt_##node_type; \
-   node->group = png_##node_type;
+   node->group = png_##node_type; \
+}
 #if defined(TEST)
    #define test_memset(p, i, n) memset(p, i, n)
 #else
@@ -162,18 +169,22 @@
    node_type##_t* node = (node_type##_t*) parser_malloc(sizeof(node_type##_t)); \
    test_memset(node, 0xff, sizeof(node_type##_t)); \
    initialize_node(node_type);
-#define complete_node() (node->end = previous_token()->end)
+#define complete_node() (node->end = previous_token()->end, node->location->end = previous_token()->location.end)
 #define completed_node() (complete_node(), node)
 #define return_node() { complete_node(); passon(node); }
 #define passon(node) { _print_parse_ascent(node); return node; }
 
-#define save_begin() char_t const* begin = current_token()->begin;
-#define save_end() char_t const* end = current_token()->end;
-#define assign_begin() node->begin = begin;
-#define assign_end() node->end = end;
-#define copy_begin(object) node->begin = ((parse_node_t*)(object))->begin;
-#define assign_begin_to(object) ((parse_node_t*)(object))->begin = begin;
-#define assign_end_to(object) ((parse_node_t*)(object))->end = end;
+#define save_begin() \
+   char_t const* begin = current_token()->begin; \
+   position_t const begin_position = current_token()->location.begin;
+#define save_end() \
+   char_t const* end = current_token()->end; \
+   position_t const end_position = current_token()->location.end;
+#define assign_begin() node->begin = begin; node->location->begin = begin_position;
+//#define assign_end() node->end = end;
+//#define copy_begin(object) node->begin = ((parse_node_t*)(object))->begin;
+//#define assign_begin_to(object) ((parse_node_t*)(object))->begin = begin;
+//#define assign_end_to(object) ((parse_node_t*)(object))->end = end;
 #define assign(property, value) node->property = value;
 #define assign_to_parent(property, value) parent->property = value;
 #define assign_operator() { \
@@ -431,15 +442,15 @@ bool retro_act_strict_mode(parse_state_t* state, parse_list_node_t* list_node)
    void* property##_##type = parse_##type(state, tree_state, arg, make_params(remove_filter, add_filter)); \
    if(property##_##type == nullptr) passon(nullptr); \
    node->property = property##_##type;
-#define _continue_with3(type, object, begin) _continue_with5(type, object, begin, NONE, NONE)
-#define _continue_with4(type, object, begin, arg) _continue_with6(type, object, begin, arg, NONE, NONE)
-#define _continue_with5(type, object, begin, remove_filter, add_filter) \
+#define _continue_with4(type, object, begin, begin_position) _continue_with6(type, object, begin, begin_position, NONE, NONE)
+#define _continue_with5(type, object, begin, begin_position, arg) _continue_with7(type, object, begin, begin_position, arg, NONE, NONE)
+#define _continue_with6(type, object, begin, begin_position, remove_filter, add_filter) \
    _print_parse_descent(type, remove_filter, add_filter); \
-   void* type = continue_with_##type(state, tree_state, object, begin, make_params(remove_filter, add_filter)); \
+   void* type = continue_with_##type(state, tree_state, object, begin, begin_position, make_params(remove_filter, add_filter)); \
    if(type == nullptr) passon(nullptr);
-#define _continue_with6(type, object, begin, arg, remove_filter, add_filter) \
+#define _continue_with7(type, object, begin, begin_position, arg, remove_filter, add_filter) \
    _print_parse_descent(type, remove_filter, add_filter); \
-   void* type = continue_with_##type(state, tree_state, object, begin, arg, make_params(remove_filter, add_filter)); \
+   void* type = continue_with_##type(state, tree_state, object, begin, begin_position, arg, make_params(remove_filter, add_filter)); \
    if(type == nullptr) passon(nullptr);
 #define _enparse1(type) _enparse3(type, NONE, NONE)
 #define _enparse2(property, type) _enparse4(property, type, NONE, NONE)
@@ -1680,6 +1691,7 @@ void* parse_class_element_list(parse_state_t* state, parse_tree_state_t* tree_st
       node_as(method_definition, method_definition, md);
       state_flags |= (md->flags & method_flag_constructor);
       md->begin = begin;
+      md->location->begin = begin_position;
       md->flags |= method_flags;
       add_to_list(method_definition);
    }
@@ -2478,7 +2490,7 @@ ImportMeta:
    import . meta
 */
 void* parse_member_expression(parse_state_t* state, parse_tree_state_t* tree_state, params_t params);
-void* continue_with_member_expression(parse_state_t* state, parse_tree_state_t* tree_state, void* object, char_t const* begin, uint8_t flag, params_t params);
+void* continue_with_member_expression(parse_state_t* state, parse_tree_state_t* tree_state, void* object, char_t const* begin, position_t const begin_position, uint8_t flag, params_t params);
 void* parse_member_only_expression(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    save_begin();
@@ -2538,10 +2550,10 @@ void* parse_member_only_expression(parse_state_t* state, parse_tree_state_t* tre
       }
       default: passon(nullptr);
    }
-   continue_with(member_expression, object, begin, flag_none);
+   continue_with(member_expression, object, begin, begin_position, flag_none);
    passon(member_expression);
 }
-void* continue_with_member_expression(parse_state_t* state, parse_tree_state_t* tree_state, void* object, char_t const* begin, uint8_t flag, params_t params)
+void* continue_with_member_expression(parse_state_t* state, parse_tree_state_t* tree_state, void* object, char_t const* begin, position_t const begin_position, uint8_t flag, params_t params)
 {
    void* property = nullptr;
    bool is_optional = (flag == optional_flag_optional);
@@ -2580,7 +2592,7 @@ void* parse_member_expression(parse_state_t* state, parse_tree_state_t* tree_sta
    save_begin();
    try(member_only_expression);
    parse(primary_expression);
-   continue_with(member_expression, primary_expression, begin, flag_none);
+   continue_with(member_expression, primary_expression, begin, begin_position, flag_none);
    passon(member_expression);
 }
 
@@ -2610,7 +2622,7 @@ CoverCallExpressionAndAsyncArrowHead:
 CallMemberExpression[Yield, Await]:
    MemberExpression[?Yield, ?Await] Arguments[?Yield, ?Await]
 */
-void* continue_with_call_expression(parse_state_t* state, parse_tree_state_t* tree_state, void* callee, char_t const* begin, uint8_t flag, params_t params);
+void* continue_with_call_expression(parse_state_t* state, parse_tree_state_t* tree_state, void* callee, char_t const* begin, position_t const begin_position, uint8_t flag, params_t params);
 void* parse_covering_call_only_expression(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    save_begin();
@@ -2627,10 +2639,10 @@ void* parse_covering_call_only_expression(parse_state_t* state, parse_tree_state
       } else {
          //[TODO] account of offending cover grammar
          if(exists('(')) {
-            continue_with(call_expression, node, begin, flag_none);
+            continue_with(call_expression, node, begin, begin_position, flag_none);
             passon(call_expression);
          } else if(exists('[') || exists('.') || exists('`')) {
-            continue_with(member_expression, node, begin, flag_none);
+            continue_with(member_expression, node, begin, begin_position, flag_none);
             passon(member_expression);
          } else {
             passon(node);
@@ -2670,7 +2682,7 @@ void* parse_call_only_expression(parse_state_t* state, parse_tree_state_t* tree_
       //passon(nullptr);
    }
 }
-void* continue_with_call_expression(parse_state_t* state, parse_tree_state_t* tree_state, void* callee, char_t const* begin, uint8_t flag, params_t params)
+void* continue_with_call_expression(parse_state_t* state, parse_tree_state_t* tree_state, void* callee, char_t const* begin, position_t const begin_position, uint8_t flag, params_t params)
 {
    make_node(call_expression);
    assign_begin();
@@ -2681,10 +2693,10 @@ void* continue_with_call_expression(parse_state_t* state, parse_tree_state_t* tr
    void* result_node = node;
    while(result_node) {
       if(exists('(')) {
-         continue_with(call_expression, result_node, begin, flag_none);
+         continue_with(call_expression, result_node, begin, begin_position, flag_none);
          result_node = call_expression;
       } else if(exists('[') || exists('.') || exists('`')) {
-         continue_with(member_expression, result_node, begin, flag_none);
+         continue_with(member_expression, result_node, begin, begin_position, flag_none);
          result_node = member_expression;
       } else {
          passon(result_node);
@@ -2697,7 +2709,7 @@ void* parse_call_expression(parse_state_t* state, parse_tree_state_t* tree_state
    save_begin();
    try(call_only_expression);
    parse(member_expression);
-   continue_with(call_expression, member_expression, begin, flag_none);
+   continue_with(call_expression, member_expression, begin, begin_position, flag_none);
    passon(call_expression);
 }
 /*
@@ -2740,19 +2752,19 @@ OptionalChain[Yield, Await]:
    OptionalChain[?Yield, ?Await] . IdentifierName
    OptionalChain[?Yield, ?Await] TemplateLiteral[?Yield, ?Await, +Tagged]
 */
-void* continue_with_optional_expression(parse_state_t* state, parse_tree_state_t* tree_state, void* left, char_t const* begin, params_t params)
+void* continue_with_optional_expression(parse_state_t* state, parse_tree_state_t* tree_state, void* left, char_t const* begin, position_t const begin_position, params_t params)
 {
    make_node(chain_expression);
    assign_begin();
    while(left != nullptr && optional(pnct_optional)) {
       uint8_t flag = optional_flag_optional;
       if(!exists('(')) {
-         continue_with(member_expression, left, begin, flag);
+         continue_with(member_expression, left, begin, begin_position, flag);
          left = member_expression;
          flag = flag_none;
       }
       if(exists('(')) {
-         continue_with(call_expression, left, begin, flag);
+         continue_with(call_expression, left, begin, begin_position, flag);
          left = call_expression;
       }
    }
@@ -2773,10 +2785,10 @@ void* parse_lhs_expression(parse_state_t* state, parse_tree_state_t* tree_state,
    try(call_only_expression);
    parse(member_expression);
    if(exists('(')) {
-      continue_with(call_expression, member_expression, begin, flag_none);
+      continue_with(call_expression, member_expression, begin, begin_position, flag_none);
       passon(call_expression);
    } else if(exists(pnct_optional)) {
-      continue_with(optional_expression, member_expression, begin);
+      continue_with(optional_expression, member_expression, begin, begin_position);
       passon(optional_expression);
    }
    passon(member_expression);
@@ -2888,6 +2900,8 @@ void* precedence_adjusted(binary_expression_t* node, bool is_right)
    node_as(parse_node, right->left, right_left);
    node->end = right_left->end;
    right->begin = node->begin;
+   node->location->end = right_left->location->end;
+   right->location->begin = node->location->begin;
    node->right = right->left;
    right->left = precedence_adjusted(node, is_right);
    //print_string("swapped\n");
@@ -2953,7 +2967,7 @@ LogicalORExpression[In, Yield, Await]:
    LogicalORExpression[?In, ?Yield, ?Await] || LogicalANDExpression[?In, ?Yield, ?Await]
 */
 void* parse_logical_expression(parse_state_t* state, parse_tree_state_t* tree_state, params_t params);
-void* continue_with_logical_expression(parse_state_t* state, parse_tree_state_t* tree_state, void* binary_expression, char_t const* begin, params_t params)
+void* continue_with_logical_expression(parse_state_t* state, parse_tree_state_t* tree_state, void* binary_expression, char_t const* begin, position_t const begin_position, params_t params)
 {
    make_node(logical_expression);
    assign_begin();
@@ -2969,7 +2983,7 @@ void* parse_logical_expression(parse_state_t* state, parse_tree_state_t* tree_st
    save_begin();
    parse(binary_expression);
    if(!exists_mask(mask_logical_ops)) passon(binary_expression);
-   continue_with(logical_expression, binary_expression, begin);
+   continue_with(logical_expression, binary_expression, begin, begin_position);
    passon(logical_expression);
 }
 
@@ -2982,7 +2996,7 @@ CoalesceExpressionHead[In, Yield, Await]:
 [NOTE] a BitwiseORExpression is not a CoalesceExpression
 */
 void* parse_coalesce_expression(parse_state_t* state, parse_tree_state_t* tree_state, params_t params);
-void* continue_with_coalesce_expression(parse_state_t* state, parse_tree_state_t* tree_state, void* binary_expression, char_t const* begin, params_t params)
+void* continue_with_coalesce_expression(parse_state_t* state, parse_tree_state_t* tree_state, void* binary_expression, char_t const* begin, position_t const begin_position, params_t params)
 {
    make_node(logical_expression);
    assign_begin();
@@ -3002,7 +3016,7 @@ void* parse_coalesce_expression(parse_state_t* state, parse_tree_state_t* tree_s
    save_begin();
    parse(binary_expression);
    if(!exists_mask(pnct_logical_coalesce)) passon(binary_expression);
-   continue_with(coalesce_expression, binary_expression, begin);
+   continue_with(coalesce_expression, binary_expression, begin, begin_position);
    passon(coalesce_expression);
 }
 
@@ -3016,10 +3030,10 @@ void* parse_short_circuit_expression(parse_state_t* state, parse_tree_state_t* t
    save_begin();
    parse(binary_expression);
    if(exists_mask(mask_logical_ops)) {
-      continue_with(logical_expression, binary_expression, begin);
+      continue_with(logical_expression, binary_expression, begin, begin_position);
       passon(logical_expression);
    } else if(exists(pnct_logical_coalesce)) {
-      continue_with(coalesce_expression, binary_expression, begin);
+      continue_with(coalesce_expression, binary_expression, begin, begin_position);
       passon(coalesce_expression);
    } else {
       passon(binary_expression);
@@ -3094,7 +3108,7 @@ Supplemental Syntax:
 */
 void* continue_with_arrow_function(
    parse_state_t* state, parse_tree_state_t* tree_state,
-   arrow_function_expression_t* node, char_t const* begin, params_t add_params, params_t params
+   arrow_function_expression_t* node, char_t const* begin, position_t const begin_position, params_t add_params, params_t params
 ){
    if(exists_newline()) passon(nullptr);
    ensure(pnct_arrow);
@@ -3220,7 +3234,7 @@ void* parse_assignment_expression(parse_state_t* state, parse_tree_state_t* tree
       }
       assign(flags, (has_async ? function_flag_async : flag_none));
       params_t add_params = (has_async ? param_flag_await : flag_none);
-      continue_with(arrow_function, node, begin, add_params);
+      continue_with(arrow_function, node, begin, begin_position, add_params);
       end_scope(state);
       passon(arrow_function);
    }
@@ -4176,6 +4190,7 @@ parse_result_t parse(char_t const* code_begin, char_t const* code_end, bool is_m
    token_t* token_begin = (token_t*) parser_malloc_impl(memory, predicted_tokens * sizeof(token_t));
    token_t* token_end = token_begin + predicted_tokens;
 #endif
+   params |= param_flag_inconsistent_lines;
    parse_state_t _state = {
       .memory = &memory_state,
       // code buffer
@@ -4189,6 +4204,8 @@ parse_result_t parse(char_t const* code_begin, char_t const* code_end, bool is_m
       .token_count = 0,
       .tokens_consumed = 0,
       // scanner flags
+      .line_number = 1,
+      .line_begin = code_begin,
       .token_flags = token_flag_begin,
       .current_token_flags = token_flag_none,
       .in_template_expression = 0,
@@ -4248,7 +4265,10 @@ parse_result_t parse(char_t const* code_begin, char_t const* code_end, bool is_m
    //printf("%p begin: %zu end: %zu\n", state.token_begin, (state.token_begin + 1)->begin, (state.token_begin + 1)->end);
    //printf("length = %d\n", program->end - program->begin);
    if(program != nullptr) {
-      program->begin = state->code_begin; program->end = state->code_end;
+      program->begin = state->code_begin;
+      program->end = state->code_end;
+      program->location->begin = (position_t){.line = 1, .column = 0};
+      program->location->end = make_position(state);
    }
    /*
    #ifdef debug

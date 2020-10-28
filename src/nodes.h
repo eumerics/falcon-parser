@@ -29,6 +29,8 @@ typedef struct {
    size_t token_count;
    size_t tokens_consumed;
    // scanner flags
+   uint32_t line_number;
+   char_t const* line_begin;
    uint8_t token_flags;
    uint8_t current_token_flags;
    uint8_t in_template_expression; // bool

@@ -38,6 +38,16 @@ typedef struct {
    size_t count;
 } cover_node_list_t;
 
+typedef struct {
+   size_t line;
+   size_t column;
+} position_t;
+typedef struct {
+   position_t begin;
+   position_t end;
+   char const* source;
+} location_t;
+
 typedef uint8_t token_id_t;
 typedef uint16_t token_group_t;
 typedef union {
@@ -68,25 +78,16 @@ typedef struct {
       uint32_t aggregated_id;
    };
    void* detail;
+   location_t location;
 } token_t;
 
-typedef struct {
-   char const* source;
-} location_t;
-
-/*
-#define embed_parse_node() \
-   location_t loc; \
-   size_t begin; \
-   size_t end; \
-   uint8_t type;
-*/
 typedef uint8_t node_type_t;
 typedef uint32_t params_t;
 
 #define embed_parse_node() \
    char_t const* begin; \
    char_t const* end; \
+   location_t* location; \
    node_type_t type; \
    uint8_t group;
 #define embed_compiled_parse_node() \
