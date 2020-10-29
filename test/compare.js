@@ -1,4 +1,5 @@
 import {Parser} from '../src/interface.js';
+import TSParser from 'web-tree-sitter';
 import Tenko from 'tenko';
 
 (async () => {
@@ -44,7 +45,7 @@ import Tenko from 'tenko';
                for(let it = 0; it < iterations; ++it) {
                   acorn_result = acorn.parse(script, options);
                }
-               const acorn_elpased = (new Date - start) / iterations;
+               const acorn_elapsed = (new Date - start) / iterations;
                const meriyah = (await import('meriyah')).default;
                //
                let meriyah_result;
@@ -52,15 +53,31 @@ import Tenko from 'tenko';
                for(let it = 0; it < iterations; ++it) {
                   meriyah_result = meriyah.parseScript(script, {loc: true});
                }
-               const meriyah_elpased = (new Date - start) / iterations;
+               const meriyah_elapsed = (new Date - start) / iterations;
                //
                let tenko_result;
                start = new Date();
                for(let it = 0; it < iterations; ++it) {
                   tenko_result = Tenko(script, {goalMode: source_type, sourceField: ''});
                }
-               const tenko_elpased = (new Date - start) / iterations;
-               console.log(elapsed, acorn_elpased, meriyah_elpased, tenko_elpased);
+               const tenko_elapsed = (new Date - start) / iterations;
+               //
+               await TSParser.init();
+               const tsparser = new TSParser;
+               const JavaScript = await TSParser.Language.load('node_modules/web-tree-sitter/tree-sitter-javascript.wasm');
+               tsparser.setLanguage(JavaScript);
+               let tsparser_result;
+               start = new Date();
+               for(let it = 0; it < iterations; ++it) {
+                  tsparser_result = tsparser.parse(script);
+               }
+               const tsparser_elapsed = (new Date - start) / iterations;
+               //
+               console.log(
+                  'falcon:', elapsed, 'acorn:', acorn_elapsed,
+                  'meriyah:', meriyah_elapsed, 'tenko:', tenko_elapsed,
+                  'tsparser:', tsparser_elapsed
+               );
             }
          } else {
             const parse_result = await parser.parse_file(args.f, is_module, params);

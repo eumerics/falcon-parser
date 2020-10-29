@@ -6,9 +6,10 @@
       "meriyah": "^2.1.1",
       "minimist": "^1.2.5",
       "tenko": "^1.1.1",
-      "test262-parser-tests": "0.0.5"
+      "test262-parser-tests": "0.0.5",
+      "web-tree-sitter": "^0.17.1"
    },
    "scripts": {
-      "postinstall": "node ../scripts/archive_test262.js"
+      "postinstall": "node ../scripts/postinstall.js"
    }
 }
