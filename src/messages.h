@@ -4,9 +4,17 @@
 char const* const unknown_token = "unknown token";
 char const* parse_token_name[256] = {unknown_token};
 
-#define define_error(id, type, message) \
-   uint16_t const error_##type##_id = id; \
-   char const* error_##type##_message = message;
+typedef struct {
+   uint16_t id;
+   char const* message;
+} parse_error_t;
+#define define_error(_id, type, _message) \
+   parse_error_t const error_##type = {.id = _id, .message = _message};
+#define set_error(x) state->parse_error = &error_##x;
+#define return_error(x, value) { set_error(x); return value; }
+#define return_set_error(x, token, value) { \
+   set_error(x); state->error_position = token->location.begin; return value; \
+}
 
 define_error(0x0001, lvalue, "assigning to non-lvalue");
 define_error(0x0006, binding_identifier, "lvalue of a binding pattern must be an identifier");

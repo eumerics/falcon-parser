@@ -24,8 +24,9 @@ const color = {
    gray: x => `\x1b[38;2;128;128;128m${x}\x1b[0m`,
 };
 
-function test_file(utf8_view, script, is_module, is_negative)
+function test_file(utf8_view, script, options)
 {
+   const {is_module, is_negative} = options;
    const parser = new Parser();
    const params = 0;
    parser.load_utf8_view(utf8_view);
@@ -35,7 +36,20 @@ function test_file(utf8_view, script, is_module, is_negative)
       program = parse_result.program;
       program = JSON.parse(JSON.stringify(program));
    } catch(e) {
-      //console.log(e);
+      if(options.error_line) {
+         const position = e.position;
+         if(options.error_line != position.line ||
+            options.error_column-1 != position.column
+         ){
+            console.log('mismatching error location', options, position);
+         } else if(options.error) {
+            const error_id = Parser.error[options.error].id;
+            if(error_id === undefined || e.id === undefined || error_id != e.id) {
+               console.log('mismatching error type', options, error_id, e.id);
+            }
+         }
+      }
+      //console.log(token.location);
    }
    let reference_result;
    const source_type = (is_module ? 'module' : 'script');
@@ -78,7 +92,8 @@ function test_test262_suite()
          const info = asarfs.getFile(adjusted_path);
          const utf8_view = disk.readFileSync(asarfs, adjusted_path, info);
          const script = utf8_view.toString();
-         const diff = test_file(utf8_view, script, is_module, is_negative);
+         const options = {is_module: is_module, is_negative: is_negative};
+         const diff = test_file(utf8_view, script, options);
          if(diff !== null) {
             console.log(color.bold_red(`test262/${suite}/${adjusted_path}`));
             console.log(script);
@@ -90,22 +105,30 @@ function test_test262_suite()
 
 function test_segmented_file(file_path, is_module, is_negative)
 {
+   let begin = 0, index = 0;
+   const options = {is_module: is_module, is_negative: is_negative};
    const utf8_view = fs.readFileSync(file_path);
    const length = utf8_view.byteLength;
    const script = utf8_view.toString();
    let test_already_failed = false;
+   function print_error(script, message) {
+      if(!test_already_failed) {
+         console.log(color.bold_red(`test262/${file_path}`));
+      }
+      const fail_color = color[(options.is_negative ? 'bright_red' : 'bright_green')];
+      console.log((options.is_module ? color.bright_blue('[module]') : color.yellow('[script]')), fail_color(script));
+      test_already_failed = true;
+      if(message) console.log(message);
+   }
+   function print_location_error() {
+      const line = utf8_view.subarray(begin, index).toString();
+      print_error(line, 'invalid error location');
+   }
    function test_script(segment_view) {
       const script = segment_view.toString();
       //console.log(script); console.log('---');
-      const diff = test_file(segment_view, script, is_module, is_negative);
-      if(diff !== null) {
-         if(!test_already_failed) {
-            console.log(color.bold_red(`test262/${file_path}`));
-         }
-         const fail_color = color[(is_negative ? 'bright_red' : 'bright_green')];
-         console.log((is_module ? color.bright_blue('[module]') : color.yellow('[script]')), fail_color(script));
-         test_already_failed = true;
-      }
+      const diff = test_file(segment_view, script, options);
+      if(diff !== null) print_error(script);
    }
    const cr = '\r'.charCodeAt(0);
    const lf = '\n'.charCodeAt(0);
@@ -114,7 +137,27 @@ function test_segmented_file(file_path, is_module, is_negative)
    const greater = '>'.charCodeAt(0);
    const question = '?'.charCodeAt(0);
    const space = ' '.charCodeAt(0);
-   let begin = 0, index = 0;
+   const at = '@'.charCodeAt(0);
+   const zero = '0'.charCodeAt(0);
+   const nine = '9'.charCodeAt(0);
+   const colon = ':'.charCodeAt(0);
+   const minus = '-'.charCodeAt(0);
+   const eat_white = () => {
+      while(++index < length && utf8_view[index] == space);
+   }
+   const until_newline = () => {
+      while(++index < length) {
+         const c = utf8_view[index];
+         if(c == cr || c == lf) break;
+      }
+   }
+   const eat_newline = () => {
+      while(index < length) {
+         const c = utf8_view[index];
+         if(c != cr && c != lf) break;
+         ++index;
+      }
+   }
    while(index < length) {
       let end = index;
       if(utf8_view[index] != slash) { ++index; continue; }
@@ -123,20 +166,37 @@ function test_segmented_file(file_path, is_module, is_negative)
       if(utf8_view[index] == lesser) {
          // older test case tag
          if(++index == length || utf8_view[index] != greater) continue;
-         ++index;
+         until_newline(); eat_newline();
+         if(begin < end) test_script(utf8_view.subarray(begin, end));
+         begin = index;
+         continue;
       } else if(utf8_view[index] == slash) {
          // ignore comments
-         while(++index < length && utf8_view[index] != cr && utf8_view[index] != lf);
+         const at_begin = (begin == end);
+         until_newline(); eat_newline();
+         if(at_begin) begin = index;
+         continue;
+      } else if(utf8_view[index] == minus) {
+         const at_begin = (begin == end);
+         eat_white(); const error_begin = index; until_newline();
+         if(index == error_begin) {
+            console.log(`invalid error tag: ${utf8_view.subarray(end, index).toString()}`);
+            return;
+         }
+         options.error = utf8_view.subarray(error_begin, index).toString();
+         eat_newline();
+         if(at_begin) begin = index;
+         continue;
       } else if(utf8_view[index] == question) {
          while(++index < length && utf8_view[index] == space);
-         is_negative = false, is_module = false;
+         options.is_negative = false, options.is_module = false;
          if(index != length && utf8_view[index] == lesser) {
             while(++index != length) {
                if(utf8_view[index] == greater) break;
                switch(utf8_view[index]) {
-                  case '+'.charCodeAt(0): is_negative = false; break;
-                  case '-'.charCodeAt(0): is_negative = true; break;
-                  case '#'.charCodeAt(0): is_module = true; break;
+                  case '+'.charCodeAt(0): options.is_negative = false; break;
+                  case '-'.charCodeAt(0): options.is_negative = true; break;
+                  case '#'.charCodeAt(0): options.is_module = true; break;
                   default: break;
                }
             }
@@ -150,6 +210,28 @@ function test_segmented_file(file_path, is_module, is_negative)
             ++index;
          }
       } else continue;
+      const parse_integer = () => {
+         let str = '';
+         while(++index < length) {
+            let c = utf8_view[index];
+            if(c < zero || c > nine) break;
+            str += String.fromCharCode(c);
+         }
+         return (str == '' ? undefined : parseInt(str));
+      }
+      while(index < length && utf8_view[index] == space) ++index;
+      let line, column;
+      delete options.error_line;
+      delete options.error_column;
+      if(utf8_view[index] == at) {
+         line = parse_integer();
+         if(line === undefined || index == length || utf8_view[index] != colon) {
+            print_location_error(); return;
+         }
+         column = parse_integer();
+         if(column === undefined) { print_location_error(); return; }
+         options.error_line = line, options.error_column = column;
+      }
       while(index != length) {
          let c = utf8_view[index];
          if(c != cr && c != lf) break;
@@ -185,7 +267,8 @@ function test_falcon_suite_dir(suite_path, is_negative, segmented)
          process.stdout.write(file_path);
          const utf8_view = fs.readFileSync(file_path);
          const script = utf8_view.toString();
-         const diff = test_file(utf8_view, script, is_module, is_negative);
+         const options = {is_module: is_module, is_negative: is_negative};
+         const diff = test_file(utf8_view, script, options);
          readline.clearLine(process.stdout);
          readline.cursorTo(process.stdout, 0);
          if(diff !== null) {
@@ -215,7 +298,8 @@ function test_falcon_suite()
       } else {
          const utf8_view = fs.readFileSync(arg.f);
          const script = utf8_view.toString();
-         const diff = test_file(utf8_view, script, is_module, is_negative);
+         const options = {is_module: is_module, is_negative: is_negative};
+         const diff = test_file(utf8_view, script, options);
          if(diff !== null) {
             console.log(color.bold_red(`${arg.f}`));
          }

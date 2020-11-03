@@ -3,6 +3,7 @@
 
 #include "memory.h"
 #include "interface.h"
+#include "messages.h"
 
 struct empty_list_t {} empty_list;
 struct error_node_t {} error_node;
@@ -12,11 +13,12 @@ typedef struct {
    // error state
    uint8_t tokenization_status;
    uint8_t parsing_status;
-   char const* error_message;
-   token_t const* error_token;
+   parse_error_t const* parse_error;
+   position_t error_position;
+   //token_t const* error_token;
    uint8_t expected_token_id;
    uint16_t expected_mask;
-   //
+   // [16]
    memory_state_t* memory;
    // code buffer
    char_t const* const code_begin;
@@ -28,7 +30,7 @@ typedef struct {
    token_t* scan_token;
    size_t token_count;
    size_t tokens_consumed;
-   // scanner flags
+   // scanner flags [52]
    uint32_t line_number;
    char_t const* line_begin;
    uint8_t token_flags;
@@ -43,7 +45,7 @@ typedef struct {
    uint32_t curly_parenthesis_level;
    uint32_t expect_statement_after_level;
    uint32_t template_parenthesis_offset;
-   // parser
+   // parser [88]
    token_t* parse_token;
    cover_node_list_t cover_node_list;
    uint32_t depth;

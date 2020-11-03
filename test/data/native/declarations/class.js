@@ -1,3 +1,4 @@
+class a { constructor(){ super(); } } //? <-> @1:26
 /// empty declarations
 class a {} //? <+>
 class a {;} //? <+>
@@ -5,12 +6,13 @@ class a { ''(){} } //? <+^>
 class a extends b {} //? <+>
 
 /// class declarations are always in strict mode
-class eval {} //? <->
-class arguments {} //? <->
+//- eval_args_in_strict_mode
+class eval {} //? <-> @1:7
+class arguments {} //? <-> @1:7
 class a extends eval {} //? <+>
 class a extends arguments {} //? <+>
-class a extends eval = b {} //? <->
-class a extends arguments = b {} //? <->
+///class a extends eval = b {} //? <-> @1:22
+///class a extends arguments = b {} //? <-> @1:27
 
 /// constructors
 class a { constructor(){} } //? <+>
@@ -21,35 +23,37 @@ class a { static get constructor(){} } //? <+>
 class a { static set constructor(b){} } //? <+>
 
 /// early errors
-class a { constructor(){ super(); } } //? <->
-class a extends b { c(){ super(); } } //? <->
-///
-class a { constructor(){} constructor(){} } //? <->
-class a { constructor(){} 'constructor'(){} } //? <->
+//- misplaced_super_call
+class a { constructor(){ super(); } } //? <-> @1:26
+class a extends b { c(){ super(); } } //? <-> @1:26
+//- duplicate_constructor
+class a { constructor(){} constructor(){} } //? <-> @1:27
+class a { constructor(){} 'constructor'(){} } //? <-> @1:27
 class a { constructor(){} ['constructor'](){} } //? <+>
+//- invalid_constructor
+class a { * constructor(){} } //? <-> @1:13
+class a { async constructor(){} } //? <-> @1:17
+class a { async* constructor(){} } //? <-> @1:18
+class a { get constructor(){} } //? <-> @1:15
+class a { set constructor(b){} } //? <-> @1:15
 ///
-class a { * constructor(){} } //? <->
-class a { async constructor(){} } //? <->
-class a { async* constructor(){} } //? <->
-class a { get constructor(){} } //? <->
-class a { set constructor(b){} } //? <->
-///
-class a { * 'constructor'(){} } //? <->
-class a { async 'constructor'(){} } //? <->
-class a { async* 'constructor'(){} } //? <->
-class a { get 'constructor'(){} } //? <->
-class a { set 'constructor'(b){} } //? <->
+class a { * 'constructor'(){} } //? <-> @1:13
+class a { async 'constructor'(){} } //? <-> @1:17
+class a { async* 'constructor'(){} } //? <-> @1:18
+class a { get 'constructor'(){} } //? <-> @1:15
+class a { set 'constructor'(b){} } //? <-> @1:15
 ///
 class a { * ['constructor'](){} } //? <+>
 class a { async ['constructor'](){} } //? <+>
 class a { async* ['constructor'](){} } //? <+>
 class a { get ['constructor'](){} } //? <+>
 class a { set ['constructor'](b){} } //? <+>
-///
-class a { static b(){ super(); } } //? <->
-class a { static prototype(){} } //? <->
-class a { static get prototype(){} } //? <->
-class a { static set prototype(b){} } //? <->
+//- misplaced_super_call
+class a { static b(){ super(); } } //? <-> @1:23
+//- static_prototype
+class a { static prototype(){} } //? <-> @1:18
+class a { static get prototype(){} } //? <-> @1:22
+class a { static set prototype(b){} } //? <-> @1:22
 class a { static ['prototype'](){} } //? <+>
 class a { static get ['prototype'](){} } //? <+>
 class a { static set ['prototype'](b){} } //? <+>
@@ -59,6 +63,7 @@ class a { set prototype(b){} } //? <+>
 
 /// method definitions
 ///   regular methods
+class a { b(){} } //? <+>
 class a { b(c){} } //? <+>
 class a { 'a'(b, c){} } //? <+>
 class a { [b](...c){} } //? <+>
@@ -170,3 +175,8 @@ class a { async* static(){} } //? <+>
 class a { get static(){} } //? <+>
 class a { set static(b){} } //? <+>
 class a { static static(){} } //? <+>
+
+/// derivation
+class a extends b.c {} //? <+>
+class a extends (b) {} //? <+>
+class a extends function(){} {} //? <+>

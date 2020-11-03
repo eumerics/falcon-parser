@@ -486,7 +486,7 @@ bool retro_act_strict_mode(parse_state_t* state, parse_list_node_t* list_node)
    size_t const type##_tokens_consumed = state->tokens_consumed; \
    _print_parse_descent(type, remove_filter, add_filter); \
    void* type = parse_##type(state, tree_state, make_params(remove_filter, add_filter)); \
-   if(type == nullptr && state->tokens_consumed != type##_tokens_consumed) { \
+   if(type == errptr || type == nullptr && state->tokens_consumed != type##_tokens_consumed) { \
       passon(nullptr); \
    }
 #define _try_parse1(type) _try_parse3(type, NONE, NONE)
@@ -1549,9 +1549,11 @@ method_definition_t* parse_method_only_definition(parse_state_t* state, parse_tr
    if((params & CLASS) && !(property_flags & property_flag_computed)) {
       if(state_flags & method_flag_static){
          if(property_key_is(prototype, node)){
+            state->error_position = previous_token()->location.begin;
             return_error(static_prototype, nullptr);
          }
       } else if(property_key_is(constructor, node)) {
+         state->error_position = previous_token()->location.begin;
          return_error(invalid_constructor, nullptr);
       }
    }
@@ -1599,11 +1601,12 @@ method_definition_t* parse_method_definition(parse_state_t* state, parse_tree_st
       if((params & CLASS) && !computed){
          if(state_flags & method_flag_static){
             if(property_key_is(prototype, node)) {
+               state->error_position = previous_token()->location.begin;
                return_error(static_prototype, nullptr);
             }
          } else if(property_key_is(constructor, node)) {
             if(state_flags & method_flag_constructor) {
-               return_error(duplicate_constructor, nullptr);
+               return_set_error(duplicate_constructor, previous_token(), nullptr);
             }
             kind = property_kind_constructor;
             flags |= method_flag_constructor;
@@ -2502,10 +2505,10 @@ void* parse_member_only_expression(parse_state_t* state, parse_tree_state_t* tre
          ensure_word(super);
          object = completed_node();
          if(!exists('[') && !exists('.')) {
-            state->error_token = previous_token();
+            state->error_position = previous_token()->location.begin;
             return_error(standalone_super, nullptr);
          } else if(!(params & METHOD)) {
-            state->error_token = previous_token();
+            state->error_position = previous_token()->location.begin;
             return_error(misplaced_super_property, nullptr);
          }
          break;
@@ -2515,7 +2518,7 @@ void* parse_member_only_expression(parse_state_t* state, parse_tree_state_t* tre
             make_node(meta_property);
             parse(meta, identifier_name);
             if(!(params & param_flag_function)) {
-               state->error_token = previous_token();
+               state->error_position = previous_token()->location.begin;
                return_error(new_meta, nullptr);
             }
             ensure('.');
@@ -2539,7 +2542,7 @@ void* parse_member_only_expression(parse_state_t* state, parse_tree_state_t* tre
          make_node(meta_property);
          parse(meta, identifier_name);
          if(!(params & param_flag_module)) {
-            state->error_token = previous_token();
+            state->error_position = previous_token()->location.begin;
             return_error(import_in_non_module, nullptr);
          }
          expect('.');
@@ -2654,12 +2657,9 @@ void* parse_covering_call_only_expression(parse_state_t* state, parse_tree_state
 void* parse_call_only_expression(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    if(exists_word(super)) {
-      if(!exists_ahead('(')) {
-         state->error_token = previous_token();
-         return_error(standalone_super, nullptr);
-      } else if(!(params & DERIVED) || !(params & CONSTR)) {
-         state->error_token = previous_token();
-         return_error(misplaced_super_call, nullptr);
+      if(!exists_ahead('(')) { passon(nullptr); }
+      if(!(params & DERIVED) || !(params & CONSTR)) {
+         return_error(misplaced_super_call, errptr);
       }
       make_node(call_expression);
       {
@@ -4232,7 +4232,7 @@ parse_result_t parse(char_t const* code_begin, char_t const* code_end, bool is_m
       // error state
       .tokenization_status = status_flag_incomplete,
       .parsing_status = status_flag_incomplete,
-      .error_message = nullptr,
+      .parse_error = nullptr,
       .expected_token_id = 0,
       .expected_mask = 0,
    };
@@ -4276,8 +4276,8 @@ parse_result_t parse(char_t const* code_begin, char_t const* code_end, bool is_m
       char_t const* begin = state.parse_token->begin;
       int length = state.parse_token->end - begin;
       printf("\nparsing failed at character index %zu %.*s\n", begin, length, state.buffer + begin);
-      if(state.error_message != nullptr) {
-         printf("%s\n", state.error_message);
+      if(state.parse_error != nullptr) {
+         printf("%s\n", state.parse_error->message);
       }
       printf("token found: %x %x %c\n", state.parse_token->id, state.parse_token->group, state.parse_token->id);
       printf("token expected: %x %c\n", state.expected_token_id, state.expected_token_id);

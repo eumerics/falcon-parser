@@ -181,8 +181,8 @@ int main(int argc, char* argv[])
                      } else {
                         printf(color_bold_red("tokenization failed") "\n");
                      }
-                     if(result.state.error_message != nullptr) {
-                        printf(color_bold_red("%s") "\n", result.state.error_message);
+                     if(result.state.parse_error != nullptr) {
+                        printf(color_bold_red("%s") "\n", result.state.parse_error->message);
                      }
                      char_t const* begin = result.state.parse_token->begin;
                      int length = result.state.parse_token->end - begin;

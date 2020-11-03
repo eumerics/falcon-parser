@@ -351,17 +351,7 @@ export class Node {
    set end(value) { this.buffer_view.u32[this.pointer/4 + 1] = Parser.char_bytes * value + this.buffer_view.code.pointer; }
    get loc() {
       const location_pointer = this.buffer_view.u32[(this.pointer + 8)/4];
-      if(location_pointer == 0) return undefined;
-      const begin_line = this.buffer_view.u32[(location_pointer + 0)/4];
-      const begin_column = this.buffer_view.u32[(location_pointer + 4)/4];
-      const end_line = this.buffer_view.u32[(location_pointer + 8)/4];
-      const end_column = this.buffer_view.u32[(location_pointer + 12)/4];
-      const source_pointer = this.buffer_view.u32[(location_pointer + 16)/4];
-      return {
-         start: {line: begin_line, column: begin_column},
-         end: {line: end_line, column: end_column},
-         source: ''
-      };
+      return make_location(this.buffer_view, location_pointer);
    }
 
    toJSON() {
@@ -687,6 +677,19 @@ const env = {
    }
 }
 
+function make_location(buffer_view, location_pointer) {
+   if(location_pointer == 0) return undefined;
+   const begin_line = buffer_view.u32[(location_pointer + 0)/4];
+   const begin_column = buffer_view.u32[(location_pointer + 4)/4];
+   const end_line = buffer_view.u32[(location_pointer + 8)/4];
+   const end_column = buffer_view.u32[(location_pointer + 12)/4];
+   const source_pointer = buffer_view.u32[(location_pointer + 16)/4];
+   return {
+      start: {line: begin_line, column: begin_column},
+      end: {line: end_line, column: end_column},
+      source: ''
+   };
+}
 export class Token {
    constructor(buffer_view, pointer) {
       Object.defineProperties(this, {
@@ -696,6 +699,31 @@ export class Token {
    }
    get begin() { return this.buffer_view.u32[this.pointer / sizeof.u32]; }
    get end() { return this.buffer_view.u32[this.pointer / sizeof.u32 + 1]; }
+   get location() {
+      const location_pointer = this.pointer + 16;
+      return make_location(this.buffer_view, location_pointer);
+   }
+}
+export class Parse_Error {
+   constructor(buffer_view, pointer) {
+      Object.defineProperties(this, {
+         buffer_view: {value: buffer_view, configurable: true},
+         pointer: {value: pointer},
+      });
+   }
+   get id() {
+      const prop_offset = (this.pointer + 0) / sizeof.u16;
+      return this.buffer_view.u16[prop_offset];
+   }
+   get message() {
+      const prop_offset = (this.pointer + 4) / sizeof.u32;
+      const error_message_pointer = this.buffer_view.u32[prop_offset];
+      const length = cstring_length(this.buffer_view.u08, error_message_pointer);
+      if(length >= 512) return 'error message is too long';
+      return Parser.utf8_decoder.decode(
+         this.buffer_view.u08.subarray(error_message_pointer, error_message_pointer + length)
+      );
+   }
 }
 export class Parse_Result {
    constructor(buffer_view, pointer) {
@@ -716,29 +744,40 @@ export class Parse_Result {
       this._program = new Program(this.buffer_view, program_pointer);
       return this._program;
    }
-   get parse_token() {
-      const prop_offset = (this.pointer + 76) / sizeof.u32;
-      return new Token(this.buffer_view, this.buffer_view.u32[prop_offset]);
-   }
    get tokenization_status() {
       return this.buffer_view.u08[this.pointer + 4];
    }
    get parsing_status() {
       return this.buffer_view.u08[this.pointer + 5];
    }
-   get error_mesage() {
+   get parse_error() {
       const prop_offset = (this.pointer + 8) / sizeof.u32;
-      const error_message_pointer = this.buffer_view.u32[prop_offset];
-      if(error_message_pointer == 0) return '';
-      const length = cstring_length(this.buffer_view.u08, error_message_pointer);
-      if(length >= 512) return 'error message is too long';
-      return utf8_decoder.decode(this.buffer_view.u08.subarray(error_message_pointer, length));
+      const error_pointer = this.buffer_view.u32[prop_offset];
+      if(error_pointer == 0) return undefined;
+      return new Parse_Error(this.buffer_view, error_pointer);
+   }
+   /*
+   get error_token() {
+      const prop_offset = (this.pointer + 12) / sizeof.u32;
+      const error_token_pointer = this.buffer_view.u32[prop_offset];
+      if(error_token_pointer == 0) return undefined;
+      return new Token(this.buffer_view, error_token_pointer);
+   }
+   */
+   get error_position() {
+      const line = this.buffer_view.u32[(this.pointer + 12)/4];
+      const column = this.buffer_view.u32[(this.pointer + 16)/4];
+      return {line: line, column: column};
    }
    get expected_token_id() {
-      return this.buffer_view.u08[this.pointer + 12];
+      return this.buffer_view.u08[this.pointer + 20];
    }
    get expected_token_mask() {
-      return this.buffer_view.u16[(this.pointer + 14) / sizeof.u16];
+      return this.buffer_view.u16[(this.pointer + 22) / sizeof.u16];
+   }
+   get parse_token() {
+      const prop_offset = (this.pointer + 96) / sizeof.u32;
+      return new Token(this.buffer_view, this.buffer_view.u32[prop_offset]);
    }
 }
 export class Parser {
@@ -768,6 +807,15 @@ export class Parser {
       shared_memory.set(code_uint8_view, index);
       this.code = {pointer: index, view: code_view, utf8_view: code_utf8_view};
    }
+   print_error_message(error) {
+      if(error.message) {
+         console.error(error.message);
+      } else if(error.expected_token_id) {
+         console.error(`expecting token id ${error.expected_token_id}`);
+      } else {
+         console.error(`unexpected token at character index ${index}`)
+      }
+   }
    parse_code(is_module, params) {
       let result_size = 4096; //[BUG] large enough for now to not worry about actual size
       let result_pointer = Parser.instance.exports.malloc(result_size);
@@ -776,6 +824,7 @@ export class Parser {
       //let result = new Uint32Array(Parser.memory.buffer, result_pointer, result_size/4);
       //this.parse_result = {value: result, pointer: result_pointer};
       let buffer = Parser.memory.buffer;
+      Parser.update_buffer_view();
       let buffer_view = {
          buffer: buffer,
          u08: new Uint8Array(buffer),
@@ -787,12 +836,17 @@ export class Parser {
       if(this.parse_result.tokenization_status != Parser.constants.status_flag_complete ||
          this.parse_result.parsing_status != Parser.constants.status_flag_complete
       ){
-         let error_message = this.parse_result.error_message;
-         if(error_message) throw error_message;
-         let expected_token_id = this.parse_result.expected_token_id;
-         if(expected_token_id) throw `expecting token id ${expected_token_id}`;
-         const index = this.parse_result.parse_token.begin;
-         throw `unexpected token at character index ${index}`;
+         let error = {};
+         let parse_error = this.parse_result.parse_error;
+         if(parse_error) {
+            error.id = parse_error.id;
+            error.message = parse_error.message;
+         }
+         let position = this.parse_result.error_position;
+         if(position.line == 0) position = this.parse_result.parse_token.location.start;
+         error.position = position;
+         error.expected_token_id = this.parse_result.expected_token_id;
+         throw error;
       }
       return this.parse_result;
    }
@@ -807,11 +861,22 @@ export class Parser {
       Parser.instance.exports.wasm_free(this.parse_result.parse_result_pointer);
    }
 
+   static update_buffer_view() {
+      const buffer = Parser.memory.buffer;
+      Object.assign(Parser.buffer_view, {
+         buffer: buffer,
+         u08: new Uint8Array(buffer),
+         u16: new Uint16Array(buffer),
+         u32: new Uint32Array(buffer),
+      });
+   }
    static async load_wasm(path) {
       const bytes = await read_file(path);
       const wasm = await WebAssembly.instantiate(bytes, {env: env});
       Parser.instance = wasm.instance;
       Parser.memory = Parser.instance.exports.memory;
+      Parser.buffer_view = {};
+      Parser.update_buffer_view();
       Parser.map_constants();
       Parser.use_utf16 = !!Parser.constants.has_flag_utf16;
       Parser.char_bytes = (Parser.use_utf16 ? 2 : 1);
@@ -821,6 +886,7 @@ export class Parser {
       Parser.complete_interface_definitions();
    }
    static map_constants() {
+      Parser.error = {};
       Parser.constants = {};
       const array08 = new Uint8Array(Parser.instance.exports.memory.buffer);
       const array32 = new Uint32Array(Parser.instance.exports.memory.buffer);
@@ -837,6 +903,10 @@ export class Parser {
             } else {
                Parser.constants[key] = array08[Parser.instance.exports[key].value];
             }
+         } else if(key.startsWith('error_')) {
+            const error_pointer = Parser.instance.exports[key].value;
+            const error_name = key.replace(/^error_/, '');
+            Parser.error[error_name] = new Parse_Error(Parser.buffer_view, error_pointer);
          }
       }
       Parser.punctuators = {

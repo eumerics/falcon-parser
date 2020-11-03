@@ -11,8 +11,6 @@
 #include "unicode/id_start.h"
 #include "unicode/id_continue.h"
 
-#define set_error(x) state->error_message = error_##x##_message;
-#define return_error(x, value) { set_error(x); return value; }
 #define in_strict_mode() (params & param_flag_strict_mode)
 #define to_loose_mode() (params = (params & ~param_flag_strict_mode) | param_flag_loose_mode)
 #define to_strict_mode() (params = (params & ~param_flag_loose_mode) | param_flag_strict_mode)
@@ -118,7 +116,7 @@ uint32_t compile_unicode_code_point(parse_state_t* state, int for_identifier)
    uint32_t value;
    if(*state->code == '\\') {
       value = compile_unicode_escape_sequence(state, for_identifier);
-      if(state->error_message) return 0;
+      if(state->parse_error) return 0;
    } else {
       value = *state->code++;
    }
@@ -138,7 +136,7 @@ uint32_t compile_unicode_code_point(parse_state_t* state, int for_identifier)
       uint32_t trailing_value;
       if(*state->code == '\\') {
          trailing_value = compile_unicode_escape_sequence(state, for_identifier);
-         if(state->error_message) return 0;
+         if(state->parse_error) return 0;
       } else if(state->code < state->code_end){
          trailing_value = *state->code++;
       } else {
@@ -171,7 +169,7 @@ inline_spec int scan_unicode_identifier_start_helper(parse_state_t* state, char_
    if(!(c == '\\' || (c & 0xffffff80))) return 0;
    uint32_t value = compile_unicode_code_point(state, 1);
    //print_number(value);
-   if(state->error_message) return 0;
+   if(state->parse_error) return 0;
    if(!is_unicode_id_start(value)) {
       state->code = begin; return 0;
    }
@@ -201,7 +199,7 @@ inline_spec int scan_unicode_identifier_continue_helper(parse_state_t* state, ch
    char_t const* const begin = state->code;
    if(!(c == '\\' || (c & 0xffffff80))) return 0;
    uint32_t value = compile_unicode_code_point(state, 1);
-   if(state->error_message) return 0;
+   if(state->parse_error) return 0;
    //print_number(value);
    // ZWNJ: 0x200c, ZWJ: 0x200d
    if(value == 0x200c || value == 0x200d || is_unicode_id_continue(value)) {
@@ -1340,7 +1338,7 @@ int scan_identifier(parse_state_t* const state, params_t params)
       has_escape_sequence |= (*state->code == '\\');
       if(!scan_identifier_continue(*state->code)) {
          if(can_continue && !has_continuation) { return 0; }
-         if(state->error_message) return 0;
+         if(state->parse_error) return 0;
          break;
       }
       has_continuation = 1;
@@ -1451,7 +1449,7 @@ int scan_uncommon(parse_state_t* state, params_t params)
    if(c == '\\' || (c & 0xffffff80)) {
       //if_debug(print_string("continuing identifier\n"));
       if(scan_identifier(state, params)) return 1;
-      if(state->error_message) return 0;
+      if(state->parse_error) return 0;
    }
    if(c == line_separator || c == paragraph_separator) {
       //if_debug(print_string("continuing newline\n"));
@@ -1603,7 +1601,7 @@ wasm_export void tokenize(parse_state_t* const state, uint32_t params)
    while(state->code < code_end && (result = scan(state, 0, params)));
    if(result == 0) {
       if_debug(print_string("tokenization failed\n"););
-      if_debug(if(state->error_message) print_string(state->error_message););
+      if_debug(if(state->parse_error) print_string(state->parse_error->message););
       state->tokenization_status = status_flag_failed;
       //printf("\nparse failed at %ld\n", string - begin);
    } else {
