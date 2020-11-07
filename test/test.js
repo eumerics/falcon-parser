@@ -41,11 +41,14 @@ function test_file(utf8_view, script, options)
          if(options.error_line != position.line ||
             options.error_column-1 != position.column
          ){
-            console.log('mismatching error location', options, position);
+            print_error('mismatching error location', script, options);
+            console.log(options, position);
          } else if(options.error) {
+            //console.log('error', options.error);
             const error_id = Parser.error[options.error].id;
             if(error_id === undefined || e.id === undefined || error_id != e.id) {
-               console.log('mismatching error type', options, error_id, e.id);
+               print_error('mismatching error type', script, options);
+               console.log(options, error_id, e.id);
             }
          }
       }
@@ -103,32 +106,33 @@ function test_test262_suite()
    }
 }
 
+function print_error(message, script, options) {
+   if(!options.has_failed) {
+      console.log(color.bold_red(`${options.file_path}`));
+   }
+   const fail_color = color[(options.is_negative ? 'bright_red' : 'bright_green')];
+   console.log((options.is_module ? color.bright_blue('[module]') : color.yellow('[script]')), fail_color(script));
+   options.has_failed = true;
+   if(message) console.log(message);
+}
+
 function test_segmented_file(file_path, is_module, is_negative)
 {
    let begin = 0, index = 0;
-   const options = {is_module: is_module, is_negative: is_negative};
+   const global_options = {error: undefined};
+   const options = {is_module: is_module, is_negative: is_negative, has_failed: false, file_path: file_path};
    const utf8_view = fs.readFileSync(file_path);
    const length = utf8_view.byteLength;
    const script = utf8_view.toString();
-   let test_already_failed = false;
-   function print_error(script, message) {
-      if(!test_already_failed) {
-         console.log(color.bold_red(`test262/${file_path}`));
-      }
-      const fail_color = color[(options.is_negative ? 'bright_red' : 'bright_green')];
-      console.log((options.is_module ? color.bright_blue('[module]') : color.yellow('[script]')), fail_color(script));
-      test_already_failed = true;
-      if(message) console.log(message);
-   }
    function print_location_error() {
       const line = utf8_view.subarray(begin, index).toString();
-      print_error(line, 'invalid error location');
+      print_error('invalid error location', line, options);
    }
    function test_script(segment_view) {
       const script = segment_view.toString();
       //console.log(script); console.log('---');
       const diff = test_file(segment_view, script, options);
-      if(diff !== null) print_error(script);
+      if(diff !== null) print_error(undefined, script, options);
    }
    const cr = '\r'.charCodeAt(0);
    const lf = '\n'.charCodeAt(0);
@@ -150,14 +154,25 @@ function test_segmented_file(file_path, is_module, is_negative)
          const c = utf8_view[index];
          if(c == cr || c == lf) break;
       }
-   }
+   };
    const eat_newline = () => {
       while(index < length) {
          const c = utf8_view[index];
          if(c != cr && c != lf) break;
          ++index;
       }
-   }
+   };
+   const read_error = (is_global) => {
+      const error_begin = index;
+      until_newline();
+      if(index == error_begin) {
+         print_error(`invalid error tag: ${utf8_view.subarray(end, index).toString()}`, script, options);
+         return 0;
+      }
+      options.error = utf8_view.subarray(error_begin, index).toString();
+      if(is_global) global_options.error = options.error;
+      return 1;
+   };
    while(index < length) {
       let end = index;
       if(utf8_view[index] != slash) { ++index; continue; }
@@ -178,18 +193,17 @@ function test_segmented_file(file_path, is_module, is_negative)
          continue;
       } else if(utf8_view[index] == minus) {
          const at_begin = (begin == end);
-         eat_white(); const error_begin = index; until_newline();
-         if(index == error_begin) {
-            console.log(`invalid error tag: ${utf8_view.subarray(end, index).toString()}`);
-            return;
-         }
-         options.error = utf8_view.subarray(error_begin, index).toString();
+         eat_white();
+         if(!read_error(true)) return;
          eat_newline();
          if(at_begin) begin = index;
          continue;
       } else if(utf8_view[index] == question) {
          while(++index < length && utf8_view[index] == space);
          options.is_negative = false, options.is_module = false;
+         options.can_exclude = false, options.is_pedantic = false;
+         options.use_annex = false;
+         options.error = global_options.error;
          if(index != length && utf8_view[index] == lesser) {
             while(++index != length) {
                if(utf8_view[index] == greater) break;
@@ -197,14 +211,14 @@ function test_segmented_file(file_path, is_module, is_negative)
                   case '+'.charCodeAt(0): options.is_negative = false; break;
                   case '-'.charCodeAt(0): options.is_negative = true; break;
                   case '#'.charCodeAt(0): options.is_module = true; break;
+                  case '^'.charCodeAt(0): options.can_exclude = true; break;
+                  case '?'.charCodeAt(0): options.is_pedantic = true; break;
+                  case '&'.charCodeAt(0): options.use_annex = false; break;
                   default: break;
                }
             }
             if(index == length) {
-               if(!test_already_failed) {
-                  console.log(color.bold_red(`test262/${file_path}`));
-               }
-               console.log(`invalid test tag: ${utf8_view.subarray(end, index).toString()}`);
+               print_error(`invalid test tag: ${utf8_view.subarray(end, index).toString()}`, script, options);
                return;
             }
             ++index;
@@ -219,6 +233,7 @@ function test_segmented_file(file_path, is_module, is_negative)
          }
          return (str == '' ? undefined : parseInt(str));
       }
+      // read error location
       while(index < length && utf8_view[index] == space) ++index;
       let line, column;
       delete options.error_line;
@@ -231,7 +246,13 @@ function test_segmented_file(file_path, is_module, is_negative)
          column = parse_integer();
          if(column === undefined) { print_location_error(); return; }
          options.error_line = line, options.error_column = column;
+         while(index < length && utf8_view[index] == space) ++index;
       }
+      if(utf8_view[index] == minus) {
+         ++index;
+         if(!read_error()) return;
+      }
+      if(options.error == 'default') delete options.error;
       while(index != length) {
          let c = utf8_view[index];
          if(c != cr && c != lf) break;

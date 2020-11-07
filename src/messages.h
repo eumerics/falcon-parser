@@ -12,8 +12,16 @@ typedef struct {
    parse_error_t const error_##type = {.id = _id, .message = _message};
 #define set_error(x) state->parse_error = &error_##x;
 #define return_error(x, value) { set_error(x); return value; }
-#define return_set_error(x, token, value) { \
-   set_error(x); state->error_position = token->location.begin; return value; \
+#define return_location_error(x, location, value) { \
+   location_t const* _location = location; \
+   if(_location) state->error_position = _location->begin; \
+   return_error(x, value); \
+}
+#define return_node_error(x, node, value) { \
+   return_location_error(x, ((parse_node_t*)(node))->location, value); \
+}
+#define return_token_error(x, token, value) { \
+   return_location_error(x, &(token->location), value); \
 }
 
 define_error(0x0001, lvalue, "assigning to non-lvalue");
@@ -83,6 +91,8 @@ define_error(0x003b, yield_await_in_arrow_params, "yield or arrow expression in 
 define_error(0x003c, duplicate_prototype, "duplicate __proto__ property");
 define_error(0x003d, duplicate_regexp_flag, "duplicate regular expression flag");
 define_error(0x003e, invalid_regexp_flag, "invalid regular expression flag");
+define_error(0x003f, annex_numeral, "numeric literals cannot start with 0 in strcit mode");
+define_error(0x0040, expecting_of, "expecting 'of' token in a for-of statement");
 
 define_error(0x1000, missing_assignment_or_binding_flag,
    "internal-error: change flags must have one of assignment or binding flag"

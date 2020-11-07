@@ -85,5 +85,4 @@ void parser_free(parse_state_t* state)
    state->memory->page_count = 0;
 }
 
-#include "scope.h"
 #endif //_NODES_H_

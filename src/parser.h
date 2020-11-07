@@ -72,6 +72,8 @@
 #define enable_pending_regexp_context() \
    if(state->tokenization_status & status_flag_pending) state->in_regexp_context = 1;
 
+#include "scope.h"
+
 //#define consume_token() (++state->parse_token)
 #define consume_token() ( \
    ++state->tokens_consumed, \
@@ -364,15 +366,15 @@ inline_spec bool _property_key_is(parse_state_t* state, property_t* property, ch
 #define assert_unique_scope() if(!is_scope_unique(state)) return nullptr;
 #define assert_lexical_uniqueness(_node, binding_flag, symbol_type) \
    if(!insert_symbol(state, (compiled_parse_node_t*)(_node), binding_flag, symbol_type, params)) { \
-      return_error(duplicate_symbol, nullptr); \
+      return_token_error(duplicate_symbol, previous_token(), nullptr); \
    }
 #define assert_label_uniqueness(_node) \
    if(!insert_label(state, (compiled_parse_node_t*)(_node), params)) { \
-      return_error(duplicate_label, nullptr); \
+      return_token_error(duplicate_label, previous_token(), nullptr); \
    }
 #define assert_export_uniqueness(_node) \
    if(!add_symbol(state, state->export_symbol_table, (compiled_parse_node_t*)(_node), NONE, NONE)) { \
-      return_error(duplicate_export, nullptr); \
+      return_token_error(duplicate_export, previous_token(), nullptr); \
    }
 bool is_reserved_symbol(parse_state_t* state, compiled_parse_node_t const* const symbol_node)
 {
@@ -390,7 +392,7 @@ bool is_reserved_symbol(parse_state_t* state, compiled_parse_node_t const* const
 }
 #define validate_strict_mode() \
    if(state->current_scope_list_node->scope->type & scope_flag_non_strict) { \
-      return_error(invalid_strict_mode, nullptr); \
+      return_token_error(invalid_strict_mode, directive_token, nullptr); \
    }
 bool retro_act_strict_mode(parse_state_t* state, parse_list_node_t* list_node)
 {
@@ -1549,12 +1551,10 @@ method_definition_t* parse_method_only_definition(parse_state_t* state, parse_tr
    if((params & CLASS) && !(property_flags & property_flag_computed)) {
       if(state_flags & method_flag_static){
          if(property_key_is(prototype, node)){
-            state->error_position = previous_token()->location.begin;
-            return_error(static_prototype, nullptr);
+            return_token_error(static_prototype, previous_token(), nullptr);
          }
       } else if(property_key_is(constructor, node)) {
-         state->error_position = previous_token()->location.begin;
-         return_error(invalid_constructor, nullptr);
+         return_token_error(invalid_constructor, previous_token(), nullptr);
       }
    }
    {
@@ -1601,12 +1601,11 @@ method_definition_t* parse_method_definition(parse_state_t* state, parse_tree_st
       if((params & CLASS) && !computed){
          if(state_flags & method_flag_static){
             if(property_key_is(prototype, node)) {
-               state->error_position = previous_token()->location.begin;
-               return_error(static_prototype, nullptr);
+               return_token_error(static_prototype, previous_token(), nullptr);
             }
          } else if(property_key_is(constructor, node)) {
             if(state_flags & method_flag_constructor) {
-               return_set_error(duplicate_constructor, previous_token(), nullptr);
+               return_token_error(duplicate_constructor, previous_token(), nullptr);
             }
             kind = property_kind_constructor;
             flags |= method_flag_constructor;
@@ -1718,7 +1717,8 @@ void* parse_class_body_container(parse_state_t* state, parse_tree_state_t* tree_
 void* parse_class_declaration(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    make_node(class_declaration);
-   expect_word(class); params |= STRICT;
+   params |= STRICT;
+   expect_word(class);
    if((params & param_flag_default) && !exists_mask(mask_identifier)) {
       assign(id, nullptr);
    } else {
@@ -1739,7 +1739,8 @@ void* parse_class_declaration(parse_state_t* state, parse_tree_state_t* tree_sta
 void* parse_class_expression(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    make_node(class_expression);
-   expect_word(class); params |= STRICT;
+   params |= STRICT;
+   expect_word(class);
    if(exists_mask(mask_identifier)) {
       parse(id, binding_identifier);
    } else {
@@ -2076,7 +2077,7 @@ void* parse_object_literal(parse_state_t* state, parse_tree_state_t* tree_state,
          parse(key, property_name);
          if(optional(':')) {
             if(!is_computed && (params & param_flag_annex) && property_key_is(__proto__, node)) {
-               if(has_prototype) { return_error(duplicate_prototype, nullptr); }
+               if(has_prototype) { return_node_error(duplicate_prototype, node->key, nullptr); }
                has_prototype = true;
             }
             parse(value, assignment_expression, NONE, IN);
@@ -2347,7 +2348,8 @@ void* parse_covering_parenthesized_expression(parse_state_t* state, parse_tree_s
    } else {
       // [TODO] reuse memory used for expression list
       if(hoisting_scope->first_yield_or_await) {
-         return_error(yield_await_in_arrow_params, nullptr);
+         location_t const* location = node_as(parse_node, hoisting_scope->first_yield_or_await)->location;
+         return_location_error(yield_await_in_arrow_params, location, nullptr);
       }
       if(count != 0) {
          uint8_t change_flags = change_flag_array_binding | change_flag_loose_binding;
@@ -2505,11 +2507,9 @@ void* parse_member_only_expression(parse_state_t* state, parse_tree_state_t* tre
          ensure_word(super);
          object = completed_node();
          if(!exists('[') && !exists('.')) {
-            state->error_position = previous_token()->location.begin;
-            return_error(standalone_super, nullptr);
+            return_token_error(standalone_super, previous_token(), nullptr);
          } else if(!(params & METHOD)) {
-            state->error_position = previous_token()->location.begin;
-            return_error(misplaced_super_property, nullptr);
+            return_token_error(misplaced_super_property, previous_token(), nullptr);
          }
          break;
       }
@@ -2518,8 +2518,7 @@ void* parse_member_only_expression(parse_state_t* state, parse_tree_state_t* tre
             make_node(meta_property);
             parse(meta, identifier_name);
             if(!(params & param_flag_function)) {
-               state->error_position = previous_token()->location.begin;
-               return_error(new_meta, nullptr);
+               return_token_error(new_meta, previous_token(), nullptr);
             }
             ensure('.');
             if(!current_token_is(target)) passon(nullptr);
@@ -2542,8 +2541,7 @@ void* parse_member_only_expression(parse_state_t* state, parse_tree_state_t* tre
          make_node(meta_property);
          parse(meta, identifier_name);
          if(!(params & param_flag_module)) {
-            state->error_position = previous_token()->location.begin;
-            return_error(import_in_non_module, nullptr);
+            return_token_error(import_in_non_module, previous_token(), nullptr);
          }
          expect('.');
          if(!current_token_is(meta)) passon(nullptr);
@@ -2813,7 +2811,7 @@ void* parse_update_expression(parse_state_t* state, parse_tree_state_t* tree_sta
       assign(flags, operator_flag_prefix);
       //[TODO] update location
       if(!is_an_assignment_target(node->argument, params)) {
-         return_error(invalid_update, nullptr);
+         return_node_error(invalid_update, node->argument, nullptr);
       }
       return_node();
    } else {
@@ -2830,7 +2828,7 @@ void* parse_update_expression(parse_state_t* state, parse_tree_state_t* tree_sta
       assign(flags, flag_none);
       //[TODO] update location
       if(!is_an_assignment_target(node->argument, params)) {
-         return_error(invalid_update, nullptr);
+         return_node_error(invalid_update, node->argument, nullptr);
       }
       return_node();
    }
@@ -2872,7 +2870,7 @@ void* parse_unary_only_expression(parse_state_t* state, parse_tree_state_t* tree
       if(node->operator.id == rw_delete && (params & STRICT) &&
          is_an_eventual_identifier(node->argument)
       ){
-         return_error(identifier_deletion, nullptr);
+         return_node_error(identifier_deletion, node->argument, nullptr);
       }
       return_node();
    } else if(exists_word(await) && (params & param_flag_await)) {
@@ -3203,7 +3201,7 @@ void* parse_assignment_expression(parse_state_t* state, parse_tree_state_t* tree
    if(exists(pnct_arrow) && !exists_newline()) {
       if(current_token() == plus_one_token) {
          if(!is_a_binding_identifier(state, expression, params)) {
-            return_error(expecting_binding_identifier, nullptr);
+            return_node_error(expecting_binding_identifier, expression, nullptr);
          }
          assert_lexical_uniqueness(expression, LOOSE, NONE);
       }
@@ -3260,7 +3258,7 @@ void* parse_assignment_expression(parse_state_t* state, parse_tree_state_t* tree
       }
    } else {
       if(!is_an_assignment_target(expression, params)) {
-         return_error(lvalue, nullptr);
+         return_node_error(lvalue, expression, nullptr);
       }
    }
    assign_operator();
@@ -3319,6 +3317,7 @@ void* parse_lexical_binding_list(parse_state_t* state, parse_tree_state_t* tree_
       make_node(variable_declarator);
       if(exists_mask(mask_identifier)) {
          if(exists_word(let) && token_id != rw_var) {
+            state->error_position = current_token()->location.begin;
             return_error(let_in_lexical, nullptr);
          }
          parse(id, binding_identifier);
@@ -3571,14 +3570,14 @@ void* parse_for_statement(parse_state_t* state, parse_tree_state_t* tree_state, 
    ensure_word(for);
    bool is_await = exists_word(await);
    if(is_await) {
+      if(!(params & param_flag_await)) {
+         return_error(unexpected_await, nullptr);
+      }
       enable_pending_regexp_context();
       ensure_word(await);
    }
    expect('(');
    if(is_await || !exists(';')) {
-      if(is_await && !(params & param_flag_await)) {
-         return_error(unexpected_await, nullptr);
-      }
       if(exists_mask(mask_variable_declarator) &&
          (!(has_let = exists_word(let)) || is_let_a_keyword())
       ){
@@ -3614,35 +3613,42 @@ void* parse_for_statement(parse_state_t* state, parse_tree_state_t* tree_state, 
          in_of_possible = node_is_a(lhs_production, expression);
       }
    }
-   if((is_await || in_of_possible) && exists_word(of)) {
-      if(has_invalid_initializer) { return_error(initializer_in_for, nullptr); }
-      if(!is_declarator) {
-         if(has_let) { return_error(for_of_begins_with_let, nullptr); }
-         if(!change_lhs_node_type(state, production, change_flag_assignment, params)) {
-            return_error(invalid_for_assignment, nullptr);
+   if(is_await || in_of_possible) {
+      if(exists_word(of)) {
+         if(has_invalid_initializer) { return_error(initializer_in_for, nullptr); }
+         if(!is_declarator) {
+            if(!change_lhs_node_type(state, production, change_flag_assignment, params)) {
+               return_error(invalid_for_assignment, nullptr);
+            }
+            if(has_let) {
+               return_error(for_of_begins_with_let, nullptr);
+            }
          }
-      }
-      enable_pending_regexp_context();
-      expect_word(of);
-      make_node(for_of_statement);
-      assign_begin();
-      assign(left, production);
-      parse(right, assignment_expression, RET, IN);
-      assign(flags, (is_await ? for_flag_await : flag_none));
-      for_statement = node;
-   } else if(!is_await && in_of_possible && optional_word(in)) {
-      if(has_invalid_initializer) { return_error(initializer_in_for, nullptr); }
-      if(!is_declarator) {
-         if(!change_lhs_node_type(state, production, change_flag_assignment, params)) {
-            return_error(invalid_for_assignment, nullptr);
+         enable_pending_regexp_context();
+         expect_word(of);
+         make_node(for_of_statement);
+         assign_begin();
+         assign(left, production);
+         parse(right, assignment_expression, RET, IN);
+         assign(flags, (is_await ? for_flag_await : flag_none));
+         for_statement = node;
+      } else if(is_await) {
+         return_error(expecting_of, nullptr);
+      } else if(optional_word(in)) {
+         if(has_invalid_initializer) { return_error(initializer_in_for, nullptr); }
+         if(!is_declarator) {
+            if(!change_lhs_node_type(state, production, change_flag_assignment, params)) {
+               return_error(invalid_for_assignment, nullptr);
+            }
          }
+         make_node(for_in_statement);
+         assign_begin();
+         assign(left, production);
+         parse(right, expression, RET, IN);
+         for_statement = node;
       }
-      make_node(for_in_statement);
-      assign_begin();
-      assign(left, production);
-      parse(right, expression, RET, IN);
-      for_statement = node;
-   } else {
+   }
+   if(!for_statement) {
       make_node(for_statement);
       assign_begin();
       assign(init, production);
@@ -4097,7 +4103,7 @@ program_t* parse_module(parse_state_t* state, parse_tree_state_t* tree_state, pa
             state, scope, symbol, symbol_length, hash, &matched_symbol_list_node
          );
          if(!has_symbol) {
-            return_error(missing_export_reference, nullptr);
+            return_location_error(missing_export_reference, node->location, nullptr);
          }
          symbol_list_node = symbol_list_node->next;
       }

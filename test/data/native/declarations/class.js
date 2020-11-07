@@ -1,4 +1,3 @@
-class a { constructor(){ super(); } } //? <-> @1:26
 /// empty declarations
 class a {} //? <+>
 class a {;} //? <+>
@@ -22,10 +21,16 @@ class a { static constructor(){} } //? <+>
 class a { static get constructor(){} } //? <+>
 class a { static set constructor(b){} } //? <+>
 
+/// super
+class a { b(){ super.c ; }} //? <+>
+class a extends b { constructor(){ super(); } } //? <+>
+class a { *b(){ super[yield]; } } //? <+>
+
 /// early errors
 //- misplaced_super_call
 class a { constructor(){ super(); } } //? <-> @1:26
 class a extends b { c(){ super(); } } //? <-> @1:26
+class a { static b(){ super(); } } //? <-> @1:23
 //- duplicate_constructor
 class a { constructor(){} constructor(){} } //? <-> @1:27
 class a { constructor(){} 'constructor'(){} } //? <-> @1:27
@@ -48,8 +53,6 @@ class a { async ['constructor'](){} } //? <+>
 class a { async* ['constructor'](){} } //? <+>
 class a { get ['constructor'](){} } //? <+>
 class a { set ['constructor'](b){} } //? <+>
-//- misplaced_super_call
-class a { static b(){ super(); } } //? <-> @1:23
 //- static_prototype
 class a { static prototype(){} } //? <-> @1:18
 class a { static get prototype(){} } //? <-> @1:22

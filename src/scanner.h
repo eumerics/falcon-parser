@@ -574,7 +574,11 @@ inline_spec int scan_numeric_literal(parse_state_t* const state, params_t params
       if(++code == end) goto _make_numeric_token;
       char_t c = *code;
       //[TODO] octal compilation
-      if(allow_annex() && (c >= '0' && c <= '9')) {
+      if(c >= '0' && c <= '9') {
+         if(!allow_annex()) {
+            state->error_position = begin_position;
+            return_error(annex_numeral, 0);
+         }
          numeric_annex = 1;
          decimal_like = c & 0x08; // '8' = 0x38, '9' = 0x39
          while(++code < end){

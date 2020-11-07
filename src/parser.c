@@ -33,6 +33,7 @@ elements_t characters2 = {0, 0, 0, 0, 0, 0, 0, 0, 0};
 #endif
 
 #include "common.h"
+#include "constants.h"
 #include "nodes.h"
 #ifdef verbose
    void assert(int value, char const* file_name, size_t line_number)

@@ -298,6 +298,7 @@ uint8_t insert_symbol(
          scope->first_duplicate = t;
       }
       if((params & param_flag_unique_params) || !(symbol_list_node->binding_flag & binding_flag)) {
+         //symbol_list_node->symbol_node->location
          return 0;
       }
    }
