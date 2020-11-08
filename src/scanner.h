@@ -256,13 +256,6 @@ inline_spec int consume_terminator_sequence(parse_state_t* state, char_t const**
    return 1;
 }
 
-inline_spec position_t make_position(parse_state_t const* const state)
-{
-   return (position_t){
-      .line = state->line_number, .column = state->code - state->line_begin \
-   };
-}
-
 inline_spec void make_char_token(parse_state_t* state, uint8_t const id)
 {
    //size_t offset = state->code - state->code_begin;
@@ -315,15 +308,16 @@ inline_spec void make_aggregated_token(
 // support i.e, 1 << (size(ptrdiff_t) * 8 - 1), for nearly all cases this
 // should not be a problem at all
 ptrdiff_t escaped_string_flag = (ptrdiff_t)(1) << (sizeof(ptrdiff_t)*8 - 1);
-inline_spec ptrdiff_t prescan_string_literal(parse_state_t* state, char_t const* code, char_t const* const end, params_t params)
-{
+inline_spec ptrdiff_t prescan_string_literal(
+   parse_state_t* state, char_t const* code, char_t const* const end, params_t params
+){
    char_t const* const begin = code;
    char_t const quote = *code;
    ptrdiff_t string_type = 0;
    while(++code < end) {
       char_t c = *code;
       switch(c) {
-         case '\r': case '\n': return 0;
+         case '\r': case '\n': return_scan_error(newline_in_string_literal, code, 0);
 #if defined(UTF16)
          case 0x2028: case 0x2029:
             if(!(params & param_flag_inconsistent_lines)) {
@@ -347,23 +341,24 @@ compiled_string_t* compile_string(
    char_t const* const begin, char_t const* const end, params_t params
 )
 {
-   #define return_not_escape_string() { \
+   #define return_not_escape_string(error_type) { \
       if(for_template) { \
          compiled_string_t* compiled_string = parser_malloc(sizeof(compiled_string_t)); \
          *compiled_string = (compiled_string_t){ \
             .begin = nullptr, .end = nullptr, \
-            .offending_index = not_escape_code_begin - state->code_begin, \
-            .compile_flags = compile_flag_not_escape \
+            .compile_flags = compile_flag_not_escape, \
+            .offending_position = make_given_position(state, not_escape_code_begin), \
+            .offending_error = &error_##error_type \
          }; \
          return compiled_string; \
       } else { \
-         return nullptr; \
+         return_scan_error(error_type, not_escape_code_begin, nullptr); \
       } \
    }
    char_t const* code = begin - 1;
    char_t* compiled = parser_malloc((end - begin) * sizeof(char_t));
    char_t const* const compiled_begin = compiled;
-   size_t offending_index = 0;
+   position_t offending_position;
    uint8_t compile_flags = 0;
    while(++code < end) {
       char_t c = *code;
@@ -419,13 +414,13 @@ compiled_string_t* compile_string(
                   hex <<= 4;
                   if(c >= '0' && c <= '9'){ hex |= (c - '0'); continue; }
                   if(cl >= 'a' && cl <= 'f'){ hex |= 10 + (cl - 'a'); continue; }
-                  if(i < min_hex_chars) { return_not_escape_string(); }
+                  if(i < min_hex_chars) { return_not_escape_string(invalid_escape_sequence); }
                   else { --code; hex >>= 4; break; }
                }
-               if(is_code_point && (*++code != '}')) { return_not_escape_string(); }
+               if(is_code_point && (*++code != '}')) { return_not_escape_string(missing_unicode_closing); }
             #if defined(UTF16)
                if(hex & 0xffff0000) {
-                  if(hex > 0x10ffff) { return_not_escape_string(); }
+                  if(hex > 0x10ffff) { return_not_escape_string(unicode_range); }
                   hex -= 0x10000;
                   *(compiled + 1) = (0b110111 << 10) | (hex & 0x3ff); hex >>= 10;
                   *(compiled + 0) = (0b110110 << 10) | (hex & 0x3ff); hex >>= 10;
@@ -446,7 +441,7 @@ compiled_string_t* compile_string(
                } else if(!for_template && allow_annex()) {
                   if(compile_flags == 0) {
                      compile_flags = compile_flag_octal;
-                     offending_index = code - 1 - state->code_begin;
+                     offending_position = make_given_position(state, code - 1);
                   }
                   // legacy octal escape sequence
                   if(c >= '8') { *compiled++ = c; break; }
@@ -462,7 +457,7 @@ compiled_string_t* compile_string(
                   *compiled++ = value;
                   ++code;
                } else {
-                  return_not_escape_string();
+                  return_not_escape_string(invalid_escape_sequence);
                }
             }
          }
@@ -471,8 +466,8 @@ compiled_string_t* compile_string(
    compiled_string_t* compiled_string = parser_malloc(sizeof(compiled_string_t));
    *compiled_string = (compiled_string_t){
       .begin = compiled_begin, .end = compiled,
-      .offending_index = offending_index,
-      .compile_flags = compile_flags
+      .compile_flags = compile_flags,
+      .offending_position = offending_position
    };
    return compiled_string;
 }
@@ -638,7 +633,7 @@ _make_numeric_token:
    if(numeric_annex) {
       cn = parser_malloc(sizeof(compiled_number_t));
       *cn = (compiled_number_t){
-         //.offending_index = 0,
+         //.offending_position = {},
          .compile_flags = compile_flag_numeric_annex
       };
    }
@@ -647,6 +642,14 @@ _make_numeric_token:
    return 1;
 }
 
+int unterminated_regexp_error(parse_state_t* const state, char_t const* code)
+{
+   return_scan_error(unterminated_regexp, code, 0);
+}
+int terminated_regexp_error(parse_state_t* const state, char_t const* code)
+{
+   return_scan_error(terminated_regexp, code, 0);
+}
 //[LIMITATION]: maximum number of allowed flags 1<<5 = 32.
 inline_spec int scan_regexp_literal(parse_state_t* const state, params_t params)
 {
@@ -655,27 +658,27 @@ inline_spec int scan_regexp_literal(parse_state_t* const state, params_t params)
    char_t const* const end = state->code_end;
    char_t const* code = state->code;
    while(1) {
-      if(++code == end) return 0;
+      if(++code == end) return unterminated_regexp_error(state, begin);
       char_t current = *code;
       if(current == '/') { ++code; break; }
-      if(is_line_terminator(current)) return 0;
+      if(is_line_terminator(current)) return terminated_regexp_error(state, code);
       // take care of scenarios where '/' fails to serve as a closing tag
       if(current == '\\') {
          // for scanning it is enough to eat next character
          // as long as it is not a line terminator
-         if(++code == end) return 0;
+         if(++code == end) return unterminated_regexp_error(state, begin);
          char_t next = *code;
-         if(is_line_terminator(next)) return 0;
+         if(is_line_terminator(next)) return terminated_regexp_error(state, code);
       } else if(current == '[') {
          while(1) {
-            if(++code == end) return 0;
+            if(++code == end) return unterminated_regexp_error(state, begin);
             current = *code;
             if(current == ']') break;
-            if(is_line_terminator(current)) return 0;
+            if(is_line_terminator(current)) return terminated_regexp_error(state, code);
             if(current == '\\') {
-               if(++code == end) return 0;
+               if(++code == end) return unterminated_regexp_error(state, begin);
                char_t next = *code;
-               if(is_line_terminator(next)) return 0;
+               if(is_line_terminator(next)) return terminated_regexp_error(state, code);
             }
          }
       }
@@ -1370,7 +1373,8 @@ int scan_identifier(parse_state_t* const state, params_t params)
       compiled_identifier = parser_malloc(sizeof(compiled_string_t));
       *compiled_identifier = (compiled_string_t) {
          .begin = identifier_begin, .end = identifier_code,
-         .offending_index = 0, .compile_flags = flag_none
+         .compile_flags = flag_none,
+         .offending_position = {.line = 0, .column = 0}
       };
    } else {
       identifier_begin = begin;

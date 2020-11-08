@@ -4,14 +4,16 @@
 char const* const unknown_token = "unknown token";
 char const* parse_token_name[256] = {unknown_token};
 
-typedef struct {
-   uint16_t id;
-   char const* message;
-} parse_error_t;
 #define define_error(_id, type, _message) \
    parse_error_t const error_##type = {.id = _id, .message = _message};
 #define set_error(x) state->parse_error = &error_##x;
 #define return_error(x, value) { set_error(x); return value; }
+#define return_scan_error(x, _code, value) { \
+   set_error(x); \
+   state->code = _code; \
+   state->error_position = make_position(state); \
+   return value; \
+}
 #define return_location_error(x, location, value) { \
    location_t const* _location = location; \
    if(_location) state->error_position = _location->begin; \
@@ -93,6 +95,13 @@ define_error(0x003d, duplicate_regexp_flag, "duplicate regular expression flag")
 define_error(0x003e, invalid_regexp_flag, "invalid regular expression flag");
 define_error(0x003f, annex_numeral, "numeric literals cannot start with 0 in strcit mode");
 define_error(0x0040, expecting_of, "expecting 'of' token in a for-of statement");
+define_error(0x0041, newline_in_string_literal, "unescaped line feed and carriage return are not allowed in a string literal");
+define_error(0x0042, invalid_escape_sequence, "octal or decimal escape sequence is not allowed here");
+define_error(0x0043, unterminated_string, "unterminated string literal");
+define_error(0x0044, unterminated_template, "unterminated template literal");
+define_error(0x0045, unterminated_regexp, "unterminated regular expression");
+define_error(0x0046, terminated_regexp, "line terminator in a regular expression is invalid");
+define_error(0x0047, unicode_range, "unicode code point is out of unicode range");
 
 define_error(0x1000, missing_assignment_or_binding_flag,
    "internal-error: change flags must have one of assignment or binding flag"

@@ -2211,6 +2211,8 @@ void* parse_template_literal(parse_state_t* state, parse_tree_state_t* tree_stat
          if((compiled_string->compile_flags & compile_flag_not_escape) &&
             !(params & TAG)
          ){
+            state->parse_error = compiled_string->offending_error;
+            state->error_position = compiled_string->offending_position;
             passon(nullptr);
          }
       }

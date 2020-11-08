@@ -333,7 +333,7 @@ export class Node {
       } else {
          const compiled_begin = this.buffer_view[type][(pointer + 0) / sizeof[type]];
          const compiled_end = this.buffer_view[type][(pointer + 4) / sizeof[type]];
-         const compile_flags = this.buffer_view.u08[(pointer + 12) / sizeof.u08];
+         const compile_flags = this.buffer_view.u08[(pointer + 8) / sizeof.u08];
          if(compile_flags & Parser.constants.compile_flag_not_escape) return null;
          return Parser.decoder.decode(
             this.buffer_view.u08.subarray(compiled_begin, compiled_end)

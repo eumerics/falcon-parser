@@ -2,19 +2,35 @@
 #define _INTERFACE_H_
 
 typedef struct {
+   size_t line;
+   size_t column;
+} position_t;
+typedef struct {
+   position_t begin;
+   position_t end;
+   char const* source;
+} location_t;
+
+typedef struct {
+   uint16_t id;
+   char const* message;
+} parse_error_t;
+
+typedef struct {
    char_t const* begin;
    char_t const* end;
 } string_t;
 typedef struct {
    char_t const* begin;
    char_t const* end;
-   size_t offending_index;
    uint8_t compile_flags;
+   position_t offending_position;
+   parse_error_t const* offending_error;
 } compiled_string_t;
 // incomplete
 typedef struct {
-   //size_t offending_index;
    uint8_t compile_flags;
+   //position_t offending_position;
 } compiled_number_t;
 
 typedef struct _parse_list_node_t {
@@ -37,16 +53,6 @@ typedef struct {
    cover_list_node_t* tail;
    size_t count;
 } cover_node_list_t;
-
-typedef struct {
-   size_t line;
-   size_t column;
-} position_t;
-typedef struct {
-   position_t begin;
-   position_t end;
-   char const* source;
-} location_t;
 
 typedef uint8_t token_id_t;
 typedef uint16_t token_group_t;
@@ -577,5 +583,100 @@ typedef struct _scope_child_list_node_t {
    struct _scope_child_list_node_t* prev;
    struct _scope_child_list_node_t* next;
 } scope_child_list_node_t;
+
+struct empty_list_t {} empty_list;
+struct error_node_t {} error_node;
+void* errptr = &error_node;
+
+typedef struct {
+   // error state
+   uint8_t tokenization_status;
+   uint8_t parsing_status;
+   parse_error_t const* parse_error;
+   position_t error_position;
+   //token_t const* error_token;
+   uint8_t expected_token_id;
+   uint16_t expected_mask;
+   // [16]
+   memory_state_t* memory;
+   // code buffer
+   char_t const* const code_begin;
+   char_t const* const code_end;
+   char_t const* code;
+   // token buffer
+   token_t const* const token_begin;
+   token_t const* const token_end;
+   token_t* scan_token;
+   size_t token_count;
+   size_t tokens_consumed;
+   // scanner flags [52]
+   uint32_t line_number;
+   char_t const* line_begin;
+   uint8_t token_flags;
+   uint8_t current_token_flags;
+   uint8_t in_template_expression; // bool
+   uint8_t in_regexp_context; // bool
+   uint8_t is_continuer; // bool
+   uint8_t was_continuer; // bool
+   uint8_t was_contextual; // bool
+   uint32_t template_level;
+   uint32_t parenthesis_level;
+   uint32_t curly_parenthesis_level;
+   uint32_t expect_statement_after_level;
+   uint32_t template_parenthesis_offset;
+   // parser [88]
+   token_t* parse_token;
+   cover_node_list_t cover_node_list;
+   uint32_t depth;
+   uint32_t semantic_flags;
+   // scope
+   symbol_list_node_t* symbol_list_node;
+   scope_list_node_t* current_scope_list_node;
+   scope_list_node_t* scope_list_node;
+   scope_list_node_t* hoisting_scope_list_node;
+   // module
+   symbol_list_t** export_symbol_table;
+   symbol_list_t* export_reference_list;
+   uint8_t has_default_export;
+} parse_state_t;
+
+typedef struct {
+   program_t* program;
+   parse_state_t state;
+} parse_result_t;
+
+typedef struct {
+   uint32_t flags;
+} parse_tree_state_t;
+
+void parser_free(parse_state_t* state)
+{
+   //free((void *)(state->token_begin));
+   memory_page_t* current = state->memory->head;
+   while(current != nullptr) {
+      free(current->buffer);
+      memory_page_t* to_free = current;
+      current = current->next;
+      free(to_free);
+   }
+   state->memory->head = nullptr;
+   state->memory->current = nullptr;
+   state->memory->page_count = 0;
+}
+
+inline_spec position_t make_position(parse_state_t const* const state)
+{
+   return (position_t){
+      .line = state->line_number,
+      .column = state->code - state->line_begin
+   };
+}
+inline_spec position_t make_given_position(parse_state_t const* const state, char_t const* code)
+{
+   return (position_t){
+      .line = state->line_number,
+      .column = code - state->line_begin
+   };
+}
 
 #endif //_INTERFACE_H_
