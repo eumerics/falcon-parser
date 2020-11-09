@@ -870,6 +870,21 @@ export class Parser {
          u32: new Uint32Array(buffer),
       });
    }
+   static token_string(token_id) {
+      if(typeof token_id != "number") return undefined;
+      if(token_id < 0 || token_id > 255) return undefined;
+      if(Math.floor(token_id) != token_id) return undefined;
+      const exports = Parser.instance.exports;
+      const array08 = new Uint8Array(exports.memory.buffer);
+      const array32 = new Uint32Array(exports.memory.buffer);
+      const token_string_array_pointer = exports.token_string.value / sizeof.u32;
+      const token_string_pointer = array32[token_string_array_pointer + token_id];
+      if(token_string_pointer == 0) return undefined;
+      const length = cstring_length(array08, token_string_pointer);
+      return Parser.utf8_decoder.decode(
+         array08.subarray(token_string_pointer, token_string_pointer + length)
+      );
+   }
    static async load_wasm(path) {
       const bytes = await read_file(path);
       const wasm = await WebAssembly.instantiate(bytes, {env: env});

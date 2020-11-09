@@ -359,6 +359,7 @@ compiled_string_t* compile_string(
    char_t* compiled = parser_malloc((end - begin) * sizeof(char_t));
    char_t const* const compiled_begin = compiled;
    position_t offending_position;
+   parse_error_t const* offending_error;
    uint8_t compile_flags = 0;
    while(++code < end) {
       char_t c = *code;
@@ -442,6 +443,7 @@ compiled_string_t* compile_string(
                   if(compile_flags == 0) {
                      compile_flags = compile_flag_octal;
                      offending_position = make_given_position(state, code - 1);
+                     offending_error = &error_octal_in_strict;
                   }
                   // legacy octal escape sequence
                   if(c >= '8') { *compiled++ = c; break; }
@@ -467,7 +469,8 @@ compiled_string_t* compile_string(
    *compiled_string = (compiled_string_t){
       .begin = compiled_begin, .end = compiled,
       .compile_flags = compile_flags,
-      .offending_position = offending_position
+      .offending_position = offending_position,
+      .offending_error = offending_error
    };
    return compiled_string;
 }

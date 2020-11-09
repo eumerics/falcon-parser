@@ -45,10 +45,20 @@ function test_file(utf8_view, script, options)
             console.log(options, position);
          } else if(options.error) {
             //console.log('error', options.error);
-            const error_id = Parser.error[options.error].id;
-            if(error_id === undefined || e.id === undefined || error_id != e.id) {
-               print_error('mismatching error type', script, options);
-               console.log(options, error_id, e.id);
+            if(options.error == 'expect') {
+               const token_string = Parser.token_string(e.expected_token_id);
+               if(token_string != options.expected_token) {
+                  print_error('mismatching expected token', script, options);
+                  console.log(options, e.expected_token_id, token_string);
+               }
+            } else {
+               const error = Parser.error[options.error];
+               if(!error) {
+                  print_error(`unknown error ${options.error}`, script, options);
+               } else if(error.id === undefined || e.id === undefined || error.id != e.id) {
+                  print_error('mismatching error type', script, options);
+                  console.log(options, error.id, e.id);
+               }
             }
          }
       }
@@ -149,6 +159,14 @@ function test_segmented_file(file_path, is_module, is_negative)
    const eat_white = () => {
       while(++index < length && utf8_view[index] == space);
    }
+   const until_white = () => {
+      let begin = index;
+      while(++index < length) {
+         const c = utf8_view[index];
+         if(c == space || c == cr || c == lf) break;
+      }
+      return utf8_view.subarray(begin, index).toString();
+   };
    const until_newline = () => {
       while(++index < length) {
          const c = utf8_view[index];
@@ -164,13 +182,31 @@ function test_segmented_file(file_path, is_module, is_negative)
    };
    const read_error = (is_global) => {
       const error_begin = index;
-      until_newline();
-      if(index == error_begin) {
+      const error = until_white();
+      if(!error) {
          print_error(`invalid error tag: ${utf8_view.subarray(end, index).toString()}`, script, options);
          return 0;
       }
-      options.error = utf8_view.subarray(error_begin, index).toString();
-      if(is_global) global_options.error = options.error;
+      switch(error) {
+         case 'default': {
+            delete options.error;
+            if(is_global) {
+               delete global_options.error;
+            }
+            break;
+         }
+         case 'expect': {
+            --index; eat_white();
+            options.error = error;
+            options.expected_token = until_white();
+            break;
+         }
+         default: {
+            options.error = error;
+            if(is_global) global_options.error = error;
+         }
+      }
+      --index; until_newline();
       return 1;
    };
    while(index < length) {
@@ -202,7 +238,7 @@ function test_segmented_file(file_path, is_module, is_negative)
          while(++index < length && utf8_view[index] == space);
          options.is_negative = false, options.is_module = false;
          options.can_exclude = false, options.is_pedantic = false;
-         options.use_annex = false;
+         options.use_annex = false, options.expected_token = undefined;
          options.error = global_options.error;
          if(index != length && utf8_view[index] == lesser) {
             while(++index != length) {
@@ -252,7 +288,6 @@ function test_segmented_file(file_path, is_module, is_negative)
          ++index;
          if(!read_error()) return;
       }
-      if(options.error == 'default') delete options.error;
       while(index != length) {
          let c = utf8_view[index];
          if(c != cr && c != lf) break;

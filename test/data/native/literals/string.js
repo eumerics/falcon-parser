@@ -34,6 +34,14 @@
 'use strict'; '\8'; //? <-> @1:16
 'use strict'; '\01'; //? <-> @1:16
 'use strict'; '\377'; //? <-> @1:16
+//- octal_in_strict
+'\1'
+'use strict' //? <-?> @1:2
+'\1'
+'use strict'; //? <-?> @1:2
+''
+'\1'
+'use strict' //? <-?> @2:2
 //- unicode_range
 '\u{110000}'; //? <-> @1:2
 

@@ -412,7 +412,8 @@ bool retro_act_strict_mode(parse_state_t* state, parse_list_node_t* list_node)
       node_as(string_literal, directive->expression, literal);
       if(literal->compiled_string && (literal->compiled_string->compile_flags & compile_flag_octal)) {
          //[TODO] provide proper error location
-         set_error(octal_in_strict); return false;
+         //set_error(octal_in_strict); return false;
+         return_compiled_error(literal->compiled_string, false);
       }
       list_node = list_node->next;
    }
@@ -2211,9 +2212,7 @@ void* parse_template_literal(parse_state_t* state, parse_tree_state_t* tree_stat
          if((compiled_string->compile_flags & compile_flag_not_escape) &&
             !(params & TAG)
          ){
-            state->parse_error = compiled_string->offending_error;
-            state->error_position = compiled_string->offending_position;
-            passon(nullptr);
+            return_compiled_error(compiled_string, nullptr);
          }
       }
       //assign(token, token);
@@ -3319,8 +3318,7 @@ void* parse_lexical_binding_list(parse_state_t* state, parse_tree_state_t* tree_
       make_node(variable_declarator);
       if(exists_mask(mask_identifier)) {
          if(exists_word(let) && token_id != rw_var) {
-            state->error_position = current_token()->location.begin;
-            return_error(let_in_lexical, nullptr);
+            return_token_error(let_in_lexical, current_token(), nullptr);
          }
          parse(id, binding_identifier);
          assert_lexical_uniqueness(node->id, params & LOOSE, NONE);
@@ -3350,7 +3348,10 @@ void* parse_lexical_binding_list(parse_state_t* state, parse_tree_state_t* tree_
             add_to_list(completed_node());
             passon(list_head());
          } else {
-            expect('='); // error: missing_binding_initializer
+            if(!exists('=')) {
+               return_error(missing_binding_initializer, nullptr);
+            }
+            expect('=');
             parse(init, assignment_expression, EXPORT, NONE);
          }
       }
@@ -3562,8 +3563,10 @@ void* parse_for_statement(parse_state_t* state, parse_tree_state_t* tree_state, 
    void* production = nullptr;
    void* for_statement = nullptr;
    bool is_declarator = false;
+   uint8_t declarator_id = 0;
    bool in_of_possible = false;
    bool has_invalid_initializer = false;
+   parse_node_t const* initializer = nullptr;
    bool has_let = false;
 
    save_begin();
@@ -3573,7 +3576,7 @@ void* parse_for_statement(parse_state_t* state, parse_tree_state_t* tree_state, 
    bool is_await = exists_word(await);
    if(is_await) {
       if(!(params & param_flag_await)) {
-         return_error(unexpected_await, nullptr);
+         return_token_error(unexpected_for_await, current_token(), nullptr);
       }
       enable_pending_regexp_context();
       ensure_word(await);
@@ -3584,7 +3587,7 @@ void* parse_for_statement(parse_state_t* state, parse_tree_state_t* tree_state, 
          (!(has_let = exists_word(let)) || is_let_a_keyword())
       ){
          is_declarator = true;
-         uint8_t declarator_id = current_token_id();
+         declarator_id = current_token_id();
          make_node(variable_declaration);
          production = node;
          assign(kind, declarator_id);
@@ -3596,12 +3599,11 @@ void* parse_for_statement(parse_state_t* state, parse_tree_state_t* tree_state, 
          node_as(parse_list_node, node->declarations, declarations);
          if(declarations->next == nullptr) { // has only one declartion
             node_as(variable_declarator, declarations->parse_node, declarator);
-            if(declarator->init == nullptr || // has no initializer
-               exists_word(in) && (declarator_id == word(var)) && // legacy initialization
-               node_type_is(identifier, declarator->id) && allow_annex()
-            ){
+            if(declarator->init == nullptr){ // has no initializer
                in_of_possible = true;
             } else {
+               in_of_possible = node_type_is(identifier, declarator->id);
+               initializer = declarator->init;
                has_invalid_initializer = true;
             }
          }
@@ -3617,13 +3619,15 @@ void* parse_for_statement(parse_state_t* state, parse_tree_state_t* tree_state, 
    }
    if(is_await || in_of_possible) {
       if(exists_word(of)) {
-         if(has_invalid_initializer) { return_error(initializer_in_for, nullptr); }
+         if(has_invalid_initializer) {
+            return_node_error(initializer_in_for, initializer, nullptr);
+         }
          if(!is_declarator) {
-            if(!change_lhs_node_type(state, production, change_flag_assignment, params)) {
-               return_error(invalid_for_assignment, nullptr);
-            }
             if(has_let) {
-               return_error(for_of_begins_with_let, nullptr);
+               return_node_error(for_of_begins_with_let, production, nullptr);
+            }
+            if(!change_lhs_node_type(state, production, change_flag_assignment, params)) {
+               return_node_error(invalid_for_assignment, production, nullptr);
             }
          }
          enable_pending_regexp_context();
@@ -3637,10 +3641,12 @@ void* parse_for_statement(parse_state_t* state, parse_tree_state_t* tree_state, 
       } else if(is_await) {
          return_error(expecting_of, nullptr);
       } else if(optional_word(in)) {
-         if(has_invalid_initializer) { return_error(initializer_in_for, nullptr); }
+         if(has_invalid_initializer && !(declarator_id == word(var) && allow_annex())) {
+            return_node_error(initializer_in_for, initializer, nullptr);
+         }
          if(!is_declarator) {
             if(!change_lhs_node_type(state, production, change_flag_assignment, params)) {
-               return_error(invalid_for_assignment, nullptr);
+               return_node_error(invalid_for_assignment, production, nullptr);
             }
          }
          make_node(for_in_statement);
@@ -3726,14 +3732,14 @@ void* parse_continue_statement(parse_state_t* state, parse_tree_state_t* tree_st
    make_node(continue_statement);
    ensure_word(continue);
    if(!(state->semantic_flags & semantic_flag_continue)) {
-      return_error(unsyntatic_continue, nullptr);
+      return_token_error(unsyntatic_continue, previous_token(), nullptr);
    }
    if(!exists('}')) {
       //if(!exists(';')) expect_mask(mask_idname);
       if(!exists(';') && !exists_newline()) {
          parse(label, label_identifier);
          if(!has_label(state, node->label, params)) {
-            return_error(undefined_label, nullptr);
+            return_token_error(undefined_label, previous_token(), nullptr);
          }
       } else {
          assign(label, nullptr);
@@ -3755,16 +3761,16 @@ void* parse_break_statement(parse_state_t* state, parse_tree_state_t* tree_state
 {
    make_node(break_statement);
    ensure_word(break);
+   if(!(state->semantic_flags & semantic_flag_break)) {
+      return_token_error(unsyntatic_break, previous_token(), nullptr);
+   }
    if(!exists('}')) {
       if(!exists(';') && !exists_newline()) {
          parse(label, label_identifier);
          if(!has_label(state, node->label, params)) {
-            return_error(undefined_label, nullptr);
+            return_token_error(undefined_label, previous_token(), nullptr);
          }
       } else {
-         if(!(state->semantic_flags & semantic_flag_break)) {
-            return_error(unsyntatic_break, nullptr);
-         }
          assign(label, nullptr);
       }
       parse_semicolon();
@@ -3805,7 +3811,7 @@ WithStatement[Yield, Await, Return]:
 void* parse_with_statement(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    if(params & param_flag_strict_mode) {
-      return_error(with_in_strict_mode, nullptr);
+      return_token_error(with_in_strict_mode, current_token(), nullptr);
    }
    make_node(with_statement);
    ensure_word(with); expect('(');
@@ -3834,6 +3840,7 @@ DefaultClause[Yield, Await, Return]:
 void* parse_case_clause_list(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    bool has_default = false;
+   //position_t default_position;
    start_list();
    uint32_t saved_semantic_flags = state->semantic_flags;
    state->semantic_flags |= semantic_flag_break;
@@ -3845,8 +3852,12 @@ void* parse_case_clause_list(parse_state_t* state, parse_tree_state_t* tree_stat
          expect(':');
          list_parse(consequent, case_clause_statement_list);
          add_to_list(completed_node());
-      } else if(!has_default && exists_word(default)) {
+      } else if(exists_word(default)) {
+         if(has_default) {
+            return_token_error(duplicate_default_clause, current_token(), nullptr);
+         }
          make_node(case_clause);
+         //default_position = make_position(state);
          ensure_word(default);
          assign(test, nullptr);
          expect(':');
@@ -3891,12 +3902,13 @@ void* parse_labeled_statement(parse_state_t* state, parse_tree_state_t* tree_sta
    //bool in_loop = current_token()->flags & token_flag_loop;
    uint8_t no_label = current_token()->flags & token_flag_no_labeled_function;
    make_node(labeled_statement);
-   parse(label, label_identifier, RET, NONE); expect(':');
-   assert_label_uniqueness(node->label);
+   parse(label, label_identifier, RET, NONE);
+   if(exists(':')) { assert_label_uniqueness(node->label); } expect(':');
    if(exists_word(function) && allow_annex()) {
-      if(no_label) { return_error(no_labeled_function, nullptr); }
+      if(no_label) { return_token_error(no_labeled_function, current_token(), nullptr); }
       parse(body, hoistable_declaration, DEF|RET, param_flag_vanilla_function);
    } else {
+      state->semantic_flags |= semantic_flag_break;
       current_token()->flags |= no_label;
       parse(body, statement);
    }
@@ -4050,7 +4062,7 @@ void* parse_statement(parse_state_t* state, parse_tree_state_t* tree_state, para
       case rw_break: passon_parsed(break_statement, RET, NONE);
       case rw_return: {
          if(params & param_flag_return) { passon_parsed(return_statement); }
-         else { passon(nullptr); }
+         else { return_token_error(unsyntatic_return, current_token(), nullptr); }
       }
       case rw_with: passon_parsed(with_statement);
       case rw_throw: passon_parsed(throw_statement, RET, NONE);

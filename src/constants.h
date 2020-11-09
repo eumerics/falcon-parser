@@ -511,6 +511,56 @@ uint8_t const binding_flag_loose = param_flag_loose_binding;
 uint8_t const binding_flag_function = 0x02;
 uint8_t const symbol_flag_function_id = 0x01;
 
+char const* const token_string[256] = {
+   [tkn_numeric_literal] = "numeric literal",
+   [tkn_string_literal] = "string literal",
+   [tkn_regexp_literal] = "regexp literal",
+   [tkn_template_string] = "template string",
+   [tkn_identifier] = "identifier",
+   [tkn_punctuator] = "punctuator",
+   [tkn_terminator] = "terminator",
+   [tkn_whitespace] = "whitespace",
+   [tkn_comment] = "comment",
+   [tkn_keyword] = "keyword",
+   [pnct_equals] = "==",
+   [pnct_strict_equals] = "===",
+   [pnct_not_equals] = "!=",
+   [pnct_strict_not_equals] = "!==",
+   [pnct_lesser_or_equals] = "<=",
+   [pnct_greater_or_equals] = ">=",
+   [pnct_logical_and] = "&&",
+   [pnct_logical_or] = "||",
+   [pnct_logical_coalesce] = "??",
+   [pnct_shift_left] = "<<",
+   [pnct_shift_right] = ">>",
+   [pnct_unsigned_shift_right] = ">>>",
+   [pnct_increment] = "++",
+   [pnct_decrement] = "--",
+   [pnct_inplace_add] = "+=",
+   [pnct_inplace_substract] = "-=",
+   [pnct_inplace_mulitply] = "*=",
+   [pnct_inplace_divide] = "/=",
+   [pnct_inplace_remainder] = "%=",
+   [pnct_inplace_exponentiation] = "**=",
+   [pnct_inplace_logical_and] = "&&=",
+   [pnct_inplace_logical_or] = "||=",
+   [pnct_inplace_logical_coalesce] = "??" "=", // to avoid pesky trigraph warning
+   [pnct_inplace_binary_and] = "&=",
+   [pnct_inplace_binary_or] = "|=",
+   [pnct_inplace_binary_xor] = "^=",
+   [pnct_inplace_shift_left] = "<<=",
+   [pnct_inplace_shift_right] = ">>=",
+   [pnct_inplace_unsigned_shift_right] = ">>>=",
+   [pnct_exponentitation] = "**",
+   [pnct_arrow] = "=>",
+   [pnct_spread] = "...",
+   [pnct_optional] = "?.",
+   ['{'] = "{", ['}'] = "}", ['('] = "(", [')'] = ")", ['['] = "[", [']'] = "]",
+   [';'] = ";", [','] = ",", [':'] = ":", ['?'] = "?", ['.'] = ".", ['<'] = "<",
+   ['>'] = ">", ['+'] = "+", ['-'] = "-", ['*'] = "*", ['/'] = "/", ['%'] = "%",
+   ['='] = "=", ['&'] = "&", ['|'] = "|", ['^'] = "^", ['!'] = "!", ['~'] = "~",
+};
+
 #undef NONE
 #undef LHS
 #undef ASSIGN

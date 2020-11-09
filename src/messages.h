@@ -14,6 +14,16 @@ char const* parse_token_name[256] = {unknown_token};
    state->error_position = make_position(state); \
    return value; \
 }
+#define return_compiled_error(compiled_string, value) { \
+   compiled_string_t const* _compiled_string = compiled_string; \
+   state->parse_error = _compiled_string->offending_error; \
+   state->error_position = _compiled_string->offending_position; \
+   return value; \
+}
+#define return_position_error(x, position, value) { \
+   state->error_position = position; \
+   return_error(x, value); \
+}
 #define return_location_error(x, location, value) { \
    location_t const* _location = location; \
    if(_location) state->error_position = _location->begin; \
@@ -102,6 +112,8 @@ define_error(0x0044, unterminated_template, "unterminated template literal");
 define_error(0x0045, unterminated_regexp, "unterminated regular expression");
 define_error(0x0046, terminated_regexp, "line terminator in a regular expression is invalid");
 define_error(0x0047, unicode_range, "unicode code point is out of unicode range");
+define_error(0x0048, unexpected_for_await, "for-await statement can only appear in async functions and async generators");
+define_error(0x0049, duplicate_default_clause, "duplicate default clause in a switch statement");
 
 define_error(0x1000, missing_assignment_or_binding_flag,
    "internal-error: change flags must have one of assignment or binding flag"
