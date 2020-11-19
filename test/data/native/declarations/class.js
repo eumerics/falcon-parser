@@ -184,4 +184,4 @@ class a extends b.c {} //? <+>
 class a extends b() {} //? <+>
 class a extends (b) {} //? <+>
 class a extends function(){} {} //? <+>
-class a extends class(){} {} //? <+>
+class a extends class{} {} //? <+>
