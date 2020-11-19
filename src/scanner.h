@@ -1388,7 +1388,7 @@ int scan_identifier(parse_state_t* const state, params_t params)
       .aggregated_id = is_reserved(state, identifier_begin, *identifier_begin, identifier_length, params)
    };
    if(has_escape_sequence && (reserved_word.group & mask_always_a_reserved_word)) {
-      return_error(unicode_keyword, 0);
+      return_scan_error(unicode_keyword, begin, 0);
    }
    uint8_t token_flags = (has_escape_sequence ? token_flag_escaped : flag_none);
    if(reserved_word.aggregated_id == 0) {

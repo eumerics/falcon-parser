@@ -76,7 +76,7 @@ import Tenko from 'tenko';
                console.log(
                   'falcon:', elapsed, 'acorn:', acorn_elapsed,
                   'meriyah:', meriyah_elapsed, 'tenko:', tenko_elapsed,
-                  'tsparser:', tsparser_elapsed
+                  'tree-parser:', tsparser_elapsed
                );
             }
          } else {

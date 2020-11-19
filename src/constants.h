@@ -475,6 +475,7 @@ uint32_t const param_flag_expression = 0x2000 << 16;
 // acorn does not increment line number if <lS>, <PS> are inside a string or
 // a template, we will support this behavior for testing
 uint32_t const param_flag_inconsistent_lines = 0x1000 << 16;
+uint32_t const param_flag_covered_call = 0x0800 << 16;
 /*
 uint32_t const cover_flag_array = 0x0001;
 uint32_t const cover_flag_assignment = 0x0002;

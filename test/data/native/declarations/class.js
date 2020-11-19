@@ -2,7 +2,6 @@
 class a {} //? <+>
 class a {;} //? <+>
 class a { ''(){} } //? <+^>
-class a extends b {} //? <+>
 
 /// class declarations are always in strict mode
 //- eval_args_in_strict_mode
@@ -180,6 +179,9 @@ class a { set static(b){} } //? <+>
 class a { static static(){} } //? <+>
 
 /// derivation
+class a extends b {} //? <+>
 class a extends b.c {} //? <+>
+class a extends b() {} //? <+>
 class a extends (b) {} //? <+>
 class a extends function(){} {} //? <+>
+class a extends class(){} {} //? <+>

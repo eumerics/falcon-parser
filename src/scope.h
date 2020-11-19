@@ -36,7 +36,7 @@ symbol_list_t** new_symbol_table(parse_state_t* state)
    memset(symbol_table, 0, size);
    return symbol_table;
 }
-void new_scope(parse_state_t* state, uint8_t scope_type, uint8_t is_hoisting, compiled_parse_node_t* identifier)
+scope_t* new_scope(parse_state_t* state, uint8_t scope_type, uint8_t is_hoisting, compiled_parse_node_t* identifier)
 {
    //printf("starting new scope\n"); fflush(stdout);
    size_t const size = symbol_hash_table_size * sizeof(symbol_list_t*);
@@ -80,6 +80,7 @@ void new_scope(parse_state_t* state, uint8_t scope_type, uint8_t is_hoisting, co
    next_scope_list_node->hoisting_parent = state->hoisting_scope_list_node;
    memset(child_scope->var_symbol_table, 0, size);
    memset(child_scope->lexical_symbol_table, 0, size);
+   return child_scope;
 }
 
 void end_scope(parse_state_t* state)
@@ -247,7 +248,7 @@ uint8_t insert_symbol(
 ){
    symbol_t const* symbol = (node->compiled_string ? (symbol_t*)(node->compiled_string) : (symbol_t*)(node));
    size_t const symbol_length = symbol->end - symbol->begin;
-   //printf("inserting symbol %.*s %x\n", (int)(symbol_length), symbol->begin, binding_flag);
+   //printf("inserting symbol %.*s %x %x\n", (int)(symbol_length), symbol->begin, binding_flag, params & UNIQUE);
    uint16_t hash = (
       ((symbol_length & symbol_length_mask) << 5) |
       (*symbol->begin & symbol_first_letter_mask)

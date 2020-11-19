@@ -29,6 +29,11 @@ char const* parse_token_name[256] = {unknown_token};
    if(_location) state->error_position = _location->begin; \
    return_error(x, value); \
 }
+#define return_location_end_error(x, location, value) { \
+   location_t const* _location = location; \
+   if(_location) state->error_position = _location->end; \
+   return_error(x, value); \
+}
 #define return_node_error(x, node, value) { \
    return_location_error(x, ((parse_node_t*)(node))->location, value); \
 }
@@ -114,6 +119,11 @@ define_error(0x0046, terminated_regexp, "line terminator in a regular expression
 define_error(0x0047, unicode_range, "unicode code point is out of unicode range");
 define_error(0x0048, unexpected_for_await, "for-await statement can only appear in async functions and async generators");
 define_error(0x0049, duplicate_default_clause, "duplicate default clause in a switch statement");
+define_error(0x004a, invalid_assignment_target, "invalid assignment target");
+define_error(0x004b, invalid_binding_target, "invalid binding target");
+define_error(0x004c, invalid_cover_grammar, "invalid cover grammar");
+define_error(0x004d, empty_parenthetical, "empty parenthesized expression");
+define_error(0x004e, missing_parenthesis, "expecting closing parenthesis");
 
 define_error(0x1000, missing_assignment_or_binding_flag,
    "internal-error: change flags must have one of assignment or binding flag"

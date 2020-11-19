@@ -11,6 +11,7 @@ typedef struct {
    char const* source;
 } location_t;
 
+typedef uint16_t error_id_t;
 typedef struct {
    uint16_t id;
    char const* message;
@@ -32,27 +33,6 @@ typedef struct {
    uint8_t compile_flags;
    //position_t offending_position;
 } compiled_number_t;
-
-typedef struct _parse_list_node_t {
-   void* parse_node;
-   struct _parse_list_node_t* next;
-} parse_list_node_t;
-typedef struct {
-   parse_list_node_t* head;
-   parse_list_node_t* current;
-   int node_count;
-} parse_node_list_state_t;
-
-typedef struct _cover_list_node_t {
-   void* cover_node;
-   struct _cover_list_node_t* prev;
-   struct _cover_list_node_t* next;
-} cover_list_node_t;
-typedef struct {
-   cover_list_node_t* head;
-   cover_list_node_t* tail;
-   size_t count;
-} cover_node_list_t;
 
 typedef uint8_t token_id_t;
 typedef uint16_t token_group_t;
@@ -110,6 +90,27 @@ typedef struct {
 typedef struct {
    embed_compiled_parse_node();
 } compiled_parse_node_t;
+
+typedef struct _parse_list_node_t {
+   parse_node_t* parse_node;
+   struct _parse_list_node_t* next;
+} parse_list_node_t;
+typedef struct {
+   parse_list_node_t* head;
+   parse_list_node_t* current;
+   int node_count;
+} parse_node_list_state_t;
+
+typedef struct _cover_list_node_t {
+   parse_node_t* cover_node;
+   struct _cover_list_node_t* prev;
+   struct _cover_list_node_t* next;
+} cover_list_node_t;
+typedef struct {
+   cover_list_node_t* head;
+   cover_list_node_t* tail;
+   size_t count;
+} cover_node_list_t;
 
 // parser node
 typedef struct {
@@ -183,6 +184,7 @@ typedef struct {
 typedef struct {
    embed_parse_node();
    void* argument;
+   cover_list_node_t* cover_node;
 } spread_element_t;
 // keep spread_element_t and rest_element_t binary compatible
 // it makes life easier to convert their interpretations in cover expressions

@@ -36,6 +36,7 @@ function test_file(utf8_view, script, options)
       program = parse_result.program;
       program = JSON.parse(JSON.stringify(program));
    } catch(e) {
+      //if(!is_negative) console.log('error id:', e.id);
       if(options.error_line) {
          const position = e.position;
          if(options.error_line != position.line ||
@@ -83,7 +84,13 @@ function test_file(utf8_view, script, options)
          console.log(color.gray(`[${source_type}][${type}] ${script}`));
       }
    } else {
-      result = (program && reference_result ? object_diff(program, reference_result) : undefined);
+      if(!reference_result && options.warn_acorn) {
+         result = null;
+         const type = (is_negative ? 'negative' : 'positive');
+         console.log(color.gray(`[${source_type}][${type}] ${script}`));
+      } else {
+         result = (program && reference_result ? object_diff(program, reference_result) : undefined);
+      }
    }
    //if(result !== null) { console.log(program, reference_result); }
    parser.free();
@@ -199,6 +206,14 @@ function test_segmented_file(file_path, is_module, is_negative)
             --index; eat_white();
             options.error = error;
             options.expected_token = until_white();
+            if(options.expected_token == 'none') {
+               options.error = undefined;
+               options.expected_token = undefined;
+            }
+            if(is_global) {
+               global_options.error = options.error;
+               global_options.expected_token = options.expected_token;
+            }
             break;
          }
          default: {
@@ -239,7 +254,9 @@ function test_segmented_file(file_path, is_module, is_negative)
          options.is_negative = false, options.is_module = false;
          options.can_exclude = false, options.is_pedantic = false;
          options.use_annex = false, options.expected_token = undefined;
+         options.warn_acorn = false;
          options.error = global_options.error;
+         options.expected_token = global_options.expected_token;
          if(index != length && utf8_view[index] == lesser) {
             while(++index != length) {
                if(utf8_view[index] == greater) break;
@@ -249,7 +266,8 @@ function test_segmented_file(file_path, is_module, is_negative)
                   case '#'.charCodeAt(0): options.is_module = true; break;
                   case '^'.charCodeAt(0): options.can_exclude = true; break;
                   case '?'.charCodeAt(0): options.is_pedantic = true; break;
-                  case '&'.charCodeAt(0): options.use_annex = false; break;
+                  case '&'.charCodeAt(0): options.use_annex = true; break;
+                  case 'a'.charCodeAt(0): options.warn_acorn = true; break;
                   default: break;
                }
             }

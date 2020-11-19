@@ -1,37 +1,47 @@
-this++; //? <->
-this--; //? <->
-++this; //? <->
---this; //? <->
+delete 0; //? <+>
+void 0; //? <+>
+typeof 0; //? <+>
++0; //? <+>
+-0; //? <+>
+~0; //? <+>
+!0; //? <+>
+!async function(){ await 0; } //? <+>
+
+//- invalid_update
+this++; //? <-> @1:1
+this--; //? <-> @1:1
+++this; //? <-> @1:3
+--this; //? <-> @1:3
 ++a; //? <+>
-++null; //? <->
-++true; //? <->
-++false; //? <->
-++0; //? <->
-++'a'; //? <->
-++[]; //? <->
-++{}; //? <->
-++function(){}; //? <->
-++function*(){}; //? <->
-++async function(){}; //? <->
-++async function*(){}; //? <->
-++class{}; //? <->
-++/a/; //? <->
-++`a`; //? <->
+++null; //? <-> @1:3
+++true; //? <-> @1:3
+++false; //? <-> @1:3
+++0; //? <-> @1:3
+++'a'; //? <-> @1:3
+++[]; //? <-> @1:3
+++{}; //? <-> @1:3
+++function(){}; //? <-> @1:3
+++function*(){}; //? <-> @1:3
+++async function(){}; //? <-> @1:3
+++async function*(){}; //? <-> @1:3
+++class{}; //? <-> @1:3
+++/a/; //? <-> @1:3
+++`a`; //? <-> @1:3
 ++a.b; //? <+>
 ++a[b]; //? <+>
-++a`b`; //? <->
+++a`b`; //? <-> @1:3
 !{a(){ ++super.b; }}; //? <+>
 !{a(){ ++super[b]; }}; //? <+>
-!function(){ ++new.target; } //? <->
-++import.meta; //? <-#>
-++new a; //? <->
-++a(); //? <->
+!function(){ ++new.target; } //? <-> @1:16
+++import.meta; //? <-#> @1:3
+++new a; //? <-> @1:3
+++a(); //? <-> @1:3
 ++a().b; //? <+>
 ++a()[b]; //? <+>
-class a extends b { constructor(){ ++super(); }}; //? <->
-++import('a'); //? <-#>
-++a?.b; //? <->
-++ ++a; //? <->
+class a extends b { constructor(){ ++super(); }}; //? <-> @1:38
+++import('a'); //? <-#> @1:3
+++a?.b; //? <-> @1:3
+++ ++a; //? <-> @1:4
 ///
 ++(a); //? <+>
 ++(a.b); //? <+>
@@ -39,7 +49,7 @@ class a extends b { constructor(){ ++super(); }}; //? <->
 ++(a().b); //? <+>
 ++(a()[b]); //? <+>
 ++(((a()[b]))); //? <+>
-///
-'use strict'; var a; delete a; //? <->
-'use strict'; var a; delete (a); //? <->
-'use strict'; var a; delete ((((a)))); //? <->
+//- identifier_deletion
+'use strict'; var a; delete a; //? <-> @1:29
+'use strict'; var a; delete (a); //? <-> @1:30
+'use strict'; var a; delete ((((a)))); //? <-> @1:33
