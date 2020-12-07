@@ -7,11 +7,14 @@ char const* parse_token_name[256] = {unknown_token};
 #define define_error(_id, type, _message) \
    parse_error_t const error_##type = {.id = _id, .message = _message};
 #define set_error(x) state->parse_error = &error_##x;
-#define return_error(x, value) { set_error(x); return value; }
-#define return_scan_error(x, _code, value) { \
+#define set_scan_error(x, _code) { \
    set_error(x); \
    state->code = _code; \
    state->error_position = make_position(state); \
+}
+#define return_error(x, value) { set_error(x); return value; }
+#define return_scan_error(x, _code, value) { \
+   set_scan_error(x, _code); \
    return value; \
 }
 #define return_compiled_error(compiled_string, value) { \
@@ -124,6 +127,8 @@ define_error(0x004b, invalid_binding_target, "invalid binding target");
 define_error(0x004c, invalid_cover_grammar, "invalid cover grammar");
 define_error(0x004d, empty_parenthetical, "empty parenthesized expression");
 define_error(0x004e, missing_parenthesis, "expecting closing parenthesis");
+define_error(0x004f, missing_variable_name, "missing variable name");
+define_error(0x0050, reserved_word_as_variable, "reserved word cannot be used a variable name");
 
 define_error(0x1000, missing_assignment_or_binding_flag,
    "internal-error: change flags must have one of assignment or binding flag"

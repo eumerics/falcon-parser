@@ -83,7 +83,7 @@ uint32_t compile_unicode_escape_sequence(parse_state_t* state, int for_identifie
 {
    char_t const* const begin = state->code;
    int is_code_point = 0, min_hex_chars = 0, max_hex_chars = 0;
-   if(*++state->code != 'u') return_error(expecting_unicode_sequence, 0);
+   if(*++state->code != 'u') return_scan_error(expecting_unicode_sequence, begin, 0);
    if(*(state->code + 1) == '{') {
       is_code_point = 1, ++state->code;
       min_hex_chars = 1, max_hex_chars = (uint32_t)(-1);
@@ -97,15 +97,15 @@ uint32_t compile_unicode_escape_sequence(parse_state_t* state, int for_identifie
       value <<= 4;
       if(c >= '0' && c <= '9'){ value |= (c - '0'); continue; }
       if(cl >= 'a' && cl <= 'f'){ value |= 10 + (cl - 'a'); continue; }
-      if(i < min_hex_chars) { return_error(not_enough_hexdigits, 0); }
+      if(i < min_hex_chars) { return_scan_error(not_enough_hexdigits, state->code, 0); }
       else { --state->code; value >>= 4; break; }
    }
    if(is_code_point && *++state->code != '}') {
-      return_error(missing_unicode_closing, 0);
+      return_scan_error(missing_unicode_closing, state->code, 0);
    }
    if(for_identifier && ((value & 0xf800) == 0xd800)) {
-      state->code = begin;
-      return_error(surrogate_in_identifier, 0);
+      //state->code = begin;
+      return_scan_error(surrogate_in_identifier, begin, 0);
    }
    ++state->code;
    return value;
@@ -129,7 +129,7 @@ uint32_t compile_unicode_code_point(parse_state_t* state, int for_identifier)
    */
    if((value & 0xfc00) == 0xdc00) {
       state->code = begin;
-      return_error(missing_leading_surrogate, 0);
+      return_scan_error(missing_leading_surrogate, begin, 0);
    }
    if((value & 0xfc00) == 0xd800) {
       char_t const* const begin = state->code;
@@ -140,11 +140,11 @@ uint32_t compile_unicode_code_point(parse_state_t* state, int for_identifier)
       } else if(state->code < state->code_end){
          trailing_value = *state->code++;
       } else {
-         return_error(missing_trailing_surrogate, 0);
+         return_scan_error(missing_trailing_surrogate, begin, 0);
       }
       if((trailing_value & 0xdc00) != 0xdc00) {
          state->code = begin;
-         return_error(missing_trailing_surrogate, 0);
+         return_scan_error(missing_trailing_surrogate, begin, 0);
       }
       value = (value & 0x3ff) << 10 | (trailing_value & 0x3ff);
       value += 0x10000;
@@ -700,9 +700,15 @@ inline_spec int scan_regexp_literal(parse_state_t* const state, params_t params)
             case 's': if(has_s) has_duplicate = 1; else has_s = 1; break;
             case 'u': if(has_u) has_duplicate = 1; else has_u = 1; break;
             case 'y': if(has_y) has_duplicate = 1; else has_y = 1; break;
-            default: set_error(invalid_regexp_flag); end_of_flags = 1; break; //pre-empted error
+            //default: set_error(invalid_regexp_flag); end_of_flags = 1; break; //pre-empted error
+            default: {
+               if(c >= 'a' && c <= 'z') { //[BUG][TODO] incomplete test
+                  set_scan_error(invalid_regexp_flag, code);
+               }
+               end_of_flags = 1; break;
+            }
          }
-         if(has_duplicate) { return_error(duplicate_regexp_flag, 0); }
+         if(has_duplicate) { return_scan_error(duplicate_regexp_flag, code, 0); }
          if(end_of_flags) break;
       } while(++code < end);
    }
@@ -873,14 +879,14 @@ inline_spec int scan_punctuator(parse_state_t* const state, params_t params)
    if(c1 == ';' || c1 == ',') return_scan(c1, mask_none, precedence_none, 1);
    if(c1 == '{') {
       ++state->curly_parenthesis_level;
-      return_scan(c1, mask_parentheses | mask_let_inclusions, precedence_none, 1);
+      return_scan(c1, mask_parentheses | mask_binding_pattern, precedence_none, 1);
    }
    if(c1 == '}'){
       --state->curly_parenthesis_level;
       //state->in_regexp_context = (state->parenthesis_level == 0);
       return_scan(c1, mask_parentheses, precedence_none, 1);
    }
-   if(c1 == '[') return_scan(c1, mask_parentheses | mask_let_inclusions, precedence_none, 1);
+   if(c1 == '[') return_scan(c1, mask_parentheses | mask_binding_pattern, precedence_none, 1);
    if(c1 == ']') {
       state->in_regexp_context = 0;
       return_scan(c1, mask_parentheses, precedence_none, 1);
@@ -1457,6 +1463,7 @@ int scan_uncommon(parse_state_t* state, params_t params)
    uint16_t const paragraph_separator = 0x2029; // <PS>
 
    char_t c = *state->code;
+   //[REVIEW] do we need (c & 0xffffff80) instaed of (c & 0xff80)
    if(c == '\\' || (c & 0xffffff80)) {
       //if_debug(print_string("continuing identifier\n"));
       if(scan_identifier(state, params)) return 1;

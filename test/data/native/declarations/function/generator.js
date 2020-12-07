@@ -51,6 +51,7 @@ function* a(){ !{[yield]: 0}; } //? <+>
 function* a(){ !{...yield}; } //? <+>
 function* a(){ !{yield(){}}; } //? <+>
 function* a(){ !{b(yield){}}; } //? <+>
+function* a(){ yield = 0; } //? <-> @1:22 -default
 
 //- contextual_identifier
 function* a(){ ({b = yield} = {}); } //? <+>

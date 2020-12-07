@@ -130,3 +130,22 @@ for await(a of []); //? <-> @1:5
 ///
 !async function(){ for await(;;); }; //? <-> @1:30 -default
 !async function(){ for await(a in {}); }; //? <-> @1:32 -expecting_of
+
+//- let_in_lexical
+for(let let;;); //? <-> @1:9
+for(let let = 0;;); //? <-> @1:9
+for(let let in {}); //? <-> @1:9
+for(let let of []); //? <-> @1:9
+for(let [let] in {}); //? <-> @1:10
+for(let {let} of []); //? <-> @1:10
+for(let [...let] in {}); //? <-> @1:13
+for(let {...let} of []); //? <-> @1:13
+///
+for(const let;;); //? <-> @1:11
+for(const let = 0;;); //? <-> @1:11
+for(const let in {}); //? <-> @1:11
+for(const let of []); //? <-> @1:11
+for(const [let] in {}); //? <-> @1:12
+for(const {let} of []); //? <-> @1:12
+for(const [...let] in {}); //? <-> @1:15
+for(const {...let} of []); //? <-> @1:15

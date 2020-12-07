@@ -8,6 +8,7 @@ import readline from 'readline';
 import parse_args from 'minimist';
 
 const arg = parse_args(process.argv.slice(2));
+let test_count = 0;
 
 const color = {
    bold_red: x => `\x1b[0;38;2;255;0;0m${x}\x1b[0m`,
@@ -26,6 +27,7 @@ const color = {
 
 function test_file(utf8_view, script, options)
 {
+   ++test_count;
    const {is_module, is_negative} = options;
    const parser = new Parser();
    const params = 0;
@@ -58,7 +60,7 @@ function test_file(utf8_view, script, options)
                   print_error(`unknown error ${options.error}`, script, options);
                } else if(error.id === undefined || e.id === undefined || error.id != e.id) {
                   print_error('mismatching error type', script, options);
-                  console.log(options, error.id, e.id);
+                  console.log(options, error.id?.toString(16), e.id?.toString(16));
                }
             }
          }
@@ -92,7 +94,14 @@ function test_file(utf8_view, script, options)
          result = (program && reference_result ? object_diff(program, reference_result) : undefined);
       }
    }
-   //if(result !== null) { console.log(program, reference_result); }
+   /*
+   if(result !== null) {
+      console.log(
+         JSON.stringify(program, null, '   '),
+         JSON.stringify(reference_result, null, '   ')
+      );
+   }
+   */
    parser.free();
    return result;
 }
@@ -136,6 +145,7 @@ function print_error(message, script, options) {
 function test_segmented_file(file_path, is_module, is_negative)
 {
    let begin = 0, index = 0;
+   const settings = {};
    const global_options = {error: undefined};
    const options = {is_module: is_module, is_negative: is_negative, has_failed: false, file_path: file_path};
    const utf8_view = fs.readFileSync(file_path);
@@ -147,7 +157,7 @@ function test_segmented_file(file_path, is_module, is_negative)
    }
    function test_script(segment_view) {
       const script = segment_view.toString();
-      //console.log(script); console.log('---');
+      //console.log(script, script.length); console.log('---');
       const diff = test_file(segment_view, script, options);
       if(diff !== null) print_error(undefined, script, options);
    }
@@ -180,7 +190,15 @@ function test_segmented_file(file_path, is_module, is_negative)
          if(c == cr || c == lf) break;
       }
    };
+   const eat_newline_only = () => {
+      const c = utf8_view[index];
+      if(c == lf) return ++index;
+      else if(c == cr && ++index < length && utf8_view[index] == lf) ++index;
+   };
    const eat_newline = () => {
+      if(settings.preserve_newlines) {
+         return eat_newline_only();
+      }
       while(index < length) {
          const c = utf8_view[index];
          if(c != cr && c != lf) break;
@@ -249,6 +267,13 @@ function test_segmented_file(file_path, is_module, is_negative)
          eat_newline();
          if(at_begin) begin = index;
          continue;
+      } else if(utf8_view[index] == '#'.charCodeAt(0)) {
+         eat_white(); const settings_begin = index; until_newline();
+         const _settings = JSON.parse(utf8_view.subarray(settings_begin, index).toString());
+         Object.assign(settings, _settings);
+         eat_newline();
+         begin = index;
+         continue;
       } else if(utf8_view[index] == question) {
          while(++index < length && utf8_view[index] == space);
          options.is_negative = false, options.is_module = false;
@@ -306,12 +331,10 @@ function test_segmented_file(file_path, is_module, is_negative)
          ++index;
          if(!read_error()) return;
       }
-      while(index != length) {
-         let c = utf8_view[index];
-         if(c != cr && c != lf) break;
-         if(c == cr && ++index < length && utf8_view[index] == lf) ++index;
+      eat_newline();
+      if(begin < end || (begin == end && settings.allow_empty)) {
+         test_script(utf8_view.subarray(begin, end));
       }
-      if(begin < end) test_script(utf8_view.subarray(begin, end));
       begin = index;
    }
    if(begin < length) {
@@ -329,6 +352,7 @@ function test_falcon_suite_dir(suite_path, is_negative, segmented)
          test_falcon_suite_dir(file_path, is_negative, segmented);
          continue;
       }
+      if(file.startsWith('_')) continue;
       if(arg.native && /libraries/.test(file_path)) continue;
       //if(/libraries/.test(file_path)) continue;
       if(/tsserver/.test(file_path)) continue;
@@ -356,7 +380,8 @@ function test_falcon_suite_dir(suite_path, is_negative, segmented)
 
 function test_falcon_suite()
 {
-   for(const suite of ['pass', 'fail', 'native']) {
+   //for(const suite of ['pass', 'fail', 'native']) {
+   for(const suite of ['pass', 'native']) {
    //for(const suite of ['pass', 'fail']) {
    //for(const suite of ['fail']) {
       test_falcon_suite_dir(`data/${suite}`, suite == 'fail', suite != 'pass');
@@ -366,8 +391,10 @@ function test_falcon_suite()
 (async () => {
    await Parser.load_wasm('../dist/parser.wasm');
    if(arg.f) {
-      const is_module = !!arg.m, is_negative = !!arg.n;
-      if(is_negative) {
+      const is_module = !!arg.m;
+      const is_negative = !!arg.n;
+      const is_segmented = !!arg.n || !!arg.s;
+      if(is_segmented) {
          test_segmented_file(arg.f, is_module, is_negative);
       } else {
          const utf8_view = fs.readFileSync(arg.f);
@@ -383,5 +410,6 @@ function test_falcon_suite()
    } else {
       if(!arg.native) test_test262_suite();
       test_falcon_suite();
+      console.log('test count:', test_count);
    }
 })();

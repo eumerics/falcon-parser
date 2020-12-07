@@ -28,7 +28,7 @@ uint16_t const mask_comparison_ops = 0x0800;
 uint16_t const mask_variable_declarator = 0x1000;
 uint16_t const mask_literal = 0x2000;
 uint16_t const mask_expression_exclusions = 0x4000;
-uint16_t const mask_let_inclusions = 0x8000;
+uint16_t const mask_binding_pattern = 0x8000;
 
 uint8_t const token_flag_none = 0x00;
 uint8_t const token_flag_newline = 0x01;
@@ -476,6 +476,7 @@ uint32_t const param_flag_expression = 0x2000 << 16;
 // a template, we will support this behavior for testing
 uint32_t const param_flag_inconsistent_lines = 0x1000 << 16;
 uint32_t const param_flag_covered_call = 0x0800 << 16;
+uint32_t const param_flag_lexical_binding = 0x0400 << 16;
 /*
 uint32_t const cover_flag_array = 0x0001;
 uint32_t const cover_flag_assignment = 0x0002;
