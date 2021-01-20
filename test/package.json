@@ -3,6 +3,7 @@
    "devDependencies": {
       "acorn": "^8.0.1",
       "asar": "^3.0.3",
+      "benchmark": "^2.1.4",
       "meriyah": "^2.1.1",
       "minimist": "^1.2.5",
       "tenko": "^1.1.1",

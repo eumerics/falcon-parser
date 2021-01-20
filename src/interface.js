@@ -808,6 +808,18 @@ export class Parser {
       shared_memory.set(code_uint8_view, index);
       this.code = {pointer: index, view: code_view, utf8_view: code_utf8_view};
    }
+   load_script(script) {
+      if(!Parser.use_utf16) {
+         throw 'load_script is allowed only when parsing in UTF-16 mode';
+      }
+      const index = Parser.instance.exports.malloc(2 * script.length);
+      let code_view = new Uint16Array(Parser.memory.buffer, index, script.length);
+      for(let i = 0; i < script.length; ++i) {
+         code_view[i] = script.charCodeAt(i);
+      }
+      //console.log(code_view);
+      this.code = {pointer: index, view: code_view, length: script.length, allocated: true};
+   }
    print_error_message(error) {
       if(error.message) {
          console.error(error.message);
