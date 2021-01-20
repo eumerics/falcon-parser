@@ -128,34 +128,6 @@ typedef struct {
    uint8_t flags_length;
 } regexp_literal_t;
 
-// expressions
-typedef struct {
-   embed_parse_node();
-} this_expression_t;
-
-typedef struct {
-   embed_parse_node();
-   uint8_t has_trailing_comma;
-   void* elements;
-} array_expression_t;
-// keep array_expression_t and array_pattern_t binary compatible
-// it makes life easier to convert their interpretations in cover expressions
-typedef array_expression_t array_pattern_t;
-
-typedef struct {
-   embed_parse_node();
-   void* left;
-   void* right;
-} binding_assignment_t;
-typedef struct {
-   embed_parse_node();
-   uint8_t has_trailing_comma;
-   void* properties;
-} object_expression_t;
-// keep object_expression_t and object_pattern_t binary compatible
-// it makes life easier to convert their interpretations in cover expressions
-typedef object_expression_t object_pattern_t;
-
 typedef struct {
    embed_parse_node();
    //void* elements;
@@ -165,6 +137,29 @@ typedef struct {
 typedef struct {
    embed_compiled_parse_node();
 } template_element_t;
+
+// expressions
+typedef struct {
+   embed_parse_node();
+} this_expression_t;
+
+typedef struct {
+   embed_parse_node();
+   void* argument;
+   cover_list_node_t* cover_node;
+} spread_element_t;
+// keep spread_element_t and rest_element_t binary compatible
+// it makes life easier to convert their interpretations in cover expressions
+typedef spread_element_t rest_element_t;
+
+typedef struct {
+   embed_parse_node();
+   uint8_t has_trailing_comma;
+   void* elements;
+} array_expression_t;
+// keep array_expression_t and array_pattern_t binary compatible
+// it makes life easier to convert their interpretations in cover expressions
+typedef array_expression_t array_pattern_t;
 
 typedef struct {
    embed_parse_node();
@@ -178,89 +173,38 @@ typedef property_t method_definition_t;
 
 typedef struct {
    embed_parse_node();
+   void* left;
+   void* right;
+} binding_assignment_t;
+typedef struct {
+   embed_parse_node();
+   void* left;
+   void* right;
+   cover_list_node_t* cover_node;
+} initialized_name_t;
+typedef struct {
+   embed_parse_node();
+   uint8_t has_trailing_comma;
+   void* properties;
+} object_expression_t;
+// keep object_expression_t and object_pattern_t binary compatible
+// it makes life easier to convert their interpretations in cover expressions
+typedef object_expression_t object_pattern_t;
+
+typedef struct {
+   embed_parse_node();
    void* expression;
 } parenthesized_expression_t;
 
 typedef struct {
    embed_parse_node();
-   void* argument;
-   cover_list_node_t* cover_node;
-} spread_element_t;
-// keep spread_element_t and rest_element_t binary compatible
-// it makes life easier to convert their interpretations in cover expressions
-typedef spread_element_t rest_element_t;
+} super_t;
 
 typedef struct {
    embed_parse_node();
-   void* body;
-} function_body_t;
-typedef struct {
-   embed_parse_node();
-   uint8_t flags;
-   void* id;
-   void* params;
-   void* body;
-} function_declaration_t;
-typedef function_declaration_t function_expression_t;
-// we will keep the redundant id for convenience and for compatibility with
-// estree specification
-typedef function_declaration_t arrow_function_expression_t;
-
-typedef struct {
-   embed_parse_node();
-   void* body;
-} class_body_t;
-typedef struct {
-   embed_parse_node();
-   void* id;
-   void* super_class;
-   void* body;
-} class_declaration_t;
-typedef class_declaration_t class_expression_t;
-
-typedef struct {
-   embed_parse_node();
-   parse_list_node_t* specifiers;
-   literal_t* source;
-} import_declaration_t;
-typedef struct {
-   embed_parse_node();
-   identifier_t* local;
-} module_specifier_t;
-typedef module_specifier_t import_default_specifier_t;
-typedef module_specifier_t import_namespace_specifier_t;
-typedef struct {
-   embed_parse_node();
-   identifier_t* local;
-   identifier_t* imported;
-} import_specifier_t;
-
-typedef struct {
-   embed_parse_node();
-   identifier_t* exported;
-   literal_t* source;
-} export_all_declaration_t;
-typedef struct {
-   embed_parse_node();
-   parse_list_node_t* specifiers;
-   literal_t* source;
-   void* declaration;
-} export_named_declaration_t;
-typedef struct {
-   embed_parse_node();
-   void* declaration;
-} export_default_declaration_t;
-typedef struct {
-   embed_parse_node();
-   identifier_t* local;
-   identifier_t* exported;
-} export_specifier_t;
-
-typedef struct {
-   embed_parse_node();
-   uint8_t flags;
-   void* argument;
-} yield_expression_t;
+   void* meta;
+   void* property;
+} meta_property_t;
 
 typedef struct {
    embed_parse_node();
@@ -283,6 +227,11 @@ typedef struct {
 
 typedef struct {
    embed_parse_node();
+   void* source;
+} import_call_t;
+
+typedef struct {
+   embed_parse_node();
    uint8_t flags;
    void* callee;
    void* arguments;
@@ -293,11 +242,6 @@ typedef struct {
    embed_parse_node();
    void* expression;
 } chain_expression_t;
-
-typedef struct {
-   embed_parse_node();
-   void* source;
-} import_expression_t;
 
 typedef struct {
    embed_parse_node();
@@ -315,11 +259,6 @@ typedef struct {
 
 typedef struct {
    embed_parse_node();
-   void* argument;
-} await_expression_t;
-
-typedef struct {
-   embed_parse_node();
    aggregate_id_t operator;
    void* left;
    void* right;
@@ -333,13 +272,17 @@ typedef struct {
    void* alternate;
 } conditional_expression_t;
 
-/*
 typedef struct {
    embed_parse_node();
-   void* left;
-   void* right;
-} assignment_pattern_t;
-*/
+   uint8_t flags;
+   void* argument;
+} yield_expression_t;
+
+typedef struct {
+   embed_parse_node();
+   void* argument;
+} await_expression_t;
+
 typedef struct {
    embed_parse_node();
    void* left;
@@ -353,12 +296,6 @@ typedef struct {
    void* left;
    void* right;
 } assignment_pattern_t;
-typedef struct {
-   embed_parse_node();
-   void* left;
-   void* right;
-   cover_list_node_t* cover_node;
-} initialized_name_t;
 
 typedef struct {
    embed_parse_node();
@@ -387,13 +324,33 @@ typedef struct {
 
 typedef struct {
    embed_parse_node();
-} super_t;
+   void* body;
+} function_body_t;
+typedef struct {
+   embed_parse_node();
+   uint8_t flags;
+   void* id;
+   void* params;
+   void* body;
+} function_t;
+typedef function_t function_declaration_t;
+typedef function_t function_expression_t;
+// we will keep the redundant id for convenience and for compatibility with
+// estree specification
+typedef function_t arrow_function_expression_t;
 
 typedef struct {
    embed_parse_node();
-   void* meta;
-   void* property;
-} meta_property_t;
+   void* body;
+} class_body_t;
+typedef struct {
+   embed_parse_node();
+   void* id;
+   void* super_class;
+   void* body;
+} class_t;
+typedef class_t class_declaration_t;
+typedef class_t class_expression_t;
 
 /*
 typedef struct {
@@ -527,6 +484,44 @@ typedef struct {
 
 } _statement_t;
 */
+
+typedef struct {
+   embed_parse_node();
+   parse_list_node_t* specifiers;
+   literal_t* source;
+} import_declaration_t;
+typedef struct {
+   embed_parse_node();
+   identifier_t* local;
+} module_specifier_t;
+typedef module_specifier_t import_default_specifier_t;
+typedef module_specifier_t import_namespace_specifier_t;
+typedef struct {
+   embed_parse_node();
+   identifier_t* local;
+   identifier_t* imported;
+} import_specifier_t;
+
+typedef struct {
+   embed_parse_node();
+   identifier_t* exported;
+   literal_t* source;
+} export_all_declaration_t;
+typedef struct {
+   embed_parse_node();
+   parse_list_node_t* specifiers;
+   literal_t* source;
+   void* declaration;
+} export_named_declaration_t;
+typedef struct {
+   embed_parse_node();
+   void* declaration;
+} export_default_declaration_t;
+typedef struct {
+   embed_parse_node();
+   identifier_t* local;
+   identifier_t* exported;
+} export_specifier_t;
 
 typedef struct {
    embed_parse_node();

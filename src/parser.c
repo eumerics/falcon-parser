@@ -4,7 +4,6 @@
 #include <stdlib.h>
 #include <time.h>
 
-#define show_token printf
 #define log_token(__VA_ARGS__)
 
 typedef struct {

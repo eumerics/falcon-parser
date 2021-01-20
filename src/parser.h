@@ -2779,7 +2779,7 @@ void* parse_call_only_expression(parse_state_t* state, parse_tree_state_t* tree_
       return_node();
    } else if(exists_word(import)) {
       if(exists_ahead('.')) passon(nullptr);
-      make_node(import_expression);
+      make_node(import_call);
       ensure_word(import); expect('(');
          parse(source, assignment_expression, NONE, IN);
       expect(')');

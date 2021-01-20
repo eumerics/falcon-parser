@@ -1,3 +1,7 @@
+process.on('unhandledRejection', (reason, p) => {
+  console.log('Unhandled Rejection at: Promise', p, 'reason:', reason);
+});
+
 import {Parser} from '../src/interface.js';
 import disk from 'asar/lib/disk.js';
 import * as acorn from 'acorn';
@@ -101,7 +105,7 @@ function test_file(utf8_view, script, options)
          JSON.stringify(reference_result, null, '   ')
       );
    }
-   */
+   //*/
    parser.free();
    return result;
 }
@@ -247,14 +251,7 @@ function test_segmented_file(file_path, is_module, is_negative)
       if(utf8_view[index] != slash) { ++index; continue; }
       if(++index == length || utf8_view[index] != slash) continue;
       if(++index == length) continue;
-      if(utf8_view[index] == lesser) {
-         // older test case tag
-         if(++index == length || utf8_view[index] != greater) continue;
-         until_newline(); eat_newline();
-         if(begin < end) test_script(utf8_view.subarray(begin, end));
-         begin = index;
-         continue;
-      } else if(utf8_view[index] == slash) {
+      if(utf8_view[index] == slash) {
          // ignore comments
          const at_begin = (begin == end);
          until_newline(); eat_newline();

@@ -299,8 +299,8 @@ uint8_t const pnt_class_expression = expression_base + 25;
 uint8_t const png_class_expression = LHS;
 uint8_t const pnt_await_expression = expression_base + 26;
 uint8_t const png_await_expression = NONE;
-uint8_t const pnt_import_expression = expression_base + 27;
-uint8_t const png_import_expression = NONE;
+uint8_t const pnt_import_call = expression_base + 27;
+uint8_t const png_import_call = NONE;
 uint8_t const pnt_parenthesized_expression = expression_base + 28;
 uint8_t const png_parenthesized_expression = LHS;
 /*

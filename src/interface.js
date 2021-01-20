@@ -178,7 +178,7 @@ function define_interface(Class, type_info, type_name)
             },
             set: function(node){
                if(!(node instanceof Node) || node.pointer == undefined) {
-                  throw(`invalid node to assing to ${name}`);
+                  throw(`invalid node to assign to ${name}`);
                }
                const prop_offset = (this.pointer + offset) / sizeof[type];
                this.buffer_view[type][prop_offset] = node.pointer;
@@ -272,6 +272,7 @@ function define_interface(Class, type_info, type_name)
       }
       group_end();
    }
+   /*
    function _bind_tokens(Class, tokens) {
       group_begin('tokens');
       for(const [name, offset] of Object.entries(tokens)) {
@@ -293,6 +294,7 @@ function define_interface(Class, type_info, type_name)
       }
       group_end();
    }
+   */
    function _bind_punctuators(Class, tokens) {
       group_begin('punctuators');
       for(const [name, offset] of Object.entries(tokens)) {
@@ -547,7 +549,6 @@ export class WhileStatement extends Statement {}
 export class ForStatement extends Statement {}
 export class ForInStatement extends Statement {}
 export class ForOfStatement extends Statement {}
-export class CaseStatement extends Statement {}
 export class SwitchStatement extends Statement {}
 export class SwitchCase extends Node {}
 export class ContinueStatement extends Statement {}
@@ -563,6 +564,7 @@ export class ClassBody extends Node {}
 export class Program extends Node {}
 
 const env = {
+   /*
    show_token_type: function(index){
       let index_begin = index;
       //while(index < shared_memory.length && shared_memory[index++] != 0);
@@ -575,7 +577,6 @@ const env = {
       let string = new TextDecoder('utf-8').decode(string_buffer);
       console.log(string);
    },
-   /*
    log_token: function(format_index, length, index, id, group, begin, end) {
       console.log(index, id, group, begin, end);
       let string_buffer = Parser.memory.buffer.slice(index, index + length);
@@ -817,14 +818,16 @@ export class Parser {
       }
    }
    parse_code(is_module, params) {
+      params = params || 0;
       let result_size = 4096; //[BUG] large enough for now to not worry about actual size
       let result_pointer = Parser.instance.exports.malloc(result_size);
+      this.update_buffer_view();
       let begin = this.code.pointer, end = begin + this.code.view.byteLength;
       Parser.instance.exports.parse(result_pointer, begin, end, is_module, params);
       //let result = new Uint32Array(Parser.memory.buffer, result_pointer, result_size/4);
       //this.parse_result = {value: result, pointer: result_pointer};
+      this.update_buffer_view();
       let buffer = Parser.memory.buffer;
-      Parser.update_buffer_view();
       let buffer_view = {
          buffer: buffer,
          u08: new Uint8Array(buffer),
@@ -846,6 +849,7 @@ export class Parser {
          if(position.line == 0) position = this.parse_result.parse_token.location.start;
          error.position = position;
          error.expected_token_id = this.parse_result.expected_token_id;
+         //console.log(error);
          throw error;
       }
       return this.parse_result;
@@ -859,6 +863,13 @@ export class Parser {
       //Parser.instance.exports.wasm_free(result.value[0]);
       Parser.instance.exports.parser_free(this.parse_result.parse_state_pointer);
       Parser.instance.exports.wasm_free(this.parse_result.parse_result_pointer);
+   }
+   update_buffer_view() {
+      Parser.update_buffer_view();
+      if(!this.code.allocated) return;
+      this.code.view = new Uint16Array(
+         Parser.memory.buffer, this.code.pointer, this.code.length
+      );
    }
 
    static update_buffer_view() {
@@ -1009,7 +1020,7 @@ export class Parser {
       constructors[constants.pnt_yield_expression] = YieldExpression;
       constructors[constants.pnt_class_expression] = ClassExpression;
       constructors[constants.pnt_await_expression] = AwaitExpression;
-      constructors[constants.pnt_import_expression] = ImportExpression;
+      constructors[constants.pnt_import_call] = ImportExpression;
       constructors[constants.pnt_parenthesized_expression] = ParenthesizedExpression;
       constructors[constants.pnt_binding_assignment] = BindingAssignment;
       constructors[constants.pnt_initialized_name] = InitializedName;
@@ -1305,9 +1316,6 @@ export class Parser {
          flags: {flags: {type: 'u08', offset: 14, flags: {
             await: Parser.constants.for_flag_await
          }}}
-      });
-      define_interface(CaseStatement, {
-         nodes: {test: 16, consequent: 20}
       });
       define_interface(SwitchStatement, {
          nodes: {discriminant: 16},

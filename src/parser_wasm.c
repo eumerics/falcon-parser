@@ -8,11 +8,7 @@
 #define print_string(x) log_string(x, strlen(x))
 #define print_number(x) log_number(x)
 
-//#define printf(x) show_token_type(x)
 //#define if_verbose(x) x
-extern void show_token_type(char const*);
-extern void show_token(char const*, int, char const*);
-//extern void log_token(char const*, int, char const*, int, int, int, int);
 extern void log_node(void*, int, int, int, void*);
 extern void log_string(void const* string_pointer, size_t length);
 extern void log_number(uint32_t number);
