@@ -558,6 +558,50 @@ _make_string_token:
    return 1;
 }
 
+inline_spec double compile_numeric_literal(
+   char_t const* number_begin, int base,
+   int integer_digits, int fraction_digits, int exponent
+){
+   //[BUG][TODO] cases that require big number arithmetic
+   int digits = 0, number = 0;
+   char_t const* code = number_begin;
+   while(integer_digits > 0) {
+      if(digits != 0 || *code != '0') {
+         char_t c = *code;
+         number *= base;
+         if(base == 16) {
+            c |= 0x20;
+            number += c - (c >= 'a' ? 'a' - 10 : '0');
+         } else {
+            number += c - '0';
+         }
+         ++digits;
+      }
+      ++code; --integer_digits;
+   }
+   if(base != 10) return number;
+   ++code; // decimal point
+   while(fraction_digits > 0) {
+      if(digits != 0 || *code != '0') {
+         number *= 10; number += *code - '0'; ++digits;
+      }
+      ++code; --exponent; --fraction_digits;
+   }
+   if(exponent == 0) {
+      return number;
+   } else {
+      int positive_exponent = (exponent < 0 ? -exponent : exponent);
+      double multiplier = 1; while(--positive_exponent >= 0) multiplier *= 10;
+      if(exponent < 0) {
+         //print_number(number); print_double(multiplier);
+         return number / multiplier;
+      } else {
+         //print_number(number); print_double(multiplier);
+         return number * multiplier;
+      }
+   }
+}
+
 inline_spec int scan_numeric_literal(parse_state_t* const state, params_t params)
 {
    //[TODO] spacing character _
@@ -566,7 +610,9 @@ inline_spec int scan_numeric_literal(parse_state_t* const state, params_t params
    char_t const* const end = state->code_end;
    char_t const* code = state->code;
    char_t c = *code;
-   int decimal_like = 0, numeric_annex = 0;
+   int numeric_annex = 0;
+   int base = 10, integer_digits = 0, fraction_digits = 0, exponent = 0;
+   char_t const* number_begin = code;
    // parse the integer part
    if(c == '0') {
       if(++code == end) goto _make_numeric_token;
@@ -578,37 +624,38 @@ inline_spec int scan_numeric_literal(parse_state_t* const state, params_t params
             return_error(annex_numeral, 0);
          }
          numeric_annex = 1;
-         decimal_like = c & 0x08; // '8' = 0x38, '9' = 0x39
+         base = (c & 0x08 ? 10 : 8); // '8' = 0x38, '9' = 0x39
          while(++code < end){
             char_t c = *code;
             if(c < '0' || c > '9') break;
-            decimal_like |= c & 0x08;
+            if(c & 0x08) base = 10;
          };
       } else {
          char_t lower = *code | 0x20;
          char_t const* digit_begin = code + 1;
          if(lower == 'x') { // hexadecimal number
-            while(++code < end && is_hex(*code));
+            number_begin = code + 1;
+            base = 16; while(++code < end && is_hex(*code));
          } else if(lower == 'b') {
-            while(++code < end && is_binary(*code));
+            number_begin = code + 1;
+            base = 2; while(++code < end && is_binary(*code));
          } else if(lower == 'o') {
-            while(++code < end && is_octal(*code));
-         } else {
-            decimal_like = 1;
+            number_begin = code + 1;
+            base = 8; while(++code < end && is_octal(*code));
          }
          if(code == digit_begin) return 0;
       }
    } else if(c >= '1' && c <= '9') {
-      decimal_like = 1;
       while(++code < end && is_decimal(*code));
-   } else {
-      decimal_like = 1;
    }
+   integer_digits = code - number_begin;
    if(code == end) goto _make_numeric_token;
-   if(!decimal_like) goto _verify_and_make_numeric_token;
+   if(base != 10) goto _verify_and_make_numeric_token;
    // parse the decimal part
    if(*code == '.') {
+      char_t const* fraction_begin = code + 1;
       while(++code < end && is_decimal(*code));
+      fraction_digits = code - fraction_begin;
       if(code - begin == 1) return 0; // . must follow atleast a digit
       if(code == end) goto _make_numeric_token;
    }
@@ -616,9 +663,13 @@ inline_spec int scan_numeric_literal(parse_state_t* const state, params_t params
    if(((*code | 0x20) == 'e') && (code - begin > 0)) {
       if(code + 1 == end) return 0;
       char_t c = *(code + 1);
-      if(c == '+' || c == '-') ++code;
+      int sign = 1;
+      if(c == '+') { ++code; } else if(c == '-') { sign = -1; ++code; }
       char_t const* const exponent_begin = code + 1;
-      while(++code < end && is_decimal(*code));
+      while(++code < end && is_decimal(*code)) {
+         exponent *= 10; exponent += *code - '0';
+      }
+      exponent *= sign;
       if(code == exponent_begin) return 0;
       if(code == end) goto _make_numeric_token;
    }
@@ -629,19 +680,21 @@ _verify_and_make_numeric_token:
    if(is_identifier_start(*code) || is_decimal(*code)) return 0;
 _make_numeric_token:
    state->code = code;
-#ifdef MEMOPT
-   make_token(state, begin, begin_position, tkn_numeric_literal, mask_literal, precedence_none, nullptr);
-#else
-   compiled_number_t* cn = nullptr;
-   if(numeric_annex) {
-      cn = parser_malloc(sizeof(compiled_number_t));
-      *cn = (compiled_number_t){
-         //.offending_position = {},
-         .compile_flags = compile_flag_numeric_annex
-      };
-   }
+   //make_token(state, begin, begin_position, tkn_numeric_literal, mask_literal, precedence_none, nullptr);
+   ///*
+   compiled_number_t* cn = parser_malloc(sizeof(compiled_number_t));
+   *cn = (compiled_number_t){
+      //.offending_position = {},
+      .value = compile_numeric_literal(
+         number_begin, base, integer_digits, fraction_digits, exponent
+      ),
+      .compile_flags = compile_flag_numeric_annex
+   };
    make_token(state, begin, begin_position, tkn_numeric_literal, mask_literal, precedence_none, cn);
-#endif
+   //print_number(base); print_number(integer_digits);
+   //print_number(fraction_digits); print_number(exponent);
+   //print_double(cn->value); print_string("\n");
+   //*/
    return 1;
 }
 

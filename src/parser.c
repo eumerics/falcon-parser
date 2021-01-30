@@ -25,8 +25,9 @@ elements_t timings2 = {0, 0, 0, 0, 0, 0, 0, 0, 0};
 elements_t characters1 = {0, 0, 0, 0, 0, 0, 0, 0, 0};
 elements_t characters2 = {0, 0, 0, 0, 0, 0, 0, 0, 0};
 
-#define print_string(x) printf("%s", x)
-#define print_number(x) printf("%x", x)
+#define print_string(x) printf(" %s", x)
+#define print_number(x) printf(" %d", x)
+#define print_double(x) printf(" %g", x)
 #ifdef verbose
    #define profile
 #endif

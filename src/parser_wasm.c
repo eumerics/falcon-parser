@@ -7,11 +7,13 @@
 #define start_clock(x)
 #define print_string(x) log_string(x, strlen(x))
 #define print_number(x) log_number(x)
+#define print_double(x) log_double(x)
 
 //#define if_verbose(x) x
 extern void log_node(void*, int, int, int, void*);
 extern void log_string(void const* string_pointer, size_t length);
 extern void log_number(uint32_t number);
+extern void log_double(double number);
 /*
 extern void printf1(char const* const);
 extern void printf2(char const* const, char const* const);

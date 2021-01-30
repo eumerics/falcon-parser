@@ -202,6 +202,12 @@
    node->token_group = token->group; \
    node->compiled_string = token->detail; \
 }
+#define assign_numeric_token() { \
+   token_t const* const token = current_token(); \
+   node->token_id = token->id; \
+   node->token_group = token->group; \
+   node->compiled_number = token->detail; \
+}
 
 inline_spec uint8_t node_type(void* node)
 {
@@ -897,10 +903,17 @@ inline_spec identifier_t* parse_identifier_name(parse_state_t* state, parse_tree
 }
 inline_spec literal_t* parse_literal(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
-   ensure_non_annex_number();
    make_node(literal);
    assign(token_id, current_token_id());
    ensure_mask(mask_literal);
+   return_node();
+}
+inline_spec numeric_literal_t* parse_numeric_literal(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
+{
+   ensure_non_annex_number();
+   make_node(numeric_literal);
+   assign_numeric_token();
+   ensure(tkn_numeric_literal);
    return_node();
 }
 inline_spec string_literal_t* parse_string_literal(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
@@ -943,7 +956,7 @@ inline_spec void* parse_property_name(parse_state_t* state, parse_tree_state_t* 
    } else if(exists(tkn_string_literal)) {
       passon_parsed(string_literal);
    } else if(exists(tkn_numeric_literal)) {
-      passon_parsed(literal);
+      passon_parsed(numeric_literal);
    } else {
       passon_parsed(computed_property_name);
    }
@@ -2515,8 +2528,8 @@ void* parse_primary_expression(parse_state_t* state, parse_tree_state_t* tree_st
    switch(current_token()->id) {
       case rw_this: passon_parsed(this_expression);
       case tkn_identifier: passon_parsed(identifier_reference);
-      case rw_null: case rw_true: case rw_false:
-      case tkn_numeric_literal: passon_parsed(literal);
+      case rw_null: case rw_true: case rw_false: passon_parsed(literal);
+      case tkn_numeric_literal: passon_parsed(numeric_literal);
       case tkn_string_literal: passon_parsed(string_literal);
       case tkn_regexp_literal: passon_parsed(regexp_literal);
       case '[': passon_parsed(array_literal);

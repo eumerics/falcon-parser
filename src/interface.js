@@ -403,9 +403,6 @@ export class Literal extends Expression {
          case Parser.constants.rw_null: return null;
          case Parser.constants.rw_true: return true;
          case Parser.constants.rw_false: return false;
-         case Parser.constants.tkn_numeric_literal: return Number(this.get_value().replace(/^(0[0-7]+)$/, '0o$1'));
-         //[BUG] temporary fix to get parsed values
-         case Parser.constants.tkn_string_literal: return eval(this.get_value());
       }
       return undefined;
    }
@@ -429,6 +426,20 @@ export class Literal extends Expression {
    get raw() { return this.get_value(); }
 }
 add_enumerables(Literal, ['value', 'raw']);
+export class NumericLiteral extends Literal {
+   get value() { return Number(this.get_value().replace(/^(0[0-7]+)$/, '0o$1')); }
+   /*
+   get value() {
+      const type = 'u32';
+      const pointer = this.buffer_view[type][(this.pointer + 20) / sizeof[type]];
+      const f64 = new Float64Array(this.buffer_view.u08.slice(pointer, pointer + 8).buffer);
+      const compiled_value = f64[0];
+      return compiled_value;
+   }
+   //*/
+   get raw() { return this.get_value(); }
+}
+change_node_type(NumericLiteral, 'Literal');
 export class StringLiteral extends Literal {
    get value() { return this.get_compiled_value(1); }
    get raw() { return this.get_value(); }
@@ -585,6 +596,7 @@ const env = {
    },
    */
    log_number: function(number) { console.log(number.toString(16)); },
+   log_double: function(number) { console.log(number); },
    log_string: function(pointer, length) {
       if(length < 256) {
          console.log(
@@ -1000,6 +1012,7 @@ export class Parser {
       constructors[constants.pnt_program] = Program;
       constructors[constants.pnt_identifier] = Identifier;
       constructors[constants.pnt_literal] = Literal;
+      constructors[constants.pnt_numeric_literal] = NumericLiteral;
       constructors[constants.pnt_string_literal] = StringLiteral;
       constructors[constants.pnt_regexp_literal] = RegExpLiteral;
 

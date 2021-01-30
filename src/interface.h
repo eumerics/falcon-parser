@@ -30,6 +30,7 @@ typedef struct {
 } compiled_string_t;
 // incomplete
 typedef struct {
+   double value;
    uint8_t compile_flags;
    //position_t offending_position;
 } compiled_number_t;
@@ -82,6 +83,12 @@ typedef uint32_t params_t;
    uint8_t token_id; \
    uint16_t token_group; \
    compiled_string_t* compiled_string;
+#define embed_compiled_numeric_node() \
+   embed_parse_node() \
+   uint8_t flags; \
+   uint8_t token_id; \
+   uint16_t token_group; \
+   compiled_number_t* compiled_number;
 
 typedef struct {
    embed_parse_node();
@@ -120,6 +127,9 @@ typedef struct {
    embed_parse_node();
    uint8_t token_id;
 } literal_t;
+typedef struct {
+   embed_compiled_numeric_node();
+} numeric_literal_t;
 typedef struct {
    embed_compiled_parse_node();
 } string_literal_t;
