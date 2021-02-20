@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 
+#pragma GCC visibility push(default)
 #if defined(UTF16)
    uint8_t const has_flag_utf16 = 0x01;
 #else
@@ -569,5 +570,6 @@ char const* const token_string[256] = {
 #undef LHS
 #undef ASSIGN
 #undef LITERAL
+#pragma GCC visibility pop
 
 #endif //_CONSTANTS_H_

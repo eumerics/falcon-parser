@@ -120,6 +120,7 @@ typedef struct {
 } cover_node_list_t;
 
 // parser node
+struct _scope_t;
 typedef struct {
    embed_compiled_parse_node();
 } identifier_t;
@@ -539,11 +540,13 @@ typedef struct {
    void* body;
 } program_t;
 
-typedef string_t symbol_t;
-typedef struct _symbol_list_node_t {
-   compiled_parse_node_t const* symbol_node;
+typedef struct {
+   uint8_t type;
    uint8_t binding_flag;
-   uint8_t symbol_type;
+   identifier_t const* identifier;
+} symbol_t;
+typedef struct _symbol_list_node_t {
+   symbol_t const* symbol;
    struct _symbol_list_node_t* next;
    struct _symbol_list_node_t* sequence_prev; // not used anywhere yet
    struct _symbol_list_node_t* sequence_next;
@@ -553,8 +556,8 @@ typedef struct {
    symbol_list_node_t* tail;
 } symbol_list_t;
 typedef struct {
-   compiled_parse_node_t const* original;
-   compiled_parse_node_t const* duplicate;
+   identifier_t const* original;
+   identifier_t const* duplicate;
 } repeated_symbol_t;
 typedef struct _scope_child_list_node_t scope_child_list_node_t;
 typedef struct _scope_child_list_t {
@@ -562,12 +565,12 @@ typedef struct _scope_child_list_t {
    scope_child_list_node_t* tail;
 } scope_child_list_t;
 typedef struct _label_list_node_t {
-   compiled_parse_node_t const* symbol_node;
+   identifier_t const* identifier;
    struct _label_list_node_t* parent;
 } label_list_node_t;
 typedef struct _scope_t {
    uint8_t type;
-   compiled_parse_node_t* identifier;
+   identifier_t* identifier;
    repeated_symbol_t* first_duplicate;
    void* first_yield_or_await;
    symbol_list_node_t* head;
@@ -655,6 +658,8 @@ typedef struct {
 typedef struct {
    uint32_t flags;
 } parse_tree_state_t;
+
+void* malloc(size_t t);
 
 void parser_free(parse_state_t* state)
 {

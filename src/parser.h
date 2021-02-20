@@ -315,20 +315,20 @@ parse_list_node_t* make_list_node(parse_state_t* state, void* parse_node) {
    ) \
 )
 //(params & param_flag_strict_mode) ||
-bool is_reserved_symbol(parse_state_t* state, compiled_parse_node_t const* const symbol_node, params_t params)
+bool is_reserved_symbol(parse_state_t* state, identifier_t const* const identifier, params_t params)
 {
-   if(!symbol_node) return false;
-   token_id_t token_id = symbol_node->token_id;
-   token_group_t token_group = symbol_node->token_group;
+   if(!identifier) return false;
+   token_id_t token_id = identifier->token_id;
+   token_group_t token_group = identifier->token_group;
    if(params & param_flag_strict_mode) {
       if(token_group & mask_strict_reserved_word) {
-         return_node_error(invalid_strict_mode_identifier, symbol_node, true);
+         return_node_error(invalid_strict_mode_identifier, identifier, true);
       } else if(token_id == rw_yield) {
-         return_node_error(yield_in_strict_mode, symbol_node, true);
+         return_node_error(yield_in_strict_mode, identifier, true);
       } else if(token_id == rw_await && (params & param_flag_module)) {
-         return_node_error(await_in_module, symbol_node, true);
+         return_node_error(await_in_module, identifier, true);
       } else if(token_id == rw_eval || token_id == rw_arguments) {
-         return_node_error(eval_args_in_strict_mode, symbol_node, true);
+         return_node_error(eval_args_in_strict_mode, identifier, true);
       }
    }
    return false;
@@ -416,15 +416,15 @@ inline_spec bool _property_key_is(parse_state_t* state, property_t* property, ch
 }
 #define assert_unique_scope() if(!is_scope_unique(state)) return nullptr;
 #define assert_lexical_uniqueness(_node, binding_flag, symbol_type) \
-   if(!insert_symbol(state, (compiled_parse_node_t*)(_node), binding_flag, symbol_type, params)) { \
+   if(!insert_symbol(state, (identifier_t*)(_node), binding_flag, symbol_type, params)) { \
       return_node_error(duplicate_symbol, _node, nullptr); \
    }
 #define assert_label_uniqueness(_node) \
-   if(!insert_label(state, (compiled_parse_node_t*)(_node), params)) { \
+   if(!insert_label(state, (identifier_t*)(_node), params)) { \
       return_node_error(duplicate_label, _node, nullptr); \
    }
 #define assert_export_uniqueness(_node) \
-   if(!add_symbol(state, state->export_symbol_table, (compiled_parse_node_t*)(_node), NONE, NONE)) { \
+   if(!add_symbol(state, state->export_symbol_table, (identifier_t*)(_node), NONE, NONE)) { \
       return_node_error(duplicate_export, _node, nullptr); \
    }
 #define validate_strict_mode() \
@@ -440,7 +440,7 @@ bool retro_act_strict_mode(parse_state_t* state, parse_list_node_t* list_node)
    }
    symbol_list_node_t const* symbol_list_node = scope->head;
    while(symbol_list_node) {
-      if(is_reserved_symbol(state, symbol_list_node->symbol_node, STRICT)) return 0;
+      if(is_reserved_symbol(state, symbol_list_node->symbol->identifier, STRICT)) return 0;
       if(symbol_list_node == scope->tail) break;
       symbol_list_node = symbol_list_node->sequence_next;
    }
@@ -899,7 +899,8 @@ inline_spec identifier_t* parse_label_identifier(parse_state_t* state, parse_tre
 }
 inline_spec identifier_t* parse_identifier_name(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
-   make_node(identifier); assign_token(); ensure_mask(mask_idname); return_node();
+   make_node(identifier); assign_token(); ensure_mask(mask_idname);
+   return_node();
 }
 inline_spec literal_t* parse_literal(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
@@ -2021,7 +2022,7 @@ void* parse_export_declaration(parse_state_t* state, parse_tree_state_t* tree_st
             assign(local, identifier_name);
             assert_export_uniqueness(node->exported);
          }
-         _add_symbol(state, &reference_list, reference_list, (compiled_parse_node_t*)(node->local), NONE, NONE);
+         _add_symbol(state, &reference_list, reference_list, (identifier_t*)(node->local), NONE, NONE);
          add_to_list(completed_node());
          if(!optional(',')) break;
       }
@@ -4246,18 +4247,22 @@ program_t* parse_module(parse_state_t* state, parse_tree_state_t* tree_state, pa
       scope_t const* const scope = state->current_scope_list_node->scope;
       symbol_list_node_t* matched_symbol_list_node;
       while(symbol_list_node) {
-         compiled_parse_node_t const* const node = symbol_list_node->symbol_node;
-         symbol_t const* symbol = (node->compiled_string ? (symbol_t*)(node->compiled_string) : (symbol_t*)(node));
-         size_t const symbol_length = symbol->end - symbol->begin;
+         identifier_t const* const identifier = symbol_list_node->symbol->identifier;
+         string_t const* const symbol_string = (
+            identifier->compiled_string
+               ? (string_t*)(identifier->compiled_string)
+               : (string_t*)(identifier)
+         );
+         size_t const symbol_length = symbol_string->end - symbol_string->begin;
          uint16_t hash = (
             ((symbol_length & symbol_length_mask) << 5) |
-            (*symbol->begin & symbol_first_letter_mask)
+            (*symbol_string->begin & symbol_first_letter_mask)
          );
          uint8_t has_symbol = get_symbol_from_lexical_tree(
-            state, scope, symbol, symbol_length, hash, &matched_symbol_list_node
+            state, scope, symbol_string, symbol_length, hash, &matched_symbol_list_node
          );
          if(!has_symbol) {
-            return_location_error(missing_export_reference, node->location, nullptr);
+            return_location_error(missing_export_reference, identifier->location, nullptr);
          }
          symbol_list_node = symbol_list_node->next;
       }
@@ -4324,7 +4329,7 @@ program_t* parse_module(parse_state_t* state, parse_tree_state_t* tree_state, pa
 #undef add_to_list
 #undef list_head
 
-parse_result_t parse(char_t const* code_begin, char_t const* code_end, bool is_module, uint32_t params)
+wasm_export parse_result_t parse(char_t const* code_begin, char_t const* code_end, bool is_module, uint32_t params)
 {
    if(params == flag_none) params |= param_flag_annex;
    if(is_module) {

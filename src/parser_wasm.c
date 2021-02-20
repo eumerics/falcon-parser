@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include "common.h"
 #include "nodes.h"
+#include "interface.js.h"
 
 #define wasm_export __attribute__ ((visibility ("default")))
 #define start_clock(x)

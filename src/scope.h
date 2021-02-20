@@ -11,7 +11,14 @@ uint16_t const symbol_first_letter_mask = (1 << symbol_first_letter_bits) - 1;
 uint16_t const symbol_length_mask = (1 << symbol_length_bits) - 1;
 uint16_t const symbol_hash_table_size = 1 << hash_bits;
 
-void add_child(parse_state_t* state, scope_list_node_t* parent_scope_list_node, scope_list_node_t* child_scope_list_node)
+symbol_list_t** new_symbol_table(parse_state_t* state)
+{
+   size_t const size = symbol_hash_table_size * sizeof(symbol_list_t*);
+   symbol_list_t** symbol_table = parser_malloc(size);
+   memset(symbol_table, 0, size);
+   return symbol_table;
+}
+void add_child_scope(parse_state_t* state, scope_list_node_t* parent_scope_list_node, scope_list_node_t* child_scope_list_node)
 {
    child_scope_list_node->parent = parent_scope_list_node;
    if(!parent_scope_list_node) return;
@@ -28,61 +35,62 @@ void add_child(parse_state_t* state, scope_list_node_t* parent_scope_list_node, 
       child_list->tail = child_list_node;
    }
 }
-
-symbol_list_t** new_symbol_table(parse_state_t* state)
-{
-   size_t const size = symbol_hash_table_size * sizeof(symbol_list_t*);
-   symbol_list_t** symbol_table = parser_malloc(size);
-   memset(symbol_table, 0, size);
-   return symbol_table;
-}
-scope_t* new_scope(parse_state_t* state, uint8_t scope_type, uint8_t is_hoisting, compiled_parse_node_t* identifier)
+scope_t* new_scope(parse_state_t* state, uint8_t scope_type, uint8_t is_hoisting, identifier_t* identifier)
 {
    //printf("starting new scope\n"); fflush(stdout);
    size_t const size = symbol_hash_table_size * sizeof(symbol_list_t*);
    scope_list_node_t* scope_list_node = state->scope_list_node;
    scope_list_node_t* next_scope_list_node;
+   scope_list_node_t* next_next_scope_list_node;
    scope_t* child_scope;
+   symbol_list_t **lexical_symbol_table, **var_symbol_table;
    if(scope_list_node == nullptr || scope_list_node->next == nullptr) {
+      // create a new scope
       child_scope = parser_malloc(sizeof(scope_t));
-      *child_scope = (scope_t){
-         .type = scope_type, .identifier = identifier,
-         .head = nullptr, .tail = nullptr,
-         .first_duplicate = nullptr,
-         .first_yield_or_await = nullptr,
-         .lexical_symbol_table = parser_malloc(size),
-         .var_symbol_table = parser_malloc(size),
-         .label_list_node = nullptr,
-      };
+      lexical_symbol_table = parser_malloc(size);
+      var_symbol_table = parser_malloc(size);
       next_scope_list_node = parser_malloc(sizeof(scope_list_node_t));
-      *next_scope_list_node = (scope_list_node_t){
-         .scope = child_scope,
-         .prev = scope_list_node, .next = nullptr,
-         .parent = nullptr, .hoisting_parent = nullptr,
-         .child_list = {.head = nullptr, .tail = nullptr},
-      };
+      next_next_scope_list_node = nullptr;
       if(scope_list_node) scope_list_node->next = next_scope_list_node;
    } else {
+      // reuse existing scope that was allocated earlier and is not being used
       next_scope_list_node = scope_list_node->next;
+      next_next_scope_list_node = next_scope_list_node->next;
       child_scope = next_scope_list_node->scope;
-      child_scope->head = child_scope->tail = nullptr;
-      child_scope->type = scope_type;
-      child_scope->first_duplicate = nullptr;
-      child_scope->first_yield_or_await = nullptr;
-      child_scope->label_list_node = nullptr;
-      next_scope_list_node->child_list =
-         (scope_child_list_t){.head = nullptr, .tail = nullptr};
+      lexical_symbol_table = child_scope->lexical_symbol_table;
+      var_symbol_table = child_scope->var_symbol_table;
    }
-   add_child(state, state->current_scope_list_node, next_scope_list_node);
+   *child_scope = (scope_t){
+      .type = scope_type, .identifier = identifier,
+      .head = nullptr, .tail = nullptr,
+      .first_duplicate = nullptr,
+      .first_yield_or_await = nullptr,
+      .lexical_symbol_table = lexical_symbol_table,
+      .var_symbol_table = var_symbol_table,
+      .label_list_node = nullptr,
+#ifdef COMPLIER
+      .resolved_reference_list_node = nullptr,
+      .unresolved_reference_list_node = nullptr,
+      .closure_symbol_count = 0,
+      .non_closure_symbol_count = 0,
+      .no_init_symbol_list_node = nullptr,
+#endif
+   };
+   *next_scope_list_node = (scope_list_node_t){
+      .scope = child_scope,
+      .prev = scope_list_node, .next = next_next_scope_list_node,
+      .parent = nullptr, .hoisting_parent = nullptr,
+      .child_list = {.head = nullptr, .tail = nullptr},
+   };
+   add_child_scope(state, state->current_scope_list_node, next_scope_list_node);
    state->scope_list_node = next_scope_list_node;
    state->current_scope_list_node = next_scope_list_node;
    if(is_hoisting) state->hoisting_scope_list_node = next_scope_list_node;
    next_scope_list_node->hoisting_parent = state->hoisting_scope_list_node;
-   memset(child_scope->var_symbol_table, 0, size);
-   memset(child_scope->lexical_symbol_table, 0, size);
+   memset(lexical_symbol_table, 0, size);
+   memset(var_symbol_table, 0, size);
    return child_scope;
 }
-
 void end_scope(parse_state_t* state)
 {
    //printf("ending scope\n"); fflush(stdout);
@@ -92,10 +100,10 @@ void end_scope(parse_state_t* state)
       if(parent) {
          scope_child_list_t* child_list = &(parent->child_list);
          if(child_list->head == child_list->tail) {
-            child_list->head = child_list->tail = nullptr;
+            child_list->head = child_list->tail = nullptr; //[TODO] free
          } else {
             child_list->tail->prev->next = nullptr;
-            child_list->tail = child_list->tail->prev;
+            child_list->tail = child_list->tail->prev; //[TODO] free
          }
       }
    }
@@ -113,27 +121,30 @@ uint8_t is_scope_unique(parse_state_t const* const state)
 }
 
 uint8_t symbol_matches(
-   compiled_parse_node_t const* const compare_node,
-   symbol_t const* const symbol, size_t const symbol_length
+   identifier_t const* const compare_identifier,
+   string_t const* const symbol_string,
+   size_t const symbol_length
 ){
-   symbol_t const* compare_symbol = (
-      compare_node->compiled_string ? (symbol_t*)(compare_node->compiled_string) : (symbol_t*)(compare_node)
+   string_t const* const compare_string = (
+      compare_identifier->compiled_string
+         ? (string_t*)(compare_identifier->compiled_string)
+         : (string_t*)(compare_identifier)
    );
-   size_t const compare_symbol_length = compare_symbol->end - compare_symbol->begin;
+   size_t const compare_symbol_length = compare_string->end - compare_string->begin;
    return (
       symbol_length == compare_symbol_length &&
-      strncmp_impl(symbol->begin, compare_symbol->begin, compare_symbol_length) == 0
+      strncmp_impl(symbol_string->begin, compare_string->begin, symbol_length) == 0
    );
 }
 
 uint8_t get_symbol(
-   symbol_t const* const symbol, size_t const symbol_length,
+   string_t const* const symbol_string, size_t const symbol_length,
    uint16_t hash, symbol_list_node_t** symbol_list_node_ref
 ){
    symbol_list_node_t* symbol_list_node = *symbol_list_node_ref;
    while(symbol_list_node) {
-      compiled_parse_node_t const* const compare_node = symbol_list_node->symbol_node;
-      if(symbol_matches(compare_node, symbol, symbol_length)) {
+      identifier_t const* const compare_identifier = symbol_list_node->symbol->identifier;
+      if(symbol_matches(compare_identifier, symbol_string, symbol_length)) {
          *symbol_list_node_ref = symbol_list_node;
          return 1;
       }
@@ -143,7 +154,7 @@ uint8_t get_symbol(
 }
 
 uint8_t get_symbol_from_child_var_tree(
-   symbol_t const* const symbol, size_t const symbol_length, uint16_t hash,
+   string_t const* const symbol_string, size_t const symbol_length, uint16_t hash,
    scope_list_node_t* scope_list_node, symbol_list_node_t** symbol_list_node_ref
 ){
    uint8_t has_symbol = 0;
@@ -151,7 +162,7 @@ uint8_t get_symbol_from_child_var_tree(
    while(!has_symbol && scope_child_list_node) {
       scope_list_node_t* t = scope_child_list_node->scope_list_node;
       if(t) {
-         has_symbol = get_symbol_from_child_var_tree(symbol, symbol_length, hash, t, symbol_list_node_ref);
+         has_symbol = get_symbol_from_child_var_tree(symbol_string, symbol_length, hash, t, symbol_list_node_ref);
       }
       scope_child_list_node = scope_child_list_node->next;
    }
@@ -159,7 +170,7 @@ uint8_t get_symbol_from_child_var_tree(
       symbol_list_t* symbol_list = scope_list_node->scope->var_symbol_table[hash];
       if(symbol_list) {
          *symbol_list_node_ref = symbol_list->head;
-         has_symbol = get_symbol(symbol, symbol_length, hash, symbol_list_node_ref);
+         has_symbol = get_symbol(symbol_string, symbol_length, hash, symbol_list_node_ref);
       }
    }
    return has_symbol;
@@ -167,42 +178,49 @@ uint8_t get_symbol_from_child_var_tree(
 
 uint8_t get_symbol_from_lexical_tree(
    parse_state_t* state, scope_t const* const scope,
-   symbol_t const* const symbol, size_t const symbol_length,
+   string_t const* const symbol_string, size_t const symbol_length,
    uint16_t hash, symbol_list_node_t** symbol_list_node_ref
 ){
    uint8_t has_symbol = get_symbol_from_child_var_tree(
-      symbol, symbol_length, hash, state->current_scope_list_node, symbol_list_node_ref
+      symbol_string, symbol_length, hash, state->current_scope_list_node, symbol_list_node_ref
    );
    if(!has_symbol) {
       symbol_list_t* symbol_list = scope->lexical_symbol_table[hash];
       if(symbol_list) {
          *symbol_list_node_ref = symbol_list->head;
-         has_symbol = get_symbol(symbol, symbol_length, hash, symbol_list_node_ref);
+         has_symbol = get_symbol(symbol_string, symbol_length, hash, symbol_list_node_ref);
       }
    }
    return has_symbol;
 }
 
-uint16_t symbol_hash(parse_state_t* state, compiled_parse_node_t* node)
+uint16_t symbol_hash(parse_state_t* state, identifier_t* identifier)
 {
-   symbol_t const* symbol = (node->compiled_string ? (symbol_t*)(node->compiled_string) : (symbol_t*)(node));
-   size_t const symbol_length = symbol->end - symbol->begin;
+   string_t const* const symbol_string = (
+      identifier->compiled_string
+         ? (string_t*)(identifier->compiled_string)
+         : (string_t*)(identifier)
+   );
+   size_t const symbol_length = symbol_string->end - symbol_string->begin;
    uint16_t hash = (
       ((symbol_length & symbol_length_mask) << 5) |
-      (*symbol->begin & symbol_first_letter_mask)
+      (*symbol_string->begin & symbol_first_letter_mask)
    );
    return hash;
 }
 
 symbol_list_node_t* _add_symbol(
    parse_state_t* state, symbol_list_t** symbol_list_ref, symbol_list_t* symbol_list,
-   compiled_parse_node_t const* node, uint8_t binding_flag, uint8_t symbol_type
+   identifier_t const* identifier, uint8_t binding_flag, uint8_t symbol_type
 ){
+   symbol_t* new_symbol = parser_malloc(sizeof(symbol_t));
+   *new_symbol = (symbol_t){
+      .type = symbol_type, .binding_flag = binding_flag,
+      .identifier = identifier,
+   };
    symbol_list_node_t* new_symbol_list_node = parser_malloc(sizeof(symbol_list_node_t));
    *new_symbol_list_node = (symbol_list_node_t){
-      .symbol_node = node, .binding_flag = binding_flag,
-      .symbol_type = symbol_type,
-      .next = nullptr, .sequence_next = nullptr,
+      .symbol = new_symbol, .next = nullptr, .sequence_next = nullptr,
       .sequence_prev = state->symbol_list_node
    };
    if(state->symbol_list_node != nullptr) {
@@ -224,34 +242,42 @@ symbol_list_node_t* _add_symbol(
 
 uint8_t add_symbol(
    parse_state_t* state, symbol_list_t** symbol_table,
-   compiled_parse_node_t const* node, uint8_t binding_flag, uint8_t symbol_type
+   identifier_t const* identifier, uint8_t binding_flag, uint8_t symbol_type
 ){
-   symbol_t const* symbol = (node->compiled_string ? (symbol_t*)(node->compiled_string) : (symbol_t*)(node));
-   size_t const symbol_length = symbol->end - symbol->begin;
+   string_t const* const symbol_string = (
+      identifier->compiled_string
+         ? (string_t*)(identifier->compiled_string)
+         : (string_t*)(identifier)
+   );
+   size_t const symbol_length = symbol_string->end - symbol_string->begin;
    uint16_t hash = (
       ((symbol_length & symbol_length_mask) << 5) |
-      (*symbol->begin & symbol_first_letter_mask)
+      (*symbol_string->begin & symbol_first_letter_mask)
    );
    symbol_list_t* symbol_list = symbol_table[hash];
    if(symbol_list) {
       symbol_list_node_t* symbol_list_node = symbol_list->head;
-      uint8_t has_symbol = get_symbol(symbol, symbol_length, hash, &symbol_list_node);
+      uint8_t has_symbol = get_symbol(symbol_string, symbol_length, hash, &symbol_list_node);
       if(has_symbol) return 0;
    }
-   _add_symbol(state, &symbol_table[hash], symbol_list, node, binding_flag, symbol_type);
+   _add_symbol(state, &symbol_table[hash], symbol_list, identifier, binding_flag, symbol_type);
    return 1;
 }
 
 uint8_t insert_symbol(
-   parse_state_t* state, compiled_parse_node_t const* node,
+   parse_state_t* state, identifier_t* identifier,
    uint8_t binding_flag, uint8_t symbol_type, params_t params
 ){
-   symbol_t const* symbol = (node->compiled_string ? (symbol_t*)(node->compiled_string) : (symbol_t*)(node));
-   size_t const symbol_length = symbol->end - symbol->begin;
-   //printf("inserting symbol %.*s %x %x\n", (int)(symbol_length), symbol->begin, binding_flag, params & UNIQUE);
+   string_t const* const symbol_string = (
+      identifier->compiled_string
+         ? (string_t*)(identifier->compiled_string)
+         : (string_t*)(identifier)
+   );
+   size_t const symbol_length = symbol_string->end - symbol_string->begin;
+   //printf("inserting symbol %.*s %x %x\n", (int)(symbol_length), symbol_string->begin, binding_flag, params & UNIQUE);
    uint16_t hash = (
       ((symbol_length & symbol_length_mask) << 5) |
-      (*symbol->begin & symbol_first_letter_mask)
+      (*symbol_string->begin & symbol_first_letter_mask)
    );
    uint8_t has_symbol = 0;
    symbol_list_node_t* symbol_list_node;
@@ -264,7 +290,7 @@ uint8_t insert_symbol(
          symbol_list = lookup_scope_list_node->scope->lexical_symbol_table[hash];
          if(symbol_list) {
             symbol_list_node = symbol_list->head;
-            has_symbol = get_symbol(symbol, symbol_length, hash, &symbol_list_node);
+            has_symbol = get_symbol(symbol_string, symbol_length, hash, &symbol_list_node);
          }
          if(lookup_scope_list_node == state->hoisting_scope_list_node) break;
          lookup_scope_list_node = lookup_scope_list_node->parent;
@@ -274,15 +300,15 @@ uint8_t insert_symbol(
          symbol_list = symbol_table[hash];
          if(symbol_list) {
             symbol_list_node = symbol_list->head;
-            has_symbol = get_symbol(symbol, symbol_length, hash, &symbol_list_node);
+            has_symbol = get_symbol(symbol_string, symbol_length, hash, &symbol_list_node);
          }
       }
    } else {
       has_symbol = get_symbol_from_lexical_tree(
-         state, scope, symbol, symbol_length, hash, &symbol_list_node
+         state, scope, symbol_string, symbol_length, hash, &symbol_list_node
       );
       if((scope->type & scope_flag_catch) && (params & param_flag_annex)) {
-         if(symbol_matches(scope->identifier, symbol, symbol_length)) {
+         if(symbol_matches(scope->identifier, symbol_string, symbol_length)) {
             return 0;
          }
       }
@@ -293,18 +319,20 @@ uint8_t insert_symbol(
    }
    if(has_symbol) {
       if(!scope->first_duplicate) {
-         compiled_parse_node_t const* compare_node = symbol_list_node->symbol_node;
          repeated_symbol_t* t = parser_malloc(sizeof(repeated_symbol_t));
-         *t = (repeated_symbol_t){.original = compare_node, .duplicate = node};
+         *t = (repeated_symbol_t){
+            .original = symbol_list_node->symbol->identifier,
+            .duplicate = identifier
+         };
          scope->first_duplicate = t;
       }
-      if((params & param_flag_unique_params) || !(symbol_list_node->binding_flag & binding_flag)) {
-         //symbol_list_node->symbol_node->location
-         return 0;
-      }
+      return (
+         !(params & param_flag_unique_params) &&
+         (symbol_list_node->symbol->binding_flag & binding_flag)
+      );
    }
    symbol_list_node_t* new_symbol_list_node = _add_symbol(
-      state, &symbol_table[hash], symbol_list, node, binding_flag, symbol_type
+      state, &symbol_table[hash], symbol_list, identifier, binding_flag, symbol_type
    );
    if(scope->head == nullptr) scope->head = new_symbol_list_node;
    scope->tail = new_symbol_list_node;
@@ -312,15 +340,19 @@ uint8_t insert_symbol(
 }
 
 uint8_t has_label(
-   parse_state_t* state, compiled_parse_node_t const* node, params_t params
+   parse_state_t* state, identifier_t const* identifier, params_t params
 ){
-   symbol_t const* symbol = (node->compiled_string ? (symbol_t*)(node->compiled_string) : (symbol_t*)(node));
-   size_t const symbol_length = symbol->end - symbol->begin;
-   //printf("inserting label %.*s\n", (int)(symbol_length), symbol->begin); fflush(stdout);
+   string_t const* const symbol_string = (
+      identifier->compiled_string
+         ? (string_t*)(identifier->compiled_string)
+         : (string_t*)(identifier)
+   );
+   size_t const symbol_length = symbol_string->end - symbol_string->begin;
+   //printf("inserting label %.*s\n", (int)(symbol_length), symbol_string->begin); fflush(stdout);
    label_list_node_t* label_list_node = state->hoisting_scope_list_node->scope->label_list_node;
    while(label_list_node) {
-      compiled_parse_node_t const* const compare_node = label_list_node->symbol_node;
-      if(symbol_matches(compare_node, symbol, symbol_length)) {
+      identifier_t const* const compare_id = label_list_node->identifier;
+      if(symbol_matches(compare_id, symbol_string, symbol_length)) {
          //[TODO] set error location
          return 1;
       }
@@ -329,13 +361,13 @@ uint8_t has_label(
    return 0;
 }
 uint8_t insert_label(
-   parse_state_t* state, compiled_parse_node_t const* node, params_t params
+   parse_state_t* state, identifier_t const* identifier, params_t params
 ){
-   if(has_label(state, node, params)) return 0;
+   if(has_label(state, identifier, params)) return 0;
    label_list_node_t* new_label_list_node = parser_malloc(sizeof(label_list_node_t));
    scope_t* const hoisting_scope = state->hoisting_scope_list_node->scope;
    *new_label_list_node = (label_list_node_t){
-      .symbol_node = node, .parent = hoisting_scope->label_list_node
+      .identifier = identifier, .parent = hoisting_scope->label_list_node
    };
    hoisting_scope->label_list_node = new_label_list_node;
    return 1;
