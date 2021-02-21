@@ -343,7 +343,7 @@ compiled_string_t* compile_string(
 {
    #define return_not_escape_string(error_type) { \
       if(for_template) { \
-         compiled_string_t* compiled_string = parser_malloc(sizeof(compiled_string_t)); \
+         compiled_string_t* compiled_string = parser_malloc(mm_compiled_strings, sizeof(compiled_string_t)); \
          *compiled_string = (compiled_string_t){ \
             .begin = nullptr, .end = nullptr, \
             .compile_flags = compile_flag_not_escape, \
@@ -356,7 +356,7 @@ compiled_string_t* compile_string(
       } \
    }
    char_t const* code = begin - 1;
-   char_t* compiled = parser_malloc((end - begin) * sizeof(char_t));
+   char_t* compiled = parser_malloc(mm_compiled_strings, (end - begin) * sizeof(char_t));
    char_t const* const compiled_begin = compiled;
    position_t offending_position;
    parse_error_t const* offending_error;
@@ -465,7 +465,8 @@ compiled_string_t* compile_string(
          }
       }
    }
-   compiled_string_t* compiled_string = parser_malloc(sizeof(compiled_string_t));
+   compiled_string_t* compiled_string =
+      parser_malloc(mm_compiled_strings, sizeof(compiled_string_t));
    *compiled_string = (compiled_string_t){
       .begin = compiled_begin, .end = compiled,
       .compile_flags = compile_flags,
@@ -682,7 +683,7 @@ _make_numeric_token:
    state->code = code;
    //make_token(state, begin, begin_position, tkn_numeric_literal, mask_literal, precedence_none, nullptr);
    ///*
-   compiled_number_t* cn = parser_malloc(sizeof(compiled_number_t));
+   compiled_number_t* cn = parser_malloc(mm_compiled_numbers, sizeof(compiled_number_t));
    *cn = (compiled_number_t){
       //.offending_position = {},
       .value = compile_numeric_literal(
@@ -1416,7 +1417,7 @@ int scan_identifier(parse_state_t* const state, params_t params)
    char_t const* identifier_begin;
    ptrdiff_t identifier_length;
    if(has_escape_sequence) {
-      char_t* identifier_code = parser_malloc((state->code - begin) * sizeof(char_t));
+      char_t* identifier_code = parser_malloc(mm_compiled_identifiers, (state->code - begin) * sizeof(char_t));
       identifier_begin = identifier_code;
       char_t const* const saved_code = state->code;
       state->code = begin;
@@ -1432,7 +1433,7 @@ int scan_identifier(parse_state_t* const state, params_t params)
          }
       }
       identifier_length = identifier_code - identifier_begin;
-      compiled_identifier = parser_malloc(sizeof(compiled_string_t));
+      compiled_identifier = parser_malloc(mm_compiled_identifiers, sizeof(compiled_string_t));
       *compiled_identifier = (compiled_string_t) {
          .begin = identifier_begin, .end = identifier_code,
          .compile_flags = flag_none,

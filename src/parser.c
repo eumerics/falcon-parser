@@ -132,6 +132,36 @@ elements_t characters2 = {0, 0, 0, 0, 0, 0, 0, 0, 0};
 #endif
 #include "parser.h"
 
+/*
+int parse_line(char* line){
+    // This assumes that a digit will be found and the line ends in " Kb".
+    int i = strlen(line);
+    const char* p = line;
+    while (*p <'0' || *p > '9') p++;
+    line[i-3] = '\0';
+    i = atoi(p);
+    return i;
+}
+
+void print_memeory_usage(){ //Note: this value is in KB!
+    FILE* file = fopen("/proc/self/status", "r");
+    int virtual = -1, resident = -1;
+    char line[128];
+
+    while(fgets(line, 128, file) != NULL){
+        if(strncmp(line, "VmSize:", 7) == 0){
+            virtual = parse_line(line);
+            if(resident != -1) break;
+        } else if(strncmp(line, "VmRSS:", 6) == 0){
+            resident = parse_line(line);
+            if(virtual != -1) break;
+        }
+    }
+    fclose(file);
+    printf("virtual: %d    resident: %d\n", virtual, resident);
+}
+//*/
+
 int main(int argc, char* argv[])
 {
    if(argc > 1) {
@@ -196,6 +226,7 @@ int main(int argc, char* argv[])
                   }
                   //printf("%lu\n", (end - begin) / iterations);
                   printf("%lu %.3f\n", (end - begin) / iterations, 1000 * ((double)(cend - cbegin)) / CLOCKS_PER_SEC / iterations);
+                  //print_memeory_usage();
                }
             }
          }

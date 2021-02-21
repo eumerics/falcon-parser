@@ -566,6 +566,36 @@ char const* const token_string[256] = {
    ['='] = "=", ['&'] = "&", ['|'] = "|", ['^'] = "^", ['!'] = "!", ['~'] = "~",
 };
 
+uint8_t const mm_untracked = 0;
+uint8_t const mm_parse_nodes = 1;
+uint8_t const mm_location = 2;
+uint8_t const mm_parse_list_nodes = 3;
+uint8_t const mm_cover_list_nodes = 4;
+uint8_t const mm_tokens = 5;
+uint8_t const mm_compiled_strings = 6;
+uint8_t const mm_compiled_numbers = 7;
+uint8_t const mm_compiled_identifiers = 8;
+uint8_t const mm_symbol_tables = 9;
+uint8_t const mm_scopes = 10;
+uint8_t const mm_scope_list_nodes = 11;
+uint8_t const mm_scope_child_list_nodes = 12;
+uint8_t const mm_symbols = 13;
+uint8_t const mm_symbol_list_nodes = 14;
+uint8_t const mm_symbol_lists = 15;
+uint8_t const mm_repeated_symbols = 16;
+uint8_t const mm_label_list_nodes = 17;
+#ifdef DBGMEM
+uint8_t const memory_metric_count = 18;
+char const* const memory_metric_names[memory_metric_count] = {
+   "untracked", "parse_nodes", "location", "parse_list_nodes",
+   "cover_list_nodes", "tokens", "compiled_strings", "compiled_numbers",
+   "compiled_identifiers", "symbol_tables", "scopes", "scope_list_nodes",
+   "scope_child_list_nodes", "symbols", "symbol_list_nodes", "symbol_lists",
+   "repeated_symbols", "label_list_nodes"
+};
+uint32_t memory_metric[18];
+#endif
+
 #undef NONE
 #undef LHS
 #undef ASSIGN

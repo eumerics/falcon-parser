@@ -2,6 +2,8 @@
 #define _MEMORY_H_
 
 size_t const token_capacity = 32;
+size_t const page_size = 1 << 12; // 4kB
+
 typedef struct _memory_page_t {
    uint8_t* buffer;
    size_t available;
@@ -19,7 +21,6 @@ typedef struct {
 #define max(a, b) ((a) > (b) ? (a) : (b))
 void* parser_malloc_impl(memory_state_t* const memory, size_t size)
 {
-   size_t const page_size = 1 << 12; // 4kB
    size_t const remainder = (size % 4); // align to 4-bytes
    size += (remainder == 0 ? 0 : 4 - remainder);
    memory_page_t* current = memory->current;
@@ -53,6 +54,14 @@ void* parser_malloc_impl(memory_state_t* const memory, size_t size)
    current->available -= size;
    return current->buffer + offset;
 }
-#define parser_malloc(size) parser_malloc_impl(state->memory, size)
+
+#ifdef DBGMEM
+   #define parser_malloc(memory_metric_id, size) ( \
+      memory_metric[memory_metric_id] += size, \
+      parser_malloc_impl(state->memory, size) \
+   )
+#else
+   #define parser_malloc(ignored, size) parser_malloc_impl(state->memory, size)
+#endif
 
 #endif //_MEMORY_H_

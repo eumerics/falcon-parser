@@ -4,6 +4,10 @@
 #include <stdint.h>
 #include "constants.h"
 
+#ifdef DBGMEM
+   uint32_t scope_count = 0;
+   uint32_t symbol_count = 0;
+#endif
 uint16_t const symbol_first_letter_bits = 5;
 uint16_t const symbol_length_bits = 5;
 uint16_t const hash_bits = symbol_first_letter_bits + symbol_length_bits;
@@ -14,7 +18,7 @@ uint16_t const symbol_hash_table_size = 1 << hash_bits;
 symbol_list_t** new_symbol_table(parse_state_t* state)
 {
    size_t const size = symbol_hash_table_size * sizeof(symbol_list_t*);
-   symbol_list_t** symbol_table = parser_malloc(size);
+   symbol_list_t** symbol_table = parser_malloc(mm_symbol_tables, size);
    memset(symbol_table, 0, size);
    return symbol_table;
 }
@@ -22,7 +26,7 @@ void add_child_scope(parse_state_t* state, scope_list_node_t* parent_scope_list_
 {
    child_scope_list_node->parent = parent_scope_list_node;
    if(!parent_scope_list_node) return;
-   scope_child_list_node_t* child_list_node = parser_malloc(sizeof(scope_child_list_node_t));
+   scope_child_list_node_t* child_list_node = parser_malloc(mm_scope_child_list_nodes, sizeof(scope_child_list_node_t));
    *child_list_node = (scope_child_list_node_t){
       .scope_list_node = child_scope_list_node, .prev = nullptr, .next = nullptr
    };
@@ -45,11 +49,14 @@ scope_t* new_scope(parse_state_t* state, uint8_t scope_type, uint8_t is_hoisting
    scope_t* child_scope;
    symbol_list_t **lexical_symbol_table, **var_symbol_table;
    if(scope_list_node == nullptr || scope_list_node->next == nullptr) {
+#ifdef DBGMEM
+      ++scope_count;
+#endif
       // create a new scope
-      child_scope = parser_malloc(sizeof(scope_t));
-      lexical_symbol_table = parser_malloc(size);
-      var_symbol_table = parser_malloc(size);
-      next_scope_list_node = parser_malloc(sizeof(scope_list_node_t));
+      child_scope = parser_malloc(mm_scopes, sizeof(scope_t));
+      lexical_symbol_table = parser_malloc(mm_symbol_tables, size);
+      var_symbol_table = parser_malloc(mm_symbol_tables, size);
+      next_scope_list_node = parser_malloc(mm_scope_list_nodes, sizeof(scope_list_node_t));
       next_next_scope_list_node = nullptr;
       if(scope_list_node) scope_list_node->next = next_scope_list_node;
    } else {
@@ -213,12 +220,15 @@ symbol_list_node_t* _add_symbol(
    parse_state_t* state, symbol_list_t** symbol_list_ref, symbol_list_t* symbol_list,
    identifier_t const* identifier, uint8_t binding_flag, uint8_t symbol_type
 ){
-   symbol_t* new_symbol = parser_malloc(sizeof(symbol_t));
+#ifdef DBGMEM
+   ++symbol_count;
+#endif
+   symbol_t* new_symbol = parser_malloc(mm_symbols, sizeof(symbol_t));
    *new_symbol = (symbol_t){
       .type = symbol_type, .binding_flag = binding_flag,
       .identifier = identifier,
    };
-   symbol_list_node_t* new_symbol_list_node = parser_malloc(sizeof(symbol_list_node_t));
+   symbol_list_node_t* new_symbol_list_node = parser_malloc(mm_symbol_list_nodes, sizeof(symbol_list_node_t));
    *new_symbol_list_node = (symbol_list_node_t){
       .symbol = new_symbol, .next = nullptr, .sequence_next = nullptr,
       .sequence_prev = state->symbol_list_node
@@ -228,7 +238,7 @@ symbol_list_node_t* _add_symbol(
    }
    state->symbol_list_node = new_symbol_list_node;
    if(!symbol_list) {
-      symbol_list = parser_malloc(sizeof(symbol_list_t));
+      symbol_list = parser_malloc(mm_symbol_lists, sizeof(symbol_list_t));
       *symbol_list = (symbol_list_t){
          .head = new_symbol_list_node, .tail = new_symbol_list_node
       };
@@ -319,7 +329,7 @@ uint8_t insert_symbol(
    }
    if(has_symbol) {
       if(!scope->first_duplicate) {
-         repeated_symbol_t* t = parser_malloc(sizeof(repeated_symbol_t));
+         repeated_symbol_t* t = parser_malloc(mm_repeated_symbols, sizeof(repeated_symbol_t));
          *t = (repeated_symbol_t){
             .original = symbol_list_node->symbol->identifier,
             .duplicate = identifier
@@ -364,7 +374,7 @@ uint8_t insert_label(
    parse_state_t* state, identifier_t const* identifier, params_t params
 ){
    if(has_label(state, identifier, params)) return 0;
-   label_list_node_t* new_label_list_node = parser_malloc(sizeof(label_list_node_t));
+   label_list_node_t* new_label_list_node = parser_malloc(mm_label_list_nodes, sizeof(label_list_node_t));
    scope_t* const hoisting_scope = state->hoisting_scope_list_node->scope;
    *new_label_list_node = (label_list_node_t){
       .identifier = identifier, .parent = hoisting_scope->label_list_node
