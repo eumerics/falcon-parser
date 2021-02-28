@@ -480,6 +480,8 @@ uint32_t const param_flag_expression = 0x2000 << 16;
 uint32_t const param_flag_inconsistent_lines = 0x1000 << 16;
 uint32_t const param_flag_covered_call = 0x0800 << 16;
 uint32_t const param_flag_lexical_binding = 0x0400 << 16;
+uint32_t const param_flag_conditional = 0x0200 << 16; // inside a conditional branch
+uint32_t const param_flag_conditional_body = 0x0100 << 16; // body of a conditional statement
 /*
 uint32_t const cover_flag_array = 0x0001;
 uint32_t const cover_flag_assignment = 0x0002;
@@ -506,15 +508,26 @@ uint8_t const compile_flag_numeric_annex = 0x08;
 uint32_t const semantic_flag_break = 0x01;
 uint32_t const semantic_flag_continue = 0x02;
 
-uint8_t const scope_flag_script = 0x01;
-uint8_t const scope_flag_module = 0x02;
-uint8_t const scope_flag_function = 0x04;
-uint8_t const scope_flag_non_strict = 0x08;
-uint8_t const scope_flag_catch = 0x10;
+uint8_t const scope_flag_conditional = 0x01; // block scope of a conditional statement
+uint8_t const scope_flag_hoisting = 0x02;
+uint8_t const scope_flag_script = 0x04;
+uint8_t const scope_flag_module = 0x08;
+uint8_t const scope_flag_function = 0x10;
+uint8_t const scope_flag_non_strict = 0x20;
+uint8_t const scope_flag_catch = 0x40;
+uint8_t const scope_flag_switch = 0x80;
 
 uint8_t const binding_flag_loose = param_flag_loose_binding;
 uint8_t const binding_flag_function = 0x02;
+uint8_t const binding_flag_hoisted = binding_flag_loose | binding_flag_function;
 uint8_t const symbol_flag_function_id = 0x01;
+
+uint8_t const identifier_flag_conditional = 0x10; // declaration is inside a conditional branch
+uint8_t const identifier_flag_closure = 0x02; // reference is a closure
+uint8_t const identifier_flag_declaration = 0x04; // identifier in a declaration
+uint8_t const identifier_flag_reference = 0x08; // identifer is a reference
+uint8_t const identifier_flag_initialize = 0x20; // needs default initialization
+uint8_t const identifier_flag_possible_closure = 0x40; // an unresolved reference outside its hoisting scope
 
 char const* const token_string[256] = {
    [tkn_numeric_literal] = "numeric literal",
@@ -584,16 +597,20 @@ uint8_t const mm_symbol_list_nodes = 14;
 uint8_t const mm_symbol_lists = 15;
 uint8_t const mm_repeated_symbols = 16;
 uint8_t const mm_label_list_nodes = 17;
+uint8_t const mm_reference_list_nodes = 18;
+uint8_t const mm_symbol_layouts = 19;
+uint8_t const mm_symbol_buffer = 20;
 #ifdef DBGMEM
-uint8_t const memory_metric_count = 18;
+uint8_t const memory_metric_count = 21;
 char const* const memory_metric_names[memory_metric_count] = {
    "untracked", "parse_nodes", "location", "parse_list_nodes",
    "cover_list_nodes", "tokens", "compiled_strings", "compiled_numbers",
    "compiled_identifiers", "symbol_tables", "scopes", "scope_list_nodes",
    "scope_child_list_nodes", "symbols", "symbol_list_nodes", "symbol_lists",
-   "repeated_symbols", "label_list_nodes"
+   "repeated_symbols", "label_list_nodes", "reference_list_nodes", "symbol_layouts",
+   "symbol_buffer"
 };
-uint32_t memory_metric[18];
+uint32_t memory_metric[memory_metric_count];
 #endif
 
 #undef NONE

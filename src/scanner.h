@@ -11,6 +11,16 @@
 #include "unicode/id_start.h"
 #include "unicode/id_continue.h"
 
+#ifdef bool
+   #pragma push_macro("bool")
+   #pragma push_macro("true")
+   #pragma push_macro("false")
+   #define __POP_BOOL__
+   #undef bool
+   #undef true
+   #undef false
+#endif
+
 #define in_strict_mode() (params & param_flag_strict_mode)
 #define to_loose_mode() (params = (params & ~param_flag_strict_mode) | param_flag_loose_mode)
 #define to_strict_mode() (params = (params & ~param_flag_loose_mode) | param_flag_strict_mode)
@@ -1685,5 +1695,12 @@ wasm_export void tokenize(parse_state_t* const state, uint32_t params)
    }
    if_verbose( end_group(); )
 }
+
+#ifdef __POP_BOOL__
+   #pragma pop_macro("false")
+   #pragma pop_macro("true")
+   #pragma pop_macro("bool")
+   #undef __POP_BOOL__
+#endif
 
 #endif //_SCANNER_BASE_H_

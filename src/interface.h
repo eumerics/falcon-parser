@@ -1,9 +1,11 @@
 #ifndef _INTERFACE_H_
 #define _INTERFACE_H_
 
+typedef uint16_t symbol_hash_t;
+
 typedef struct {
-   size_t line;
-   size_t column;
+   uint32_t line;
+   uint32_t column;
 } position_t;
 typedef struct {
    position_t begin;
@@ -16,6 +18,51 @@ typedef struct {
    uint16_t id;
    char const* message;
 } parse_error_t;
+
+#ifdef COMPILER
+typedef uint32_t value_type_t;
+typedef struct {
+   value_type_t value_type;
+   union {
+      union {
+         union {
+            int32_t i32;
+            uint32_t u32;
+            float f32;
+         };
+         int32_t _redundant_b32;
+      };
+      int64_t i64;
+      uint64_t u64;
+      double f64;
+      void* p64;
+   };
+} any_t;
+typedef struct {
+   uint32_t stack_size;
+   uint32_t init_offset;
+   uint32_t init_size;
+   any_t* init_buffer;
+   uint32_t closure_offset;
+   uint32_t closure_export_size;
+   any_t* closure_export_buffer;
+   uint32_t closure_import_size;
+   uint32_t* closure_import_buffer;
+} symbol_layout_t;
+value_type_t const vt_unimplemnted = -1;
+value_type_t const vt_void = 0;
+value_type_t const vt_int32 = 1;
+value_type_t const vt_int64 = 2;
+value_type_t const vt_uint32 = 3;
+value_type_t const vt_uint64 = 4;
+value_type_t const vt_float32 = 5;
+value_type_t const vt_float64 = 6;
+value_type_t const vt_null = 7;
+value_type_t const vt_undefined = 8;
+any_t any_void = {.value_type = vt_void, .u64 = 0};
+any_t any_null = {.value_type = vt_null, .u64 = 0};
+any_t any_undefined = {.value_type = vt_undefined, .u64 = 0};
+#endif
 
 typedef struct {
    char_t const* begin;
@@ -123,6 +170,10 @@ typedef struct {
 struct _scope_t;
 typedef struct {
    embed_compiled_parse_node();
+#ifdef COMPILER
+   uint8_t identifier_flags;
+   uint32_t offset; // offset into stack or closure variable array
+#endif
 } identifier_t;
 typedef struct {
    embed_parse_node();
@@ -543,12 +594,17 @@ typedef struct {
 typedef struct {
    uint8_t type;
    uint8_t binding_flag;
-   identifier_t const* identifier;
+   identifier_t* identifier;
 } symbol_t;
 typedef struct _symbol_list_node_t {
    symbol_t const* symbol;
+   // next symbol in the list
    struct _symbol_list_node_t* next;
-   struct _symbol_list_node_t* sequence_prev; // not used anywhere yet
+#ifdef COMPILER
+   // forms a list of symbols in a given scope not including child scopes
+   struct _symbol_list_node_t* scope_next;
+#endif
+   // forms a list of symbols in a given scope including child scopes
    struct _symbol_list_node_t* sequence_next;
 } symbol_list_node_t;
 typedef struct {
@@ -568,20 +624,46 @@ typedef struct _label_list_node_t {
    identifier_t const* identifier;
    struct _label_list_node_t* parent;
 } label_list_node_t;
+#ifdef COMPILER
+   struct _scope_t;
+   struct _scope_list_node_t;
+   typedef struct _reference_list_node_t {
+      identifier_t* reference;
+      symbol_t const* resolved_symbol;
+      struct _scope_list_node_t* scope_list_node;
+      struct _reference_list_node_t* prev;
+      struct _reference_list_node_t* next;
+   } reference_list_node_t;
+   typedef struct {
+      reference_list_node_t* head;
+      reference_list_node_t* tail;
+   } reference_list_t;
+#endif
 typedef struct _scope_t {
-   uint8_t type;
+   uint8_t flags;
    identifier_t* identifier;
    repeated_symbol_t* first_duplicate;
    void* first_yield_or_await;
-   symbol_list_node_t* head;
-   symbol_list_node_t* tail;
    symbol_list_t** lexical_symbol_table;
    symbol_list_t** var_symbol_table;
    label_list_node_t* label_list_node;
+   symbol_list_node_t* last_symbol_list_node; // for tracking the last symbol at hositing scope level
+   symbol_list_t symbol_list; // list of symbols at the scope level
+#ifdef COMPILER
+   uint32_t id;
+   symbol_list_t full_symbol_list; // list af all symbols including child scopes
+   reference_list_t resolved_reference_list;
+   reference_list_t unresolved_reference_list;
+   symbol_layout_t* symbol_layout;
+   // NOTE: stack and heap sizes are only meaningful for hoisting scopes
+   uint32_t stack_size; // memory required for local variables
+   uint32_t heap_size; // memory required for closure variables
+#endif
 } scope_t;
 typedef struct _scope_list_node_t scope_list_node_t;
 typedef struct _scope_list_node_t {
    scope_t* scope;
+   uint32_t depth;
    scope_list_node_t* prev;
    scope_list_node_t* next;
    scope_list_node_t* parent;
@@ -607,7 +689,7 @@ typedef struct {
    //token_t const* error_token;
    uint8_t expected_token_id;
    uint16_t expected_mask;
-   // [16]
+   // [20]
    memory_state_t* memory;
    // code buffer
    char_t const* const code_begin;
@@ -619,7 +701,7 @@ typedef struct {
    token_t* scan_token;
    size_t token_count;
    size_t tokens_consumed;
-   // scanner flags [52]
+   // scanner flags [56]
    uint32_t line_number;
    char_t const* line_begin;
    uint8_t token_flags;
@@ -634,15 +716,17 @@ typedef struct {
    uint32_t curly_parenthesis_level;
    uint32_t expect_statement_after_level;
    uint32_t template_parenthesis_offset;
-   // parser [88]
+   // parser [92]
    token_t* parse_token;
    cover_node_list_t cover_node_list;
-   uint32_t depth;
+   uint32_t depth; // parse depth
    uint32_t semantic_flags;
    // scope
-   symbol_list_node_t* symbol_list_node;
-   scope_list_node_t* current_scope_list_node;
+   uint32_t scope_count;
+   uint32_t scope_depth;
    scope_list_node_t* scope_list_node;
+   scope_list_node_t* top_level_scope_list_node;
+   scope_list_node_t* current_scope_list_node;
    scope_list_node_t* hoisting_scope_list_node;
    // module
    symbol_list_t** export_symbol_table;
