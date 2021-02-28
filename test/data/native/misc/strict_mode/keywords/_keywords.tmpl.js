@@ -107,6 +107,7 @@
 ///
 function keyword(){ 'use strict'; } //? <-> @1:10
 function a(keyword){ 'use strict'; } //? <-> @1:12
+function a(b, keyword){ 'use strict'; } //? <-> @1:15
 !function keyword(){ 'use strict'; } //? <-> @1:11
 !function a(keyword){ 'use strict'; } //? <-> @1:13
 !{ keyword(){ 'use strict'; } } //? <+>

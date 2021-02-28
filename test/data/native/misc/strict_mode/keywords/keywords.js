@@ -80,6 +80,7 @@
 ///
 function eval(){ 'use strict'; } //? <-> @1:10
 function a(eval){ 'use strict'; } //? <-> @1:12
+function a(b, eval){ 'use strict'; } //? <-> @1:15
 !function eval(){ 'use strict'; } //? <-> @1:11
 !function a(eval){ 'use strict'; } //? <-> @1:13
 !{ eval(){ 'use strict'; } } //? <+>
@@ -171,6 +172,7 @@ async (eval) => { 'use strict'; }; //? <-> @1:8
 ///
 function arguments(){ 'use strict'; } //? <-> @1:10
 function a(arguments){ 'use strict'; } //? <-> @1:12
+function a(b, arguments){ 'use strict'; } //? <-> @1:15
 !function arguments(){ 'use strict'; } //? <-> @1:11
 !function a(arguments){ 'use strict'; } //? <-> @1:13
 !{ arguments(){ 'use strict'; } } //? <+>
@@ -262,6 +264,7 @@ async (arguments) => { 'use strict'; }; //? <-> @1:8
 ///
 function yield(){ 'use strict'; } //? <-> @1:10
 function a(yield){ 'use strict'; } //? <-> @1:12
+function a(b, yield){ 'use strict'; } //? <-> @1:15
 !function yield(){ 'use strict'; } //? <-> @1:11
 !function a(yield){ 'use strict'; } //? <-> @1:13
 !{ yield(){ 'use strict'; } } //? <+>
@@ -353,6 +356,7 @@ async (yield) => { 'use strict'; }; //? <-> @1:8
 ///
 function await(){ 'use strict'; } //? <+>
 function a(await){ 'use strict'; } //? <+>
+function a(b, await){ 'use strict'; } //? <+>
 !function await(){ 'use strict'; } //? <+>
 !function a(await){ 'use strict'; } //? <+>
 !{ await(){ 'use strict'; } } //? <+>
@@ -444,6 +448,7 @@ async (await) => { 'use strict'; }; //? <-> @1:8 -yield_await_in_arrow_params
 ///
 function let(){ 'use strict'; } //? <-> @1:10
 function a(let){ 'use strict'; } //? <-> @1:12
+function a(b, let){ 'use strict'; } //? <-> @1:15
 !function let(){ 'use strict'; } //? <-> @1:11
 !function a(let){ 'use strict'; } //? <-> @1:13
 !{ let(){ 'use strict'; } } //? <+>
@@ -535,6 +540,7 @@ async (let) => { 'use strict'; }; //? <-> @1:8
 ///
 function static(){ 'use strict'; } //? <-> @1:10
 function a(static){ 'use strict'; } //? <-> @1:12
+function a(b, static){ 'use strict'; } //? <-> @1:15
 !function static(){ 'use strict'; } //? <-> @1:11
 !function a(static){ 'use strict'; } //? <-> @1:13
 !{ static(){ 'use strict'; } } //? <+>
@@ -626,6 +632,7 @@ async (static) => { 'use strict'; }; //? <-> @1:8
 ///
 function implements(){ 'use strict'; } //? <-> @1:10
 function a(implements){ 'use strict'; } //? <-> @1:12
+function a(b, implements){ 'use strict'; } //? <-> @1:15
 !function implements(){ 'use strict'; } //? <-> @1:11
 !function a(implements){ 'use strict'; } //? <-> @1:13
 !{ implements(){ 'use strict'; } } //? <+>
@@ -717,6 +724,7 @@ async (implements) => { 'use strict'; }; //? <-> @1:8
 ///
 function interface(){ 'use strict'; } //? <-> @1:10
 function a(interface){ 'use strict'; } //? <-> @1:12
+function a(b, interface){ 'use strict'; } //? <-> @1:15
 !function interface(){ 'use strict'; } //? <-> @1:11
 !function a(interface){ 'use strict'; } //? <-> @1:13
 !{ interface(){ 'use strict'; } } //? <+>
@@ -808,6 +816,7 @@ async (interface) => { 'use strict'; }; //? <-> @1:8
 ///
 function package(){ 'use strict'; } //? <-> @1:10
 function a(package){ 'use strict'; } //? <-> @1:12
+function a(b, package){ 'use strict'; } //? <-> @1:15
 !function package(){ 'use strict'; } //? <-> @1:11
 !function a(package){ 'use strict'; } //? <-> @1:13
 !{ package(){ 'use strict'; } } //? <+>
@@ -899,6 +908,7 @@ async (package) => { 'use strict'; }; //? <-> @1:8
 ///
 function private(){ 'use strict'; } //? <-> @1:10
 function a(private){ 'use strict'; } //? <-> @1:12
+function a(b, private){ 'use strict'; } //? <-> @1:15
 !function private(){ 'use strict'; } //? <-> @1:11
 !function a(private){ 'use strict'; } //? <-> @1:13
 !{ private(){ 'use strict'; } } //? <+>
@@ -990,6 +1000,7 @@ async (private) => { 'use strict'; }; //? <-> @1:8
 ///
 function protected(){ 'use strict'; } //? <-> @1:10
 function a(protected){ 'use strict'; } //? <-> @1:12
+function a(b, protected){ 'use strict'; } //? <-> @1:15
 !function protected(){ 'use strict'; } //? <-> @1:11
 !function a(protected){ 'use strict'; } //? <-> @1:13
 !{ protected(){ 'use strict'; } } //? <+>
@@ -1081,6 +1092,7 @@ async (protected) => { 'use strict'; }; //? <-> @1:8
 ///
 function public(){ 'use strict'; } //? <-> @1:10
 function a(public){ 'use strict'; } //? <-> @1:12
+function a(b, public){ 'use strict'; } //? <-> @1:15
 !function public(){ 'use strict'; } //? <-> @1:11
 !function a(public){ 'use strict'; } //? <-> @1:13
 !{ public(){ 'use strict'; } } //? <+>
