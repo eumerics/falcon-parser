@@ -48,7 +48,7 @@ uint8_t symbol_matches(
    );
 }
 
-uint8_t _get_symbol(
+bool _get_symbol(
    string_t const* const symbol_string, size_t const symbol_length,
    uint16_t hash, symbol_list_node_t** symbol_list_node_ref
 ){
@@ -131,7 +131,60 @@ uint8_t get_symbol_from_lexical_tree(
    return has_symbol;
 }
 
+symbol_list_node_t* add_symbol_to_list(
+   parse_state_t* state, symbol_list_t** symbol_list_ref, symbol_list_t* symbol_list,
+   identifier_t* identifier, uint8_t binding_flag, uint8_t symbol_type
+){
+#ifdef DBGMEM
+   ++symbol_count;
+#endif
+   symbol_t* new_symbol = parser_malloc(mm_symbols, sizeof(symbol_t));
+   *new_symbol = (symbol_t){
+      .type = symbol_type, .binding_flag = binding_flag,
+      .offset = 0, .import_offset = -1, .identifier = identifier,
+   };
+   symbol_list_node_t* new_symbol_list_node = parser_malloc(mm_symbol_list_nodes, sizeof(symbol_list_node_t));
+   *new_symbol_list_node = (symbol_list_node_t){
+      .symbol = new_symbol, .next = nullptr, .sequence_next = nullptr,
 #ifdef COMPILER
+      .scope_next = nullptr
+#endif
+   };
+   if(!symbol_list) {
+      symbol_list = parser_malloc(mm_symbol_lists, sizeof(symbol_list_t));
+      *symbol_list = (symbol_list_t){
+         .head = new_symbol_list_node, .tail = new_symbol_list_node
+      };
+      *symbol_list_ref = symbol_list;
+   } else if(symbol_list->tail == nullptr) {
+      *symbol_list = (symbol_list_t){
+         .head = new_symbol_list_node, .tail = new_symbol_list_node
+      };
+   } else {
+      symbol_list->tail->next = new_symbol_list_node;
+      symbol_list->tail = new_symbol_list_node;
+   }
+   return new_symbol_list_node;
+}
+
+#ifdef COMPILER
+bool get_symbol_from_list(
+   symbol_list_node_t** symbol_list_node_ref, identifier_t const* identifier
+){
+   if(*symbol_list_node_ref == nullptr) return false;
+   string_t const* const symbol_string = (
+      identifier->compiled_string
+         ? (string_t*)(identifier->compiled_string)
+         : (string_t*)(identifier)
+   );
+   size_t const symbol_length = symbol_string->end - symbol_string->begin;
+   symbol_hash_t hash = (
+      ((symbol_length & symbol_length_mask) << 5) |
+      (*symbol_string->begin & symbol_first_letter_mask)
+   );
+   return _get_symbol(symbol_string, symbol_length, hash, symbol_list_node_ref);
+}
+
 // has an odd behavior that at hoisting scope it include all var symbols
 symbol_t const* get_symbol_from_scope(
    scope_list_node_t** scope_list_node_ref, identifier_t const* identifier
@@ -173,6 +226,15 @@ symbol_t const* get_symbol_from_scope(
       }
    }
    return nullptr;
+}
+void append_to_reference_list(reference_list_t* list, reference_list_node_t* node)
+{
+   reference_list_node_t* tail = list->tail;
+   if(tail != nullptr) tail->next = node;
+   node->prev = tail;
+   node->next = nullptr;
+   if(tail == nullptr) list->head = node;
+   list->tail = node;
 }
 void _insert_reference(parse_state_t* state, identifier_t* reference, symbol_t const* resolved_symbol)
 {
@@ -219,12 +281,65 @@ void _insert_reference(parse_state_t* state, identifier_t* reference, symbol_t c
    target_reference_list_node->next = reference_list_node;
    reference_list_node->prev = target_reference_list_node;
 }
-void resolve_reference(parse_state_t* state, identifier_t* identifier) //bool
+void resolve_reference(parse_state_t* state, identifier_t* identifier)
 {
    scope_list_node_t* scope_list_node = state->current_scope_list_node;
    symbol_t const* symbol = get_symbol_from_scope(&scope_list_node, identifier);
    printf("%*s %10s reference %.*s(%d:%d)\n", scope_list_node->depth + 1, "", (symbol ? "resovled" : "unresolved"), (int)(identifier->end - identifier->begin), identifier->begin, identifier->location->begin.line, identifier->location->begin.column); fflush(stdout);
    _insert_reference(state, identifier, symbol);
+}
+void append_to_closure_scope_list(
+   parse_state_t* state, simple_scope_list_t* closure_scope_list, scope_t* scope
+){
+   simple_scope_list_node_t* closure_scope_list_node = parser_malloc(
+      mm_closure_scope_lists, sizeof(simple_scope_list_node_t)
+   );
+   *closure_scope_list_node = (simple_scope_list_node_t){.scope = scope, .next = nullptr};
+   if(closure_scope_list->tail == nullptr) {
+      *closure_scope_list = (simple_scope_list_t){
+         .head = closure_scope_list_node, .tail = closure_scope_list_node
+      };
+   } else {
+      closure_scope_list->tail->next = closure_scope_list_node;
+      closure_scope_list->tail = closure_scope_list_node;
+   }
+}
+void append_to_closure_import_offset_list(
+   parse_state_t* state, uint32_list_t* offset_list, uint32_t offset, scope_t* scope
+){
+   uint32_list_node_t* offset_list_node = parser_malloc(
+      mm_closure_import_offsets, sizeof(uint32_list_node_t)
+   );
+   *offset_list_node = (uint32_list_node_t){.value = offset, .next = nullptr};
+   if(offset_list->tail == nullptr) {
+      append_to_closure_scope_list(state, &state->closure_scope_list, scope);
+      *offset_list = (uint32_list_t){
+         .head = offset_list_node, .tail = offset_list_node
+      };
+   } else {
+      offset_list->tail->next = offset_list_node;
+      offset_list->tail = offset_list_node;
+   }
+}
+void delist_unresolved_reference_list_node(
+   scope_t* current_scope, scope_t* hoisting_scope, reference_list_node_t* node
+){
+   // remove reference from unresolved reference list
+   reference_list_node_t* prev = node->prev;
+   reference_list_node_t* next = node->next;
+   if(prev != nullptr) prev->next = next;
+   if(next != nullptr) next->prev = prev;
+   if(current_scope != hoisting_scope) {
+      if(current_scope->unresolved_reference_list.head == node) {
+         current_scope->unresolved_reference_list.head = next;
+      }
+   }
+   if(hoisting_scope->unresolved_reference_list.head == node) {
+      hoisting_scope->unresolved_reference_list.head = next;
+   }
+   if(hoisting_scope->unresolved_reference_list.tail == node) {
+      hoisting_scope->unresolved_reference_list.tail = prev;
+   }
 }
 bool re_resolve_reference(parse_state_t* state, reference_list_node_t* reference_list_node)
 {
@@ -234,23 +349,116 @@ bool re_resolve_reference(parse_state_t* state, reference_list_node_t* reference
    scope_t* hoisting_scope = state->hoisting_scope_list_node->scope;
    symbol_t const* resolved_symbol = get_symbol_from_scope(&resolved_scope_list_node, reference);
    if(!resolved_symbol) return false;
-   scope_t* target_scope = (
+
+   // remove reference from unresolved reference list
+   delist_unresolved_reference_list_node(current_scope, hoisting_scope, reference_list_node);
+   /*
+   reference_list_node_t* prev = reference_list_node->prev;
+   reference_list_node_t* next = reference_list_node->next;
+   if(prev != nullptr) prev->next = next;
+   if(next != nullptr) next->prev = prev;
+   if(current_scope != hoisting_scope) {
+      if(current_scope->unresolved_reference_list.head == reference_list_node) {
+         current_scope->unresolved_reference_list.head = next;
+      }
+   }
+   if(hoisting_scope->unresolved_reference_list.head == reference_list_node) {
+      hoisting_scope->unresolved_reference_list.head = next;
+   }
+   if(hoisting_scope->unresolved_reference_list.tail == reference_list_node) {
+      hoisting_scope->unresolved_reference_list.tail = prev;
+   }
+   */
+
+   scope_list_node_t* target_scope_list_node = (
       resolved_symbol->binding_flag & binding_flag_hoisted
-         ? hoisting_scope : current_scope
+         ? state->hoisting_scope_list_node : state->current_scope_list_node
    );
+   scope_t* target_scope = target_scope_list_node->scope;
    char const* re_resolution_type = "";
    if(reference->flags & identifier_flag_possible_closure) {
       reference->flags |= identifier_flag_closure;
       reference->flags ^= identifier_flag_possible_closure;
       if(!(resolved_symbol->identifier->flags & identifier_flag_closure)) {
          resolved_symbol->identifier->flags |= identifier_flag_closure;
-         target_scope->symbol_layout->stack_size += sizeof(any_t*) - sizeof(any_t);
-         target_scope->symbol_layout->closure_export_size += sizeof(any_t*);
+         //target_scope->symbol_layout->stack_size += sizeof(any_t*) - sizeof(any_t);
+         target_scope->symbol_layout->closure_export_size += sizeof(any_t);
          target_scope->symbol_layout->closure_offset -= sizeof(any_t);
          if(resolved_symbol->identifier->flags & identifier_flag_initialize) {
             target_scope->symbol_layout->init_size -= sizeof(any_t);
          }
          re_resolution_type = "closure";
+      }
+      // create a chain of cloure import symbols from the scope where the
+      // symbol is defined to the scope where the symbol is referenced
+      scope_list_node_t* scope_list_node = reference_list_node->scope_list_node;
+      scope_t* previous_scope = nullptr;
+      symbol_t* previous_symbol = nullptr;
+      bool is_first = true;
+      while(scope_list_node != state->hoisting_scope_list_node) {
+         bool has_symbol = false;
+         symbol_list_node_t* symbol_list_node = scope_list_node->scope->closure_import_symbol_list.head;
+         symbol_layout_t* symbol_layout = scope_list_node->scope->symbol_layout;
+         if(symbol_list_node == nullptr) {
+            append_to_closure_scope_list(state, &state->closure_scope_list, scope_list_node->scope);
+         } else {
+            has_symbol = get_symbol_from_list(&symbol_list_node, reference);
+         }
+         if(!has_symbol) {
+            symbol_list_t* symbol_list = &scope_list_node->scope->closure_import_symbol_list;
+            uint8_t symbol_type = 0;
+            symbol_list_node = add_symbol_to_list(
+               state, &symbol_list, symbol_list, resolved_symbol->identifier, binding_flag_closure, symbol_type
+            );
+            uint32_t offset = scope_list_node->scope->stack_size;
+            symbol_list_node->symbol->offset = offset;
+            symbol_layout->stack_size += sizeof(any_t);
+            symbol_layout->closure_import_size += sizeof(any_t);
+            scope_list_node->scope->stack_size += sizeof(any_t);
+            identifier_t* i = resolved_symbol->identifier;
+            printf("%*s adding at offset %d to scope %d:%d the closure symbol %.*s(%d:%d)\n", state->current_scope_list_node->depth + 1, "", offset, scope_list_node->depth, scope_list_node->scope->id, (int)(i->end - i->begin), i->begin, i->location->begin.line, i->location->begin.column); fflush(stdout);
+         }
+         uint32_t offset = symbol_list_node->symbol->offset;
+         scope_list_node_t* parent = scope_list_node->parent;
+         if(is_first && parent != state->hoisting_scope_list_node) {
+            //reference_list_node->resolved_symbol = symbol_list_node->symbol;
+            reference_list_node->reference->offset = offset;
+         }
+         if(!is_first && parent == state->hoisting_scope_list_node) {
+            /*
+            reference_list_node_t* dummy_reference_list_node = parser_malloc(
+               mm_reference_list_nodes, sizeof(reference_list_node_t)
+            );
+            *dummy_reference_list_node = *reference_list_node;
+            reference_list_node->scope_list_node = scope_list_node;
+            reference_list_node = dummy_reference_list_node;
+            */
+            // hijack reference list node
+            reference_list_node->scope_list_node = scope_list_node;
+         }
+         if(previous_symbol) {
+            previous_symbol->import_offset = offset;
+            identifier_t* i = previous_symbol->identifier;
+            printf("%*s noting closure offset as %d in scope %d for the closure symbol %.*s(%d:%d)\n", state->current_scope_list_node->depth + 1, "", offset, previous_scope->id, (int)(i->end - i->begin), i->begin, i->location->begin.line, i->location->begin.column); fflush(stdout);
+         }
+         /*
+         if(previous_scope) {
+            uint32_list_t* offset_list = &previous_scope->closure_import_offset_list;
+            identifier_t* i = resolved_symbol->identifier;
+            printf("%*s noting closure offset as %d in scope %d for the closure symbol %.*s(%d:%d)\n", state->current_scope_list_node->depth + 1, "", offset, previous_scope->id, (int)(i->end - i->begin), i->begin, i->location->begin.line, i->location->begin.column); fflush(stdout);
+            append_to_closure_import_offset_list(state, offset_list, offset, previous_scope);
+         }
+         */
+         //reference_list_node->resolved_symbol = symbol_list_node->symbol;
+         //append_to_reference_list(&scope_list_node->scope->reference_list, reference_list_node);
+         previous_scope = scope_list_node->scope;
+         previous_symbol = symbol_list_node->symbol;
+         scope_list_node = scope_list_node->parent;
+         if(scope_list_node == nullptr) {
+            printf("execption:: parent scope list node cannot be null\n");
+            fflush(stdout);
+         }
+         is_first = false;
       }
    } else if(!(resolved_symbol->identifier->flags & (identifier_flag_closure | identifier_flag_initialize))) {
       // determine if initialization required for the symbol
@@ -279,68 +487,15 @@ bool re_resolve_reference(parse_state_t* state, reference_list_node_t* reference
          re_resolution_type = "init";
       }
    }
-   printf("%*s reresolved reference %s %.*s(%d:%d)\n", state->current_scope_list_node->depth + 1, "", re_resolution_type, (int)(reference->end - reference->begin), reference->begin, reference->location->begin.line, reference->location->begin.column); fflush(stdout);
-   // remove reference from unresolved reference list and
-   // add it to resolved reference list
    reference_list_node->resolved_symbol = resolved_symbol;
-   reference_list_node_t* prev = reference_list_node->prev;
-   reference_list_node_t* next = reference_list_node->next;
-   reference_list_node_t* tail = target_scope->resolved_reference_list.tail;
-   //printf("%p %p %p %p\n", prev, (prev ? prev->next : nullptr), next, (next ? next->prev : nullptr));
-   if(prev != nullptr) prev->next = next;
-   if(next != nullptr) next->prev = prev;
-   if(tail != nullptr) tail->next = reference_list_node;
-   //printf("%p %p %p %p\n", prev, (prev ? prev->next : nullptr), next, (next ? next->prev : nullptr));
-   reference_list_node->prev = tail;
-   reference_list_node->next = nullptr;
-   if(tail == nullptr) target_scope->resolved_reference_list.head = reference_list_node;
-   target_scope->resolved_reference_list.tail = reference_list_node;
-   if(current_scope != hoisting_scope) {
-      if(current_scope->unresolved_reference_list.head == reference_list_node) {
-         current_scope->unresolved_reference_list.head = next;
-      }
-   }
-   if(hoisting_scope->unresolved_reference_list.head == reference_list_node) {
-      hoisting_scope->unresolved_reference_list.head = next;
-   }
-   if(hoisting_scope->unresolved_reference_list.tail == reference_list_node) {
-      hoisting_scope->unresolved_reference_list.tail = prev;
-   }
+   printf("%*s reresolved reference %s %.*s(%d:%d)\n", state->current_scope_list_node->depth + 1, "", re_resolution_type, (int)(reference->end - reference->begin), reference->begin, reference->location->begin.line, reference->location->begin.column); fflush(stdout);
+
+   // append reference to resolved reference list
+   append_to_reference_list(&target_scope->resolved_reference_list, reference_list_node);
+
    return true;
 }
 #endif
-
-symbol_list_node_t* add_symbol_to_list(
-   parse_state_t* state, symbol_list_t** symbol_list_ref, symbol_list_t* symbol_list,
-   identifier_t* identifier, uint8_t binding_flag, uint8_t symbol_type
-){
-#ifdef DBGMEM
-   ++symbol_count;
-#endif
-   symbol_t* new_symbol = parser_malloc(mm_symbols, sizeof(symbol_t));
-   *new_symbol = (symbol_t){
-      .type = symbol_type, .binding_flag = binding_flag,
-      .identifier = identifier,
-   };
-   symbol_list_node_t* new_symbol_list_node = parser_malloc(mm_symbol_list_nodes, sizeof(symbol_list_node_t));
-   *new_symbol_list_node = (symbol_list_node_t){
-      .symbol = new_symbol, .next = nullptr, .sequence_next = nullptr,
-#ifdef COMPILER
-      .scope_next = nullptr
-#endif
-   };
-   if(!symbol_list) {
-      symbol_list = parser_malloc(mm_symbol_lists, sizeof(symbol_list_t));
-      *symbol_list = (symbol_list_t){
-         .head = new_symbol_list_node, .tail = new_symbol_list_node
-      };
-      *symbol_list_ref = symbol_list;
-   } else {
-      symbol_list->tail->next = new_symbol_list_node;
-      symbol_list->tail = new_symbol_list_node;
-   }
-   return new_symbol_list_node;
-}
 
 uint8_t add_symbol_to_table(
    parse_state_t* state, symbol_list_t** symbol_table,
@@ -579,6 +734,44 @@ void add_child_scope(parse_state_t* state, scope_list_node_t* parent_scope_list_
       child_list->tail = child_list_node;
    }
 }
+void init_scope(
+   scope_t* scope, uint8_t scope_flags, identifier_t* identifier,
+   symbol_list_t** lexical_symbol_table, symbol_list_t** var_symbol_table
+#ifdef COMPILER
+   , uint32_t id, symbol_layout_t* symbol_layout, uint32_t stack_size
+#endif
+){
+   *scope = (scope_t){
+      .flags = scope_flags, .identifier = identifier,
+      .first_duplicate = nullptr,
+      .first_yield_or_await = nullptr,
+      .lexical_symbol_table = lexical_symbol_table,
+      .var_symbol_table = var_symbol_table,
+      .label_list_node = nullptr,
+      .last_symbol_list_node = nullptr,
+      .symbol_list = {.head = nullptr, .tail = nullptr},
+#ifdef COMPILER
+      .id = id,
+      .full_symbol_list = {.head = nullptr, .tail = nullptr},
+      .resolved_reference_list = {.head = nullptr, .tail = nullptr},
+      .unresolved_reference_list = {.head = nullptr, .tail = nullptr},
+      .closure_import_symbol_list = {.head = nullptr, .tail = nullptr},
+      .symbol_layout = symbol_layout,
+      .stack_size = stack_size
+#endif
+   };
+}
+void init_scope_list_node(
+   scope_list_node_t* scope_list_node, scope_t* scope, uint32_t depth,
+   scope_list_node_t* prev, scope_list_node_t* next,
+   scope_list_node_t* parent, scope_list_node_t* hoisting_parent
+){
+   *scope_list_node = (scope_list_node_t){
+      .scope = scope, .depth = depth, .prev = prev, .next = next,
+      .parent = parent, .hoisting_parent = hoisting_parent,
+      .child_list = {.head = nullptr, .tail = nullptr},
+   };
+}
 scope_list_node_t* new_scope(parse_state_t* state, uint8_t scope_flags, identifier_t* identifier)
 {
    bool is_hoisting = scope_flags & scope_flag_hoisting;
@@ -619,31 +812,16 @@ scope_list_node_t* new_scope(parse_state_t* state, uint8_t scope_flags, identifi
       symbol_layout = child_scope->symbol_layout;
 #endif
    }
-   *child_scope = (scope_t){
-      .flags = scope_flags, .identifier = identifier,
-      .first_duplicate = nullptr,
-      .first_yield_or_await = nullptr,
-      .lexical_symbol_table = lexical_symbol_table,
-      .var_symbol_table = var_symbol_table,
-      .label_list_node = nullptr,
-      .last_symbol_list_node = nullptr,
-      .symbol_list = {.head = nullptr, .tail = nullptr},
+   init_scope(
+      child_scope, scope_flags, identifier, lexical_symbol_table, var_symbol_table
 #ifdef COMPILER
-      .id = state->scope_count++,
-      .full_symbol_list = {.head = nullptr, .tail = nullptr},
-      .resolved_reference_list = {.head = nullptr, .tail = nullptr},
-      .unresolved_reference_list = {.head = nullptr, .tail = nullptr},
-      .symbol_layout = symbol_layout,
-      .stack_size = 0, .heap_size = 0
+      , state->scope_count++, symbol_layout, 0
 #endif
-   };
-   *next_scope_list_node = (scope_list_node_t){
-      .scope = child_scope,
-      .depth = state->scope_depth++,
-      .prev = scope_list_node, .next = next_next_scope_list_node,
-      .parent = nullptr, .hoisting_parent = nullptr,
-      .child_list = {.head = nullptr, .tail = nullptr},
-   };
+   );
+   init_scope_list_node(
+      next_scope_list_node, child_scope, state->scope_depth++,
+      scope_list_node, next_next_scope_list_node, nullptr, nullptr
+   );
    add_child_scope(state, state->current_scope_list_node, next_scope_list_node);
    state->scope_list_node = next_scope_list_node;
    state->current_scope_list_node = next_scope_list_node;
@@ -661,12 +839,109 @@ scope_list_node_t* new_scope(parse_state_t* state, uint8_t scope_flags, identifi
 #endif
    return next_scope_list_node;
 }
+scope_list_node_t* make_placeholder_scope_list_node(
+   parse_state_t* state, scope_list_node_t* scope_list_node
+){
+   scope_t* scope = scope_list_node->scope;
+   scope_list_node_t* parent = scope_list_node->parent;
+   if(parent) parent = parent->hoisting_parent;
+   scope_t* placeholder_scope;
+   scope_list_node_t* placeholder_scope_list_node;
+   placeholder_scope = parser_malloc(mm_scopes, sizeof(scope_t));
+   placeholder_scope_list_node = parser_malloc(mm_scope_list_nodes, sizeof(scope_list_node_t));
+#ifdef COMPILER
+   symbol_layout_t* symbol_layout = parser_malloc(mm_symbol_layouts, sizeof(symbol_layout_t));
+   *symbol_layout = *scope->symbol_layout;
+#endif
+   init_scope(
+      placeholder_scope, scope->flags, scope->identifier, nullptr, nullptr
+#ifdef COMPILER
+      , scope->id, symbol_layout, scope->stack_size + scope->symbol_layout->stack_size
+#endif
+   );
+   init_scope_list_node(
+      placeholder_scope_list_node, placeholder_scope, scope_list_node->depth,
+      nullptr, nullptr, parent, placeholder_scope_list_node
+   );
+   return placeholder_scope_list_node;
+}
+void free_current_scope(parse_state_t* state)
+{
+   state->scope_list_node = state->current_scope_list_node->prev;
+   scope_list_node_t* parent = state->current_scope_list_node->parent;
+   if(parent) {
+      scope_child_list_t* child_list = &(parent->child_list);
+      if(child_list->head == child_list->tail) {
+         child_list->head = child_list->tail = nullptr; //[TODO] free
+      } else {
+         child_list->tail->prev->next = nullptr;
+         child_list->tail = child_list->tail->prev; //[TODO] free
+      }
+   }
+}
+#ifdef COMPILER
+void append_reference_list(reference_list_t* target, reference_list_t* list){
+   if(target->tail == nullptr) {
+      *target = *list;
+   } else if(list->head) {
+      target->tail->next = list->head;
+      list->head->prev = target->tail;
+      target->tail = list->tail;
+   }
+}
+#endif
+// collpase a temporary scope and merge it into its parent scope
+// temporary scope is assumed to not introduce any new symbols
+void collapse_scope(parse_state_t* state)
+{
+   scope_list_node_t* scope_list_node = state->current_scope_list_node;
+   scope_list_node_t* parent = scope_list_node->parent;
+   scope_t* current_scope = scope_list_node->scope;
+#ifdef COMPILER
+   reference_list_t* unresolved_reference_list = &current_scope->unresolved_reference_list;
+   reference_list_node_t* reference_list_node = unresolved_reference_list->head;
+   while(reference_list_node) {
+      symbol_t const* symbol = get_symbol_from_scope(&scope_list_node, reference_list_node->reference);
+      identifier_t* i = reference_list_node->reference;
+      printf("%*s %10s reference %.*s(%d:%d)\n", scope_list_node->depth + 1, "", (symbol ? "resovled" : "unresolved"), (int)(i->end - i->begin), i->begin, i->location->begin.line, i->location->begin.column); fflush(stdout);
+      reference_list_node_t* next = reference_list_node->next;
+      if(symbol) {
+         delist_unresolved_reference_list_node(
+            state->current_scope_list_node->scope,
+            state->hoisting_scope_list_node->scope,
+            reference_list_node
+         );
+         append_to_reference_list(
+            &parent->scope->resolved_reference_list, reference_list_node
+         );
+      }
+      reference_list_node = next;
+   }
+   append_reference_list(
+      &parent->hoisting_parent->scope->unresolved_reference_list,
+      unresolved_reference_list
+   );
+   if(!(parent->scope->flags & scope_flag_hoisting)) {
+      if(parent->scope->unresolved_reference_list.head == nullptr) {
+         parent->scope->unresolved_reference_list.head = unresolved_reference_list->head;
+      }
+   }
+   uint32_t scope_depth = state->current_scope_list_node->depth;
+   bool is_hoisting = state->current_scope_list_node->scope->flags & scope_flag_hoisting;
+   printf("%*s collapse %sscope %d:%d => (%d) +%d = %d\n", scope_depth, "", (is_hoisting ? "hoisting::" : ""), scope_depth, state->current_scope_list_node->scope->id, state->hoisting_scope_list_node->scope->id, state->current_scope_list_node->scope->symbol_layout->stack_size, state->hoisting_scope_list_node->scope->stack_size); fflush(stdout);
+#endif
+   free_current_scope(state);
+   state->current_scope_list_node = parent;
+   state->hoisting_scope_list_node = (parent ? parent->hoisting_parent : nullptr);
+   --state->scope_depth;
+}
 void end_scope(parse_state_t* state)
 {
    uint32_t scope_depth = state->current_scope_list_node->depth;
    bool is_hoisting = state->current_scope_list_node->scope->flags & scope_flag_hoisting;
    scope_list_node_t* parent = state->current_scope_list_node->parent;
    scope_t* scope = state->current_scope_list_node->scope;
+   scope_list_node_t* hoisting_scope_list_node = state->hoisting_scope_list_node;
 #ifdef COMPILER
    // note the last symbol on the parent scope
    if(!is_hoisting && parent){
@@ -675,22 +950,30 @@ void end_scope(parse_state_t* state)
    }
    // try to re-resolve unresolved references
    reference_list_node_t* reference_list_node = scope->unresolved_reference_list.head;
-   while(reference_list_node) {
-      // on successful re-resolution the reference list node will be evicted
-      // from unresolved reference list hence we the next item in the list
-      reference_list_node_t* next = reference_list_node->next;
-      if(!re_resolve_reference(state, reference_list_node)) {
-         if(is_hoisting) {
-            // collpase all child scopes to hoisting scope
-            reference_list_node->scope_list_node = state->current_scope_list_node;
-            reference_list_node->reference->flags |= identifier_flag_possible_closure;
+   if(reference_list_node) {
+      scope_list_node_t* placeholder_scope_list_node = nullptr;
+      while(reference_list_node) {
+         // on successful re-resolution the reference list node will be evicted
+         // from unresolved reference list hence we the next item in the list
+         reference_list_node_t* next = reference_list_node->next;
+         if(!re_resolve_reference(state, reference_list_node)) {
+            if(is_hoisting && reference_list_node->scope_list_node->hoisting_parent == hoisting_scope_list_node) {
+               // collpase all child scopes to hoisting scope
+               if(!placeholder_scope_list_node) {
+                  placeholder_scope_list_node = make_placeholder_scope_list_node(
+                     state, hoisting_scope_list_node
+                  );
+               }
+               reference_list_node->scope_list_node = placeholder_scope_list_node;
+               reference_list_node->reference->flags |= identifier_flag_possible_closure;
+            }
          }
+         reference_list_node = next;
       }
-      reference_list_node = next;
    }
    // fix the memory layout for symbols and references
    {
-      size_t const closure_factor = sizeof(any_t) / sizeof(any_t*);
+      size_t const closure_factor = 1; //sizeof(any_t) / sizeof(any_t*);
       symbol_layout_t* symbol_layout = scope->symbol_layout;
       uint32_t init_size = symbol_layout->init_size;
       uint32_t closure_export_size = symbol_layout->closure_export_size;
@@ -714,17 +997,17 @@ void end_scope(parse_state_t* state)
          );
          if(do_process) {
             if(symbol->identifier->flags & identifier_flag_closure) {
-               if(closure_export_size + sizeof(any_t*) > symbol_layout->closure_export_size) {
-                  printf("incorrect closure size\n"); fflush(stdout);
+               if(closure_export_size + sizeof(any_t) > symbol_layout->closure_export_size) {
+                  printf("::error incorrect closure size\n"); fflush(stdout);
                }
-               *(symbol_layout->closure_export_buffer + closure_export_size/sizeof(any_t*)) =
+               *(symbol_layout->closure_export_buffer + closure_export_size/sizeof(any_t)) =
                   (symbol->binding_flag & binding_flag_hoisted ? any_undefined : any_void);
                symbol->identifier->offset = closure_offset + closure_export_size;
-               closure_export_size += sizeof(any_t*);
+               closure_export_size += sizeof(any_t);
             } else {
                if(symbol->identifier->flags & identifier_flag_initialize) {
                   if(init_size + sizeof(any_t) > symbol_layout->init_size) {
-                     printf("incorrect initialization size\n"); fflush(stdout);
+                     printf("::error incorrect initialization size\n"); fflush(stdout);
                   }
                   *(symbol_layout->init_buffer + init_size/sizeof(any_t)) =
                      (symbol->binding_flag & binding_flag_hoisted ? any_undefined : any_void);
@@ -743,7 +1026,7 @@ void end_scope(parse_state_t* state)
          init_size + non_init_size != symbol_layout->closure_offset ||
          init_size + non_init_size + closure_export_size != symbol_layout->stack_size
       ){
-         printf("mismatch in symbol binding sizes ");
+         printf("::error mismatch in symbol binding sizes ");
          printf("%d-%d %d-%d %d-%d %d-%d\n",
             init_size, symbol_layout->init_size,
             closure_export_size, symbol_layout->closure_export_size,
@@ -757,10 +1040,28 @@ void end_scope(parse_state_t* state)
       hoisting_scope->stack_size += init_size + non_init_size + closure_export_size;
       reference_list_node_t* reference_list_node = scope->resolved_reference_list.head;
       while(reference_list_node) {
-         reference_list_node->reference->offset =
-            reference_list_node->resolved_symbol->identifier->offset;
+         uint32_t offset = reference_list_node->resolved_symbol->identifier->offset;
+         if(reference_list_node->reference->flags & identifier_flag_closure) {
+            scope_list_node_t* sln = reference_list_node->scope_list_node;
+            symbol_list_node_t* symbol_list_node = sln->scope->closure_import_symbol_list.head;
+            bool has_symbol = get_symbol_from_list(&symbol_list_node, reference_list_node->reference);
+            if(!has_symbol) {
+               printf("error:: missing closure symbol\n");
+            } else {
+               symbol_list_node->symbol->import_offset = offset;
+               identifier_t* i = reference_list_node->resolved_symbol->identifier;
+               printf("%*s noting closure offset as %d in scope %d for the closure symbol %.*s(%d:%d)\n", state->current_scope_list_node->depth + 1, "", offset, sln->scope->id, (int)(i->end - i->begin), i->begin, i->location->begin.line, i->location->begin.column); fflush(stdout);
+            }
+            /*
+            append_to_closure_import_offset_list(
+               state, &sln->scope->closure_import_offset_list, offset, sln->scope
+            );
+            */
+         } else {
+            reference_list_node->reference->offset = offset;
+         }
          identifier_t* i = reference_list_node->reference;
-         printf("%*s reference offset %.*s(%d:%d) %d\n", scope_depth + 1, "", (int)(i->end - i->begin), i->begin, i->location->begin.line, i->location->begin.column, i->offset);
+         printf("%*s reference offset %.*s(%d:%d) %d\n", scope_depth + 1, "", (int)(i->end - i->begin), i->begin, i->location->begin.line, i->location->begin.column, offset);
          reference_list_node = reference_list_node->next;
       }
       //if(init_size != 0 || closure_export_size != 0) {
@@ -790,6 +1091,47 @@ void end_scope(parse_state_t* state)
          parent_scope->unresolved_reference_list.head = scope->unresolved_reference_list.head;
       }
    }
+   if(state->current_scope_list_node == state->top_level_scope_list_node) {
+      // complete symbol layout of scopes with closure references
+      simple_scope_list_node_t* scope_list_node = state->closure_scope_list.head;
+      while(scope_list_node) {
+         scope_t* scope = scope_list_node->scope;
+         symbol_layout_t* symbol_layout = scope->symbol_layout;
+         //printf("%d %d\n", scope->id, symbol_layout->closure_import_size);
+         uint32_t total_offset_size = symbol_layout->closure_import_size * sizeof(uint32_t) / sizeof(any_t);
+         uint32_t* buffer = symbol_layout->closure_import_buffer = parser_malloc(
+            mm_symbol_buffer, total_offset_size
+         );
+         uint32_t offset_size = 0;
+         symbol_list_node_t* symbol_list_node = scope->closure_import_symbol_list.head;
+         while(symbol_list_node) {
+            if(symbol_list_node->symbol->import_offset == -1) {
+               printf("error:: uninitialized closure\n");
+            }
+            buffer[offset_size / sizeof(uint32_t)] = symbol_list_node->symbol->import_offset;
+            offset_size += sizeof(uint32_t);
+            symbol_list_node = symbol_list_node->next;
+         }
+         /*
+         uint32_list_node_t* offset_list_node = scope->closure_import_offset_list.head;
+         while(offset_list_node) {
+            /?
+            if(offset_size >= total_offset_size) {
+               printf("::error mismatch in offset sizes %d-%d\n", offset_size, total_offset_size); fflush(stdout);
+            }
+            ?/
+            buffer[offset_size / sizeof(uint32_t)] = offset_list_node->value;
+            offset_list_node = offset_list_node->next;
+            offset_size += sizeof(uint32_t);
+         }
+         */
+         if(offset_size != total_offset_size) {
+            printf("::error %d mismatch in offset sizes %d-%d\n", scope->id, offset_size, total_offset_size); fflush(stdout);
+         }
+         scope_list_node = scope_list_node->next;
+      }
+   }
+
    {
    if(state->current_scope_list_node == state->top_level_scope_list_node) {
       printf("%3d unresolved references\n", state->current_scope_list_node->depth); fflush(stdout);
@@ -815,31 +1157,9 @@ void end_scope(parse_state_t* state)
    }
    */
 #endif
-#ifndef COMPILER
-   if(is_hoisting) {
-      state->scope_list_node = state->current_scope_list_node->prev;
-      if(parent) {
-         scope_child_list_t* child_list = &(parent->child_list);
-         if(child_list->head == child_list->tail) {
-            child_list->head = child_list->tail = nullptr; //[TODO] free
-         } else {
-            child_list->tail->prev->next = nullptr;
-            child_list->tail = child_list->tail->prev; //[TODO] free
-         }
-      }
-   }
-#else
-   if(is_hoisting) {
-      if(scope->unresolved_reference_list.head) {
-         state->scope_list_node = state->current_scope_list_node;
-      } else {
-         state->scope_list_node = state->current_scope_list_node->prev;
-      }
-      state->current_scope_list_node->child_list = (scope_child_list_t){
-         .head = nullptr, .tail = nullptr //[TODO] free
-      };
-   }
-   printf("%*s end %sscope %d:%d => (%d) +%d = %d\n", scope_depth, "", (is_hoisting ? "hoisting::" : ""), scope_depth, state->current_scope_list_node->scope->id, state->hoisting_scope_list_node->scope->id, scope->symbol_layout->stack_size, state->hoisting_scope_list_node->scope->stack_size);
+   if(is_hoisting) free_current_scope(state);
+#ifdef COMPILER
+   printf("%*s end %sscope %d:%d => (%d) +%d = %d\n", scope_depth, "", (is_hoisting ? "hoisting::" : ""), scope_depth, state->current_scope_list_node->scope->id, state->hoisting_scope_list_node->scope->id, scope->symbol_layout->stack_size, state->hoisting_scope_list_node->scope->stack_size); fflush(stdout);
 #endif
    state->current_scope_list_node = parent;
    state->hoisting_scope_list_node = (parent ? parent->hoisting_parent : nullptr);

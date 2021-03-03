@@ -3399,7 +3399,8 @@ void* parse_assignment_expression(parse_state_t* state, parse_tree_state_t* tree
       if(!parent_hoisting_scope->first_yield_or_await) {
          parent_hoisting_scope->first_yield_or_await = hoisting_scope->first_yield_or_await;
       }
-      end_scope(state); //[REVIEW]
+      //end_scope(state); //[REVIEW]
+      collapse_scope(state);
    }
    if(!exists_mask(mask_assign_ops)) { passon(expression); }
    else if(!node_is_a(lhs_production, expression)) {
@@ -4445,6 +4446,7 @@ wasm_export parse_result_t parse(char_t const* code_begin, char_t const* code_en
       .top_level_scope_list_node = nullptr,
       .current_scope_list_node = nullptr,
       .hoisting_scope_list_node = nullptr,
+      .closure_scope_list = {.head = nullptr, .tail = nullptr},
       // module
       .export_symbol_table = nullptr,
       .export_reference_list = nullptr,
@@ -4525,7 +4527,7 @@ wasm_export parse_result_t parse(char_t const* code_begin, char_t const* code_en
    for(int i = 0; i < memory_metric_count; ++i) {
       printf("%24s: %d\n", memory_metric_names[i], memory_metric[i]);
    }
-   //printf("%d %d %lu %lu\n", scope_count, symbol_count, sizeof(scope_t), sizeof(symbol_t));
+   printf("scopes %d*%lu %d*%lu\n", scope_count, sizeof(scope_t), symbol_count, sizeof(symbol_t));
    printf("%24s: %lu\n", "total memory", state->memory->page_count * page_size);
 #endif
    return (parse_result_t){

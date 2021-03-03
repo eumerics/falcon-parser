@@ -594,10 +594,12 @@ typedef struct {
 typedef struct {
    uint8_t type;
    uint8_t binding_flag;
+   uint32_t offset;
+   int32_t import_offset;
    identifier_t* identifier;
 } symbol_t;
 typedef struct _symbol_list_node_t {
-   symbol_t const* symbol;
+   symbol_t* symbol;
    // next symbol in the list
    struct _symbol_list_node_t* next;
 #ifdef COMPILER
@@ -638,6 +640,15 @@ typedef struct _label_list_node_t {
       reference_list_node_t* head;
       reference_list_node_t* tail;
    } reference_list_t;
+   typedef struct _uint32_list_node_t uint32_list_node_t;
+   typedef struct _uint32_list_node_t {
+      uint32_t value;
+      uint32_list_node_t* next;
+   } uint32_list_node_t;
+   typedef struct {
+      uint32_list_node_t* head;
+      uint32_list_node_t* tail;
+   } uint32_list_t;
 #endif
 typedef struct _scope_t {
    uint8_t flags;
@@ -654,12 +665,21 @@ typedef struct _scope_t {
    symbol_list_t full_symbol_list; // list af all symbols including child scopes
    reference_list_t resolved_reference_list;
    reference_list_t unresolved_reference_list;
-   symbol_layout_t* symbol_layout;
-   // NOTE: stack and heap sizes are only meaningful for hoisting scopes
-   uint32_t stack_size; // memory required for local variables
-   uint32_t heap_size; // memory required for closure variables
+   symbol_list_t closure_import_symbol_list;
+   uint32_list_t closure_import_offset_list;
+   symbol_layout_t* symbol_layout; // layout of scope level variables
+   uint32_t stack_size; // total stack size
 #endif
 } scope_t;
+typedef struct _simple_scope_list_node_t simple_scope_list_node_t;
+typedef struct _simple_scope_list_node_t {
+   scope_t* scope;
+   simple_scope_list_node_t* next;
+} simple_scope_list_node_t;
+typedef struct {
+   simple_scope_list_node_t* head;
+   simple_scope_list_node_t* tail;
+} simple_scope_list_t;
 typedef struct _scope_list_node_t scope_list_node_t;
 typedef struct _scope_list_node_t {
    scope_t* scope;
@@ -728,6 +748,7 @@ typedef struct {
    scope_list_node_t* top_level_scope_list_node;
    scope_list_node_t* current_scope_list_node;
    scope_list_node_t* hoisting_scope_list_node;
+   simple_scope_list_t closure_scope_list;
    // module
    symbol_list_t** export_symbol_table;
    symbol_list_t* export_reference_list;
