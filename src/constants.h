@@ -601,17 +601,16 @@ uint8_t const mm_label_list_nodes = 17;
 uint8_t const mm_reference_list_nodes = 18;
 uint8_t const mm_symbol_layouts = 19;
 uint8_t const mm_symbol_buffer = 20;
-uint8_t const mm_closure_import_offsets = 21;
-uint8_t const mm_closure_scope_lists = 22;
+uint8_t const mm_closure_scope_lists = 21;
 #ifdef DBGMEM
-uint8_t const memory_metric_count = 23;
+uint8_t const memory_metric_count = 22;
 char const* const memory_metric_names[memory_metric_count] = {
    "untracked", "parse_nodes", "location", "parse_list_nodes",
    "cover_list_nodes", "tokens", "compiled_strings", "compiled_numbers",
    "compiled_identifiers", "symbol_tables", "scopes", "scope_list_nodes",
    "scope_child_list_nodes", "symbols", "symbol_list_nodes", "symbol_lists",
    "repeated_symbols", "label_list_nodes", "reference_list_nodes", "symbol_layouts",
-   "symbol_buffer", "closure_import_offsets", "closure_scope_lists"
+   "symbol_buffer", "closure_scope_lists"
 };
 uint32_t memory_metric[memory_metric_count];
 #endif

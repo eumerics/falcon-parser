@@ -640,15 +640,6 @@ typedef struct _label_list_node_t {
       reference_list_node_t* head;
       reference_list_node_t* tail;
    } reference_list_t;
-   typedef struct _uint32_list_node_t uint32_list_node_t;
-   typedef struct _uint32_list_node_t {
-      uint32_t value;
-      uint32_list_node_t* next;
-   } uint32_list_node_t;
-   typedef struct {
-      uint32_list_node_t* head;
-      uint32_list_node_t* tail;
-   } uint32_list_t;
 #endif
 typedef struct _scope_t {
    uint8_t flags;
@@ -666,7 +657,6 @@ typedef struct _scope_t {
    reference_list_t resolved_reference_list;
    reference_list_t unresolved_reference_list;
    symbol_list_t closure_import_symbol_list;
-   uint32_list_t closure_import_offset_list;
    symbol_layout_t* symbol_layout; // layout of scope level variables
    uint32_t stack_size; // total stack size
 #endif

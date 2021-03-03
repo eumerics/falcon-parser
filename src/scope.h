@@ -304,23 +304,6 @@ void append_to_closure_scope_list(
       closure_scope_list->tail = closure_scope_list_node;
    }
 }
-void append_to_closure_import_offset_list(
-   parse_state_t* state, uint32_list_t* offset_list, uint32_t offset, scope_t* scope
-){
-   uint32_list_node_t* offset_list_node = parser_malloc(
-      mm_closure_import_offsets, sizeof(uint32_list_node_t)
-   );
-   *offset_list_node = (uint32_list_node_t){.value = offset, .next = nullptr};
-   if(offset_list->tail == nullptr) {
-      append_to_closure_scope_list(state, &state->closure_scope_list, scope);
-      *offset_list = (uint32_list_t){
-         .head = offset_list_node, .tail = offset_list_node
-      };
-   } else {
-      offset_list->tail->next = offset_list_node;
-      offset_list->tail = offset_list_node;
-   }
-}
 void delist_unresolved_reference_list_node(
    scope_t* current_scope, scope_t* hoisting_scope, reference_list_node_t* node
 ){
@@ -441,14 +424,6 @@ bool re_resolve_reference(parse_state_t* state, reference_list_node_t* reference
             identifier_t* i = previous_symbol->identifier;
             printf("%*s noting closure offset as %d in scope %d for the closure symbol %.*s(%d:%d)\n", state->current_scope_list_node->depth + 1, "", offset, previous_scope->id, (int)(i->end - i->begin), i->begin, i->location->begin.line, i->location->begin.column); fflush(stdout);
          }
-         /*
-         if(previous_scope) {
-            uint32_list_t* offset_list = &previous_scope->closure_import_offset_list;
-            identifier_t* i = resolved_symbol->identifier;
-            printf("%*s noting closure offset as %d in scope %d for the closure symbol %.*s(%d:%d)\n", state->current_scope_list_node->depth + 1, "", offset, previous_scope->id, (int)(i->end - i->begin), i->begin, i->location->begin.line, i->location->begin.column); fflush(stdout);
-            append_to_closure_import_offset_list(state, offset_list, offset, previous_scope);
-         }
-         */
          //reference_list_node->resolved_symbol = symbol_list_node->symbol;
          //append_to_reference_list(&scope_list_node->scope->reference_list, reference_list_node);
          previous_scope = scope_list_node->scope;
@@ -1052,11 +1027,6 @@ void end_scope(parse_state_t* state)
                identifier_t* i = reference_list_node->resolved_symbol->identifier;
                printf("%*s noting closure offset as %d in scope %d for the closure symbol %.*s(%d:%d)\n", state->current_scope_list_node->depth + 1, "", offset, sln->scope->id, (int)(i->end - i->begin), i->begin, i->location->begin.line, i->location->begin.column); fflush(stdout);
             }
-            /*
-            append_to_closure_import_offset_list(
-               state, &sln->scope->closure_import_offset_list, offset, sln->scope
-            );
-            */
          } else {
             reference_list_node->reference->offset = offset;
          }
@@ -1112,19 +1082,6 @@ void end_scope(parse_state_t* state)
             offset_size += sizeof(uint32_t);
             symbol_list_node = symbol_list_node->next;
          }
-         /*
-         uint32_list_node_t* offset_list_node = scope->closure_import_offset_list.head;
-         while(offset_list_node) {
-            /?
-            if(offset_size >= total_offset_size) {
-               printf("::error mismatch in offset sizes %d-%d\n", offset_size, total_offset_size); fflush(stdout);
-            }
-            ?/
-            buffer[offset_size / sizeof(uint32_t)] = offset_list_node->value;
-            offset_list_node = offset_list_node->next;
-            offset_size += sizeof(uint32_t);
-         }
-         */
          if(offset_size != total_offset_size) {
             printf("::error %d mismatch in offset sizes %d-%d\n", scope->id, offset_size, total_offset_size); fflush(stdout);
          }
