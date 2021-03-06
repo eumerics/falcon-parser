@@ -203,6 +203,14 @@ symbol_t const* get_symbol_from_scope(
    scope_t const* scope = (*scope_list_node_ref)->scope;
    symbol_list_node_t* symbol_list_node;
    {
+      symbol_list_t* symbol_list = scope->lexical_symbol_table[hash];
+      if(symbol_list) {
+         symbol_list_node = symbol_list->head;
+         bool has_symbol = _get_symbol(symbol_string, symbol_length, hash, &symbol_list_node);
+         if(has_symbol) return symbol_list_node->symbol;
+      }
+   }
+   {
       bool has_symbol = false;
       if(scope->flags & scope_flag_hoisting) {
          has_symbol = get_symbol_from_hoisting_var_tree(
@@ -216,14 +224,6 @@ symbol_t const* get_symbol_from_scope(
          }
       }
       if(has_symbol) return symbol_list_node->symbol;
-   }
-   {
-      symbol_list_t* symbol_list = scope->lexical_symbol_table[hash];
-      if(symbol_list) {
-         symbol_list_node = symbol_list->head;
-         bool has_symbol = _get_symbol(symbol_string, symbol_length, hash, &symbol_list_node);
-         if(has_symbol) return symbol_list_node->symbol;
-      }
    }
    return nullptr;
 }
@@ -248,6 +248,9 @@ void _insert_reference(parse_state_t* state, identifier_t* reference, symbol_t c
    *reference_list_node = (reference_list_node_t){
       .reference = reference, .resolved_symbol = resolved_symbol,
       .scope_list_node = state->current_scope_list_node,
+#ifdef DBG_LAYOUT
+      .original_scope_list_node = state->current_scope_list_node,
+#endif
       .prev = nullptr, .next = nullptr
    };
    reference_list_node_t* target_reference_list_node = nullptr;
@@ -285,7 +288,7 @@ void resolve_reference(parse_state_t* state, identifier_t* identifier)
 {
    scope_list_node_t* scope_list_node = state->current_scope_list_node;
    symbol_t const* symbol = get_symbol_from_scope(&scope_list_node, identifier);
-   printf("%*s %10s reference %.*s(%d:%d)\n", scope_list_node->depth + 1, "", (symbol ? "resovled" : "unresolved"), (int)(identifier->end - identifier->begin), identifier->begin, identifier->location->begin.line, identifier->location->begin.column); fflush(stdout);
+   printf("%*s %10s reference %.*s(%d:%d)\n", scope_list_node->scope->depth + 1, "", (symbol ? "resovled" : "unresolved"), (int)(identifier->end - identifier->begin), identifier->begin, identifier->location->begin.line, identifier->location->begin.column); fflush(stdout);
    _insert_reference(state, identifier, symbol);
 }
 void append_to_closure_scope_list(
@@ -304,25 +307,25 @@ void append_to_closure_scope_list(
       closure_scope_list->tail = closure_scope_list_node;
    }
 }
-void delist_unresolved_reference_list_node(
-   scope_t* current_scope, scope_t* hoisting_scope, reference_list_node_t* node
-){
+void remove_reference_list_node(reference_list_t* list, reference_list_node_t* node)
+{
    // remove reference from unresolved reference list
    reference_list_node_t* prev = node->prev;
    reference_list_node_t* next = node->next;
    if(prev != nullptr) prev->next = next;
    if(next != nullptr) next->prev = prev;
+   if(list->head == node) list->head = next;
+   if(list->tail == node) list->tail = prev;
+}
+void delist_unresolved_reference_list_node(
+   scope_t* current_scope, scope_t* hoisting_scope, reference_list_node_t* node
+){
    if(current_scope != hoisting_scope) {
       if(current_scope->unresolved_reference_list.head == node) {
-         current_scope->unresolved_reference_list.head = next;
+         current_scope->unresolved_reference_list.head = node->next;
       }
    }
-   if(hoisting_scope->unresolved_reference_list.head == node) {
-      hoisting_scope->unresolved_reference_list.head = next;
-   }
-   if(hoisting_scope->unresolved_reference_list.tail == node) {
-      hoisting_scope->unresolved_reference_list.tail = prev;
-   }
+   remove_reference_list_node(&hoisting_scope->unresolved_reference_list, node);
 }
 bool re_resolve_reference(parse_state_t* state, reference_list_node_t* reference_list_node)
 {
@@ -399,12 +402,12 @@ bool re_resolve_reference(parse_state_t* state, reference_list_node_t* reference
             symbol_layout->closure_import_size += sizeof(any_t);
             scope_list_node->scope->stack_size += sizeof(any_t);
             identifier_t* i = resolved_symbol->identifier;
-            printf("%*s adding at offset %d to scope %d:%d the closure symbol %.*s(%d:%d)\n", state->current_scope_list_node->depth + 1, "", offset, scope_list_node->depth, scope_list_node->scope->id, (int)(i->end - i->begin), i->begin, i->location->begin.line, i->location->begin.column); fflush(stdout);
+            printf("%*s adding at offset %d to scope %d:%d the closure symbol %.*s(%d:%d)\n", state->current_scope_list_node->scope->depth + 1, "", offset, scope_list_node->scope->depth, scope_list_node->scope->id, (int)(i->end - i->begin), i->begin, i->location->begin.line, i->location->begin.column); fflush(stdout);
          }
          uint32_t offset = symbol_list_node->symbol->offset;
          scope_list_node_t* parent = scope_list_node->parent;
-         if(is_first && parent != state->hoisting_scope_list_node) {
-            //reference_list_node->resolved_symbol = symbol_list_node->symbol;
+         //if(is_first && parent != state->hoisting_scope_list_node) {
+         if(is_first) {
             reference_list_node->reference->offset = offset;
          }
          if(!is_first && parent == state->hoisting_scope_list_node) {
@@ -422,7 +425,7 @@ bool re_resolve_reference(parse_state_t* state, reference_list_node_t* reference
          if(previous_symbol) {
             previous_symbol->import_offset = offset;
             identifier_t* i = previous_symbol->identifier;
-            printf("%*s noting closure offset as %d in scope %d for the closure symbol %.*s(%d:%d)\n", state->current_scope_list_node->depth + 1, "", offset, previous_scope->id, (int)(i->end - i->begin), i->begin, i->location->begin.line, i->location->begin.column); fflush(stdout);
+            printf("%*s noting closure offset as %d in scope %d for the closure symbol %.*s(%d:%d)\n", state->current_scope_list_node->scope->depth + 1, "", offset, previous_scope->id, (int)(i->end - i->begin), i->begin, i->location->begin.line, i->location->begin.column); fflush(stdout);
          }
          //reference_list_node->resolved_symbol = symbol_list_node->symbol;
          //append_to_reference_list(&scope_list_node->scope->reference_list, reference_list_node);
@@ -439,13 +442,13 @@ bool re_resolve_reference(parse_state_t* state, reference_list_node_t* reference
       // determine if initialization required for the symbol
       bool needs_initialization = false;
       scope_list_node_t* scope_list_node = reference_list_node->scope_list_node;
-      while(scope_list_node->depth < resolved_scope_list_node->depth) {
+      while(scope_list_node->scope->depth < resolved_scope_list_node->scope->depth) {
          if(resolved_scope_list_node->scope->flags & scope_flag_conditional) {
             needs_initialization = true; break;
          }
          resolved_scope_list_node = resolved_scope_list_node->parent;
       }
-      while(resolved_scope_list_node->depth < scope_list_node->depth) {
+      while(resolved_scope_list_node->scope->depth < scope_list_node->scope->depth) {
          scope_list_node = scope_list_node->parent;
       }
       if(!needs_initialization) {
@@ -463,7 +466,7 @@ bool re_resolve_reference(parse_state_t* state, reference_list_node_t* reference
       }
    }
    reference_list_node->resolved_symbol = resolved_symbol;
-   printf("%*s reresolved reference %s %.*s(%d:%d)\n", state->current_scope_list_node->depth + 1, "", re_resolution_type, (int)(reference->end - reference->begin), reference->begin, reference->location->begin.line, reference->location->begin.column); fflush(stdout);
+   printf("%*s reresolved reference %s %.*s(%d:%d)\n", state->current_scope_list_node->scope->depth + 1, "", re_resolution_type, (int)(reference->end - reference->begin), reference->begin, reference->location->begin.line, reference->location->begin.column); fflush(stdout);
 
    // append reference to resolved reference list
    append_to_reference_list(&target_scope->resolved_reference_list, reference_list_node);
@@ -692,6 +695,59 @@ symbol_list_t** new_symbol_table(parse_state_t* state)
    memset(symbol_table, 0, size);
    return symbol_table;
 }
+#ifdef COMPILER
+void dump_frame_layout(scope_list_node_t* scope_list_node, bool do_recursive)
+{
+   scope_t* scope = scope_list_node->scope;
+   if(scope->depth == 0) printf("SYMBOL LAYOUT\n");
+   bool is_first = true;
+   bool is_hoisting = (scope->flags & scope_flag_hoisting);
+   int list_count = 2; //(is_hoisting ? 2 : 1);
+   symbol_layout_t* sl = scope->symbol_layout;
+   printf("%*s scope %d:%d %d+%d+%d+%d=%d %d:%d\n", scope->depth, "", scope->depth, scope->id, sl->init_size, sl->stack_size - sl->init_size - sl->closure_export_size - sl->closure_import_size, sl->closure_export_size, sl->closure_import_size, sl->stack_size, sl->init_offset, sl->closure_offset);
+   for(int list_index = 0; list_index < list_count; ++list_index) {
+      symbol_list_t* symbol_list = (
+         list_index == 0 ? &scope->symbol_list : &scope->closure_import_symbol_list
+      );
+      symbol_list_node_t* symbol_list_node = symbol_list->head;
+      while(symbol_list_node) {
+         if(is_first) {
+            printf("%*s symbols:\n", scope->depth + 1, "");
+         }
+         symbol_t* symbol = symbol_list_node->symbol;
+         identifier_t* identifier = symbol->identifier;
+         uint32_t offset = (symbol->binding_flag & binding_flag_closure ? symbol->offset : identifier->offset);
+         printf("%*s   %5d => %.*s(%d:%d)", scope->depth + 1, "", offset, (int)(identifier->end - identifier->begin), identifier->begin, identifier->location->begin.line, identifier->location->begin.column);
+         if(symbol->binding_flag & binding_flag_closure) {
+            printf(" => %d", symbol->import_offset);
+         }
+         printf(" \n");
+         symbol_list_node = (list_index == 0 ? symbol_list_node->scope_next : symbol_list_node->next);
+         is_first = false;
+      }
+   }
+   is_first = true;
+   reference_list_node_t* reference_list_node = scope->resolved_reference_list.head;
+   while(reference_list_node) {
+      if(is_first) {
+         printf("%*s references:\n", scope->depth + 1, "");
+      }
+      identifier_t* reference = reference_list_node->reference;
+      uint32_t offset = reference->offset;
+      printf("%*s   %.*s(%d:%d) => %d\n", scope->depth + 1, "", (int)(reference->end - reference->begin), reference->begin, reference->location->begin.line, reference->location->begin.column, offset);
+      reference_list_node = reference_list_node->next;
+      if(!reference_list_node) printf("\n");
+      is_first = false;
+   }
+   if(do_recursive) {
+      scope_child_list_node_t* child_list_node = scope_list_node->child_list.head;
+      while(child_list_node) {
+         dump_frame_layout(child_list_node->scope_list_node, true);
+         child_list_node = child_list_node->next;
+      }
+   }
+}
+#endif
 void add_child_scope(parse_state_t* state, scope_list_node_t* parent_scope_list_node, scope_list_node_t* child_scope_list_node)
 {
    child_scope_list_node->parent = parent_scope_list_node;
@@ -713,7 +769,7 @@ void init_scope(
    scope_t* scope, uint8_t scope_flags, identifier_t* identifier,
    symbol_list_t** lexical_symbol_table, symbol_list_t** var_symbol_table
 #ifdef COMPILER
-   , uint32_t id, symbol_layout_t* symbol_layout, uint32_t stack_size
+   , uint32_t id, uint32_t depth, symbol_layout_t* symbol_layout, uint32_t stack_size
 #endif
 ){
    *scope = (scope_t){
@@ -726,7 +782,7 @@ void init_scope(
       .last_symbol_list_node = nullptr,
       .symbol_list = {.head = nullptr, .tail = nullptr},
 #ifdef COMPILER
-      .id = id,
+      .id = id, .depth = depth,
       .full_symbol_list = {.head = nullptr, .tail = nullptr},
       .resolved_reference_list = {.head = nullptr, .tail = nullptr},
       .unresolved_reference_list = {.head = nullptr, .tail = nullptr},
@@ -737,12 +793,12 @@ void init_scope(
    };
 }
 void init_scope_list_node(
-   scope_list_node_t* scope_list_node, scope_t* scope, uint32_t depth,
+   scope_list_node_t* scope_list_node, scope_t* scope,
    scope_list_node_t* prev, scope_list_node_t* next,
    scope_list_node_t* parent, scope_list_node_t* hoisting_parent
 ){
    *scope_list_node = (scope_list_node_t){
-      .scope = scope, .depth = depth, .prev = prev, .next = next,
+      .scope = scope, .prev = prev, .next = next,
       .parent = parent, .hoisting_parent = hoisting_parent,
       .child_list = {.head = nullptr, .tail = nullptr},
    };
@@ -790,11 +846,11 @@ scope_list_node_t* new_scope(parse_state_t* state, uint8_t scope_flags, identifi
    init_scope(
       child_scope, scope_flags, identifier, lexical_symbol_table, var_symbol_table
 #ifdef COMPILER
-      , state->scope_count++, symbol_layout, 0
+      , state->scope_count++, state->scope_depth++, symbol_layout, 0
 #endif
    );
    init_scope_list_node(
-      next_scope_list_node, child_scope, state->scope_depth++,
+      next_scope_list_node, child_scope,
       scope_list_node, next_next_scope_list_node, nullptr, nullptr
    );
    add_child_scope(state, state->current_scope_list_node, next_scope_list_node);
@@ -817,6 +873,9 @@ scope_list_node_t* new_scope(parse_state_t* state, uint8_t scope_flags, identifi
 scope_list_node_t* make_placeholder_scope_list_node(
    parse_state_t* state, scope_list_node_t* scope_list_node
 ){
+#ifdef DBG_LAYOUT
+   return scope_list_node;
+#endif
    scope_t* scope = scope_list_node->scope;
    scope_list_node_t* parent = scope_list_node->parent;
    if(parent) parent = parent->hoisting_parent;
@@ -831,17 +890,18 @@ scope_list_node_t* make_placeholder_scope_list_node(
    init_scope(
       placeholder_scope, scope->flags, scope->identifier, nullptr, nullptr
 #ifdef COMPILER
-      , scope->id, symbol_layout, scope->stack_size + scope->symbol_layout->stack_size
+      , scope->id, scope->depth, symbol_layout, scope->stack_size + scope->symbol_layout->stack_size
 #endif
    );
    init_scope_list_node(
-      placeholder_scope_list_node, placeholder_scope, scope_list_node->depth,
+      placeholder_scope_list_node, placeholder_scope,
       nullptr, nullptr, parent, placeholder_scope_list_node
    );
    return placeholder_scope_list_node;
 }
 void free_current_scope(parse_state_t* state)
 {
+#ifndef DBG_LAYOUT
    state->scope_list_node = state->current_scope_list_node->prev;
    scope_list_node_t* parent = state->current_scope_list_node->parent;
    if(parent) {
@@ -853,6 +913,7 @@ void free_current_scope(parse_state_t* state)
          child_list->tail = child_list->tail->prev; //[TODO] free
       }
    }
+#endif
 }
 #ifdef COMPILER
 void append_reference_list(reference_list_t* target, reference_list_t* list){
@@ -878,7 +939,7 @@ void collapse_scope(parse_state_t* state)
    while(reference_list_node) {
       symbol_t const* symbol = get_symbol_from_scope(&scope_list_node, reference_list_node->reference);
       identifier_t* i = reference_list_node->reference;
-      printf("%*s %10s reference %.*s(%d:%d)\n", scope_list_node->depth + 1, "", (symbol ? "resovled" : "unresolved"), (int)(i->end - i->begin), i->begin, i->location->begin.line, i->location->begin.column); fflush(stdout);
+      printf("%*s %10s reference %.*s(%d:%d)\n", scope_list_node->scope->depth + 1, "", (symbol ? "resovled" : "unresolved"), (int)(i->end - i->begin), i->begin, i->location->begin.line, i->location->begin.column); fflush(stdout);
       reference_list_node_t* next = reference_list_node->next;
       if(symbol) {
          delist_unresolved_reference_list_node(
@@ -901,7 +962,7 @@ void collapse_scope(parse_state_t* state)
          parent->scope->unresolved_reference_list.head = unresolved_reference_list->head;
       }
    }
-   uint32_t scope_depth = state->current_scope_list_node->depth;
+   uint32_t scope_depth = state->current_scope_list_node->scope->depth;
    bool is_hoisting = state->current_scope_list_node->scope->flags & scope_flag_hoisting;
    printf("%*s collapse %sscope %d:%d => (%d) +%d = %d\n", scope_depth, "", (is_hoisting ? "hoisting::" : ""), scope_depth, state->current_scope_list_node->scope->id, state->hoisting_scope_list_node->scope->id, state->current_scope_list_node->scope->symbol_layout->stack_size, state->hoisting_scope_list_node->scope->stack_size); fflush(stdout);
 #endif
@@ -912,13 +973,13 @@ void collapse_scope(parse_state_t* state)
 }
 void end_scope(parse_state_t* state)
 {
-   uint32_t scope_depth = state->current_scope_list_node->depth;
    bool is_hoisting = state->current_scope_list_node->scope->flags & scope_flag_hoisting;
    scope_list_node_t* parent = state->current_scope_list_node->parent;
    scope_t* scope = state->current_scope_list_node->scope;
    scope_list_node_t* hoisting_scope_list_node = state->hoisting_scope_list_node;
 #ifdef COMPILER
    // note the last symbol on the parent scope
+   uint32_t scope_depth = state->current_scope_list_node->scope->depth;
    if(!is_hoisting && parent){
       symbol_list_node_t* tail = scope->full_symbol_list.tail;
       if(tail) parent->scope->full_symbol_list.tail = tail;
@@ -1025,14 +1086,22 @@ void end_scope(parse_state_t* state)
             } else {
                symbol_list_node->symbol->import_offset = offset;
                identifier_t* i = reference_list_node->resolved_symbol->identifier;
-               printf("%*s noting closure offset as %d in scope %d for the closure symbol %.*s(%d:%d)\n", state->current_scope_list_node->depth + 1, "", offset, sln->scope->id, (int)(i->end - i->begin), i->begin, i->location->begin.line, i->location->begin.column); fflush(stdout);
+               printf("%*s noting closure offset as %d in scope %d:%d for the closure symbol %.*s(%d:%d)\n", state->current_scope_list_node->scope->depth + 1, "", offset, sln->scope->depth, sln->scope->id, (int)(i->end - i->begin), i->begin, i->location->begin.line, i->location->begin.column); fflush(stdout);
             }
          } else {
             reference_list_node->reference->offset = offset;
          }
          identifier_t* i = reference_list_node->reference;
          printf("%*s reference offset %.*s(%d:%d) %d\n", scope_depth + 1, "", (int)(i->end - i->begin), i->begin, i->location->begin.line, i->location->begin.column, offset);
-         reference_list_node = reference_list_node->next;
+         reference_list_node_t* next = reference_list_node->next;
+#ifdef DBG_LAYOUT
+         // put the reference back where it belongs
+         if(reference_list_node->original_scope_list_node != state->current_scope_list_node) {
+            remove_reference_list_node(&scope->resolved_reference_list, reference_list_node);
+            append_to_reference_list(&reference_list_node->original_scope_list_node->scope->resolved_reference_list, reference_list_node);
+         }
+#endif
+         reference_list_node = next;
       }
       //if(init_size != 0 || closure_export_size != 0) {
          printf("%*s init=%d+%d non_init=%d+%d closure=%d+%d\n",
@@ -1091,7 +1160,7 @@ void end_scope(parse_state_t* state)
 
    {
    if(state->current_scope_list_node == state->top_level_scope_list_node) {
-      printf("%3d unresolved references\n", state->current_scope_list_node->depth); fflush(stdout);
+      printf("%3d unresolved references\n", state->current_scope_list_node->scope->depth); fflush(stdout);
       reference_list_node_t* reference_list_node = state->hoisting_scope_list_node->scope->unresolved_reference_list.head;
       while(reference_list_node) {
          identifier_t* identifier = reference_list_node->reference;
@@ -1099,11 +1168,14 @@ void end_scope(parse_state_t* state)
          reference_list_node = reference_list_node->next;
       }
       printf("\n"); fflush(stdout);
+#ifdef DBG_LAYOUT
+      dump_frame_layout(state->top_level_scope_list_node, true);
+#endif
    }
    }
    /*
    if(is_hoisting && parent){
-      printf("%3d parent unresolved references\n", parent->hoisting_parent->depth); fflush(stdout);
+      printf("%3d parent unresolved references\n", parent->hoisting_parent->scope->depth); fflush(stdout);
       reference_list_node_t* reference_list_node = parent->hoisting_parent->scope->unresolved_reference_list.head;
       while(reference_list_node) {
          identifier_t* identifier = reference_list_node->reference;

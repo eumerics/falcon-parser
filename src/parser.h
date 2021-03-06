@@ -1519,7 +1519,7 @@ void* parse_hoistable_declaration(parse_state_t* state, parse_tree_state_t* tree
       //assert_lexical_uniqueness(node->id, LOOSE);
       if(saved_params & EXPORT) { assert_export_uniqueness(node->id); }
    }
-   new_scope(state, scope_flag_function | scope_flag_hoisting, node->id);
+   scope_list_node_t* scope_list_node = new_scope(state, scope_flag_function | scope_flag_hoisting, node->id);
    expect('(');
       list_parse(params, formal_parameters, YLD|AWT|VFUN, add_params|LOOSE);
    expect(')');
@@ -1527,6 +1527,9 @@ void* parse_hoistable_declaration(parse_state_t* state, parse_tree_state_t* tree
    parse(body, function_body_container, YLD|AWT|VFUN, add_params);
    assign(flags, function_flags);
    end_scope(state);
+#ifdef COMPILER
+   node->symbol_layout = scope_list_node->scope->symbol_layout;
+#endif
    return_node();
 }
 /*
@@ -1566,7 +1569,7 @@ void* parse_function_expression(parse_state_t* state, parse_tree_state_t* tree_s
    } else {
       assign(id, nullptr);
    }
-   new_scope(state, scope_flag_function | scope_flag_hoisting, node->id);
+   scope_list_node_t* scope_list_node = new_scope(state, scope_flag_function | scope_flag_hoisting, node->id);
    expect('(');
       list_parse(params, formal_parameters, YLD|AWT|COV_CALL, add_params|LOOSE);
    expect(')');
@@ -1575,6 +1578,9 @@ void* parse_function_expression(parse_state_t* state, parse_tree_state_t* tree_s
    parse(body, function_body_container, YLD|AWT|COV_CALL, add_params);
    assign(flags, function_flags);
    end_scope(state);
+#ifdef COMPILER
+   node->symbol_layout = scope_list_node->scope->symbol_layout;
+#endif
    return_node();
 }
 // ====== FUNCTIONS::MethodDefinition ====== //
@@ -1624,13 +1630,16 @@ inline_spec void* parse_method_function(parse_state_t* state, parse_tree_state_t
    params |= (FUNC | METHOD);
    make_node(function_expression);
    assign(id, nullptr);
-   new_scope(state, scope_flag_function | scope_flag_hoisting, nullptr);
+   scope_list_node_t* scope_list_node = new_scope(state, scope_flag_function | scope_flag_hoisting, nullptr);
    ensure('('); list_parse(params, unique_formal_parameters); expect(')');
    //expect('{'); list_parse(body, function_body); expect('}');
    //list_parse(body, function_body_container);
    parse(body, function_body_container);
    assign(flags, flag_none);
    end_scope(state);
+#ifdef COMPILER
+   node->symbol_layout = scope_list_node->scope->symbol_layout;
+#endif
    return_node();
 }
 /*
@@ -1681,7 +1690,7 @@ method_definition_t* parse_method_only_definition(parse_state_t* state, parse_tr
       }
    }
    {
-      new_scope(state, scope_flag_function | scope_flag_hoisting, nullptr);
+      scope_list_node_t* scope_list_node = new_scope(state, scope_flag_function | scope_flag_hoisting, nullptr);
       make_child_node(function_expression);
       assign(id, nullptr);
       expect('(');
@@ -1700,6 +1709,9 @@ method_definition_t* parse_method_only_definition(parse_state_t* state, parse_tr
       parse(body, function_body_container, YLD|AWT, param_flags);
       assign(flags, function_flags);
       end_scope(state);
+#ifdef COMPILER
+      node->symbol_layout = scope_list_node->scope->symbol_layout;
+#endif
       assign_to_parent(value, completed_node());
    }
    assign(kind, property_kind);
@@ -3331,11 +3343,11 @@ void* parse_assignment_expression(parse_state_t* state, parse_tree_state_t* tree
       passon_parsed(yield_expression, YLD, NONE);
    }
    bool has_async = exists_word(async) && !exists_newline_ahead();
-   bool has_arrow = false, created_scope = false;
+   bool has_arrow = false;
+   scope_list_node_t* scope_list_node = nullptr;
    token_t const* const plus_one_token = next_token();
    if(has_async) {
-      created_scope = true;
-      new_scope(state, scope_flag_function | scope_flag_hoisting, nullptr);
+      scope_list_node = new_scope(state, scope_flag_function | scope_flag_hoisting, nullptr);
       assign_parsed(conditional_expression, expression);
       // make sure we do not have an async expression
       if(current_token() == plus_one_token) {
@@ -3351,8 +3363,7 @@ void* parse_assignment_expression(parse_state_t* state, parse_tree_state_t* tree
       bool has_parenthesis = exists('(');
       params_t add_params = (has_parenthesis ? PARAM : NONE);
       if(has_parenthesis || exists_ahead(pnct_arrow)) {
-         created_scope = true;
-         new_scope(state, scope_flag_function | scope_flag_hoisting, nullptr);
+         scope_list_node = new_scope(state, scope_flag_function | scope_flag_hoisting, nullptr);
       }
       assign_parsed(conditional_expression, expression, NULL, add_params);
    }
@@ -3390,9 +3401,12 @@ void* parse_assignment_expression(parse_state_t* state, parse_tree_state_t* tree
       params_t add_params = (has_async ? param_flag_await : flag_none);
       continue_with(arrow_function, node, begin, begin_position, add_params);
       end_scope(state);
+#ifdef COMPILER
+      node->symbol_layout = scope_list_node->scope->symbol_layout;
+#endif
       passon(arrow_function);
    }
-   if(created_scope) {
+   if(scope_list_node != nullptr) {
       // adjust for introduction of new scope while parsing covering_parenthesized_expression
       scope_t* hoisting_scope = state->hoisting_scope_list_node->scope;
       scope_t* parent_hoisting_scope = state->hoisting_scope_list_node->parent->hoisting_parent->scope;
@@ -3436,13 +3450,19 @@ Block[Yield, Await, Return]:
 */
 void* parse_block_statement(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
+   scope_list_node_t* scope_list_node = nullptr;
    if(!(params & NOSCOPE)) {
-      new_scope(state, (params & COND_BODY ? scope_flag_conditional : NONE), nullptr);
+      scope_list_node = new_scope(state, (params & COND_BODY ? scope_flag_conditional : NONE), nullptr);
       params = make_params(COND_BODY, NONE);
    }
    make_node(block_statement);
    expect('{'); list_parse(body, block_statement_list, NOSCOPE, NONE); expect('}');
-   if(!(params & NOSCOPE)) end_scope(state);
+   if(!(params & NOSCOPE)) {
+      end_scope(state);
+#ifdef COMPILER
+      node->symbol_layout = scope_list_node->scope->symbol_layout;
+#endif
+   }
    return_node();
 }
 /*
@@ -3606,6 +3626,7 @@ void* parse_if_statement(parse_state_t* state, parse_tree_state_t* tree_state, p
    enable_pending_regexp_context();
    expect(')');
    if(exists_word(function) && allow_annex()) {
+      // NOTE: this scope has no local variable declarations
       new_scope(state, NONE, nullptr);
       parse(consequent, hoistable_declaration, DEF, param_flag_vanilla_function);
       end_scope(state);
@@ -3615,6 +3636,7 @@ void* parse_if_statement(parse_state_t* state, parse_tree_state_t* tree_state, p
    }
    if(optional_word(else)) {
       if(exists_word(function) && allow_annex()) {
+         // NOTE: this scope has no local variable declarations
          new_scope(state, NONE, nullptr);
          parse(alternate, hoistable_declaration, DEF, param_flag_vanilla_function);
          end_scope(state);
@@ -3742,7 +3764,7 @@ void* parse_for_statement(parse_state_t* state, parse_tree_state_t* tree_state, 
    bool has_let = false;
 
    save_begin();
-   new_scope(state, NONE, nullptr);
+   scope_list_node_t* scope_list_node = new_scope(state, NONE, nullptr);
 
    ensure_word(for);
    bool is_await = exists_word(await);
@@ -3857,6 +3879,9 @@ void* parse_for_statement(parse_state_t* state, parse_tree_state_t* tree_state, 
    current_token()->flags |= token_flag_no_labeled_function;
    parse(body, statement);
    end_scope(state);
+#ifdef COMPILER
+   node->symbol_layout = scope_list_node->scope->symbol_layout;
+#endif
    state->semantic_flags = saved_semantic_flags;
    return_node();
    //*/
@@ -4050,11 +4075,14 @@ void* parse_switch_statement(parse_state_t* state, parse_tree_state_t* tree_stat
    ensure_word(switch); expect('(');
       parse(discriminant, expression, RET, IN);
    expect(')');
-   new_scope(state, scope_flag_switch, nullptr);
+   scope_list_node_t* scope_list_node = new_scope(state, scope_flag_switch, nullptr);
    expect('{');
       list_parse(cases, case_clause_list);
    expect('}');
    end_scope(state);
+#ifdef COMPILER
+   node->symbol_layout = scope_list_node->scope->symbol_layout;
+#endif
    return_node();
 }
 /*
@@ -4130,7 +4158,7 @@ void* parse_try_statement(parse_state_t* state, parse_tree_state_t* tree_state, 
       has_handler = true;
       // we will create a scope for containing catch parameters
       // [TODO] annex allows var bindings to collide with catch parameters
-      new_scope(state, scope_flag_catch | scope_flag_conditional, nullptr);
+      scope_list_node_t* scope_list_node = new_scope(state, scope_flag_catch | scope_flag_conditional, nullptr);
       make_child_node(catch_clause);
       ensure_word(catch);
       if(optional('(')) {
@@ -4158,6 +4186,9 @@ void* parse_try_statement(parse_state_t* state, parse_tree_state_t* tree_state, 
       }
       parse(body, block_statement, NONE, NOSCOPE);
       end_scope(state);
+#ifdef COMPILER
+      assign_to_parent(symbol_layout, scope_list_node->scope->symbol_layout);
+#endif
       assign_to_parent(handler, completed_node());
       params = saved_params;
    } else {
@@ -4266,7 +4297,7 @@ void* parse_statement(parse_state_t* state, parse_tree_state_t* tree_state, para
 
 program_t* parse_script(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
-   state->top_level_scope_list_node = new_scope(
+   scope_list_node_t* scope_list_node = state->top_level_scope_list_node = new_scope(
       state, scope_flag_script | scope_flag_hoisting, nullptr
    );
    make_node(program);
@@ -4274,12 +4305,15 @@ program_t* parse_script(parse_state_t* state, parse_tree_state_t* tree_state, pa
    list_parse(body, script_body);
    complete_node();
    end_scope(state);
+#ifdef COMPILER
+   node->symbol_layout = scope_list_node->scope->symbol_layout;
+#endif
    return node;
 }
 
 program_t* parse_module(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
-   state->top_level_scope_list_node = new_scope(
+   scope_list_node_t* scope_list_node = state->top_level_scope_list_node = new_scope(
       state, scope_flag_module | scope_flag_hoisting, nullptr
    );
    make_node(program);
@@ -4312,7 +4346,10 @@ program_t* parse_module(parse_state_t* state, parse_tree_state_t* tree_state, pa
       }
    }
    complete_node();
-   //end_scope(state);
+   end_scope(state);
+#ifdef COMPILER
+   node->symbol_layout = scope_list_node->scope->symbol_layout;
+#endif
    return node;
 }
 

@@ -394,6 +394,9 @@ typedef struct {
    void* id;
    void* params;
    void* body;
+#ifdef COMPILER
+   symbol_layout_t* symbol_layout;
+#endif
 } function_t;
 typedef function_t function_declaration_t;
 typedef function_t function_expression_t;
@@ -425,6 +428,9 @@ typedef struct {
 typedef struct {
    embed_parse_node();
    void* body;
+#ifdef COMPILER
+   symbol_layout_t* symbol_layout;
+#endif
 } block_statement_t;
 
 typedef struct {
@@ -462,6 +468,9 @@ typedef struct {
    void* init;
    void* test;
    void* update;
+#ifdef COMPILER
+   symbol_layout_t* symbol_layout;
+#endif
 } for_statement_t;
 
 typedef struct {
@@ -489,6 +498,9 @@ typedef struct {
    embed_parse_node();
    void* discriminant;
    void* cases;
+#ifdef COMPILER
+   symbol_layout_t* symbol_layout;
+#endif
 } switch_statement_t;
 
 typedef struct {
@@ -528,6 +540,9 @@ typedef struct {
    void* block;
    void* handler;
    void* finalizer;
+#ifdef COMPILER
+   symbol_layout_t* symbol_layout;
+#endif
 } try_statement_t;
 
 typedef struct {
@@ -589,6 +604,9 @@ typedef struct {
    embed_parse_node();
    uint8_t source_type;
    void* body;
+#ifdef COMPILER
+   symbol_layout_t* symbol_layout;
+#endif
 } program_t;
 
 typedef struct {
@@ -628,11 +646,14 @@ typedef struct _label_list_node_t {
 } label_list_node_t;
 #ifdef COMPILER
    struct _scope_t;
-   struct _scope_list_node_t;
+   typedef struct _scope_list_node_t scope_list_node_t;
    typedef struct _reference_list_node_t {
       identifier_t* reference;
       symbol_t const* resolved_symbol;
-      struct _scope_list_node_t* scope_list_node;
+      scope_list_node_t* scope_list_node;
+#ifdef DBG_LAYOUT
+      scope_list_node_t* original_scope_list_node;
+#endif
       struct _reference_list_node_t* prev;
       struct _reference_list_node_t* next;
    } reference_list_node_t;
@@ -653,6 +674,7 @@ typedef struct _scope_t {
    symbol_list_t symbol_list; // list of symbols at the scope level
 #ifdef COMPILER
    uint32_t id;
+   uint32_t depth;
    symbol_list_t full_symbol_list; // list af all symbols including child scopes
    reference_list_t resolved_reference_list;
    reference_list_t unresolved_reference_list;
@@ -673,7 +695,6 @@ typedef struct {
 typedef struct _scope_list_node_t scope_list_node_t;
 typedef struct _scope_list_node_t {
    scope_t* scope;
-   uint32_t depth;
    scope_list_node_t* prev;
    scope_list_node_t* next;
    scope_list_node_t* parent;
