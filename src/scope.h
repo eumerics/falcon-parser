@@ -396,11 +396,11 @@ bool re_resolve_reference(parse_state_t* state, reference_list_node_t* reference
             symbol_list_node = add_symbol_to_list(
                state, &symbol_list, symbol_list, resolved_symbol->identifier, binding_flag_closure, symbol_type
             );
-            uint32_t offset = scope_list_node->scope->stack_size;
+            uint32_t offset = scope_list_node->scope->symbol_layout->frame_size;
             symbol_list_node->symbol->offset = offset;
             symbol_layout->stack_size += sizeof(any_t);
             symbol_layout->closure_import_size += sizeof(any_t);
-            scope_list_node->scope->stack_size += sizeof(any_t);
+            scope_list_node->scope->symbol_layout->frame_size += sizeof(any_t);
             identifier_t* i = resolved_symbol->identifier;
             printf("%*s adding at offset %d to scope %d:%d the closure symbol %.*s(%d:%d)\n", state->current_scope_list_node->scope->depth + 1, "", offset, scope_list_node->scope->depth, scope_list_node->scope->id, (int)(i->end - i->begin), i->begin, i->location->begin.line, i->location->begin.column); fflush(stdout);
          }
@@ -769,7 +769,7 @@ void init_scope(
    scope_t* scope, uint8_t scope_flags, identifier_t* identifier,
    symbol_list_t** lexical_symbol_table, symbol_list_t** var_symbol_table
 #ifdef COMPILER
-   , uint32_t id, uint32_t depth, symbol_layout_t* symbol_layout, uint32_t stack_size
+   , uint32_t id, uint32_t depth, symbol_layout_t* symbol_layout
 #endif
 ){
    *scope = (scope_t){
@@ -787,8 +787,7 @@ void init_scope(
       .resolved_reference_list = {.head = nullptr, .tail = nullptr},
       .unresolved_reference_list = {.head = nullptr, .tail = nullptr},
       .closure_import_symbol_list = {.head = nullptr, .tail = nullptr},
-      .symbol_layout = symbol_layout,
-      .stack_size = stack_size
+      .symbol_layout = symbol_layout
 #endif
    };
 }
@@ -846,7 +845,7 @@ scope_list_node_t* new_scope(parse_state_t* state, uint8_t scope_flags, identifi
    init_scope(
       child_scope, scope_flags, identifier, lexical_symbol_table, var_symbol_table
 #ifdef COMPILER
-      , state->scope_count++, state->scope_depth++, symbol_layout, 0
+      , state->scope_count++, state->scope_depth++, symbol_layout
 #endif
    );
    init_scope_list_node(
@@ -865,7 +864,8 @@ scope_list_node_t* new_scope(parse_state_t* state, uint8_t scope_flags, identifi
    *symbol_layout = (symbol_layout_t){
       .init_offset = 0, .init_size = 0, .init_buffer = nullptr,
       .closure_offset = 0, .closure_export_size = 0,
-      .closure_export_buffer = nullptr, .closure_import_size = 0
+      .closure_export_buffer = nullptr, .closure_import_size = 0,
+      .frame_size = 0
    };
 #endif
    return next_scope_list_node;
@@ -890,7 +890,7 @@ scope_list_node_t* make_placeholder_scope_list_node(
    init_scope(
       placeholder_scope, scope->flags, scope->identifier, nullptr, nullptr
 #ifdef COMPILER
-      , scope->id, scope->depth, symbol_layout, scope->stack_size + scope->symbol_layout->stack_size
+      , scope->id, scope->depth, symbol_layout
 #endif
    );
    init_scope_list_node(
@@ -964,7 +964,7 @@ void collapse_scope(parse_state_t* state)
    }
    uint32_t scope_depth = state->current_scope_list_node->scope->depth;
    bool is_hoisting = state->current_scope_list_node->scope->flags & scope_flag_hoisting;
-   printf("%*s collapse %sscope %d:%d => (%d) +%d = %d\n", scope_depth, "", (is_hoisting ? "hoisting::" : ""), scope_depth, state->current_scope_list_node->scope->id, state->hoisting_scope_list_node->scope->id, state->current_scope_list_node->scope->symbol_layout->stack_size, state->hoisting_scope_list_node->scope->stack_size); fflush(stdout);
+   printf("%*s collapse %sscope %d:%d => (%d) +%d = %d\n", scope_depth, "", (is_hoisting ? "hoisting::" : ""), scope_depth, state->current_scope_list_node->scope->id, state->hoisting_scope_list_node->scope->id, state->current_scope_list_node->scope->symbol_layout->stack_size, state->hoisting_scope_list_node->scope->symbol_layout->frame_size); fflush(stdout);
 #endif
    free_current_scope(state);
    state->current_scope_list_node = parent;
@@ -1021,7 +1021,7 @@ void end_scope(parse_state_t* state)
       }
       //printf("init = %d, closure = %d\n", init_size, closure_export_size);
       scope_t* hoisting_scope = state->hoisting_scope_list_node->scope;
-      uint32_t init_offset = hoisting_scope->stack_size;
+      uint32_t init_offset = hoisting_scope->symbol_layout->frame_size;
       uint32_t non_init_offset = init_offset + init_size;
       uint32_t closure_offset = init_offset + symbol_layout->closure_offset;
       init_size = closure_export_size = 0; uint32_t non_init_size = 0;
@@ -1071,9 +1071,9 @@ void end_scope(parse_state_t* state)
          );
          fflush(stdout);
       }
-      symbol_layout->init_offset = hoisting_scope->stack_size;
-      symbol_layout->closure_offset += hoisting_scope->stack_size;
-      hoisting_scope->stack_size += init_size + non_init_size + closure_export_size;
+      symbol_layout->init_offset = hoisting_scope->symbol_layout->frame_size;
+      symbol_layout->closure_offset += hoisting_scope->symbol_layout->frame_size;
+      hoisting_scope->symbol_layout->frame_size += init_size + non_init_size + closure_export_size;
       reference_list_node_t* reference_list_node = scope->resolved_reference_list.head;
       while(reference_list_node) {
          uint32_t offset = reference_list_node->resolved_symbol->identifier->offset;
@@ -1188,7 +1188,7 @@ void end_scope(parse_state_t* state)
 #endif
    if(is_hoisting) free_current_scope(state);
 #ifdef COMPILER
-   printf("%*s end %sscope %d:%d => (%d) +%d = %d\n", scope_depth, "", (is_hoisting ? "hoisting::" : ""), scope_depth, state->current_scope_list_node->scope->id, state->hoisting_scope_list_node->scope->id, scope->symbol_layout->stack_size, state->hoisting_scope_list_node->scope->stack_size); fflush(stdout);
+   printf("%*s end %sscope %d:%d => (%d) +%d = %d\n", scope_depth, "", (is_hoisting ? "hoisting::" : ""), scope_depth, state->current_scope_list_node->scope->id, state->hoisting_scope_list_node->scope->id, scope->symbol_layout->stack_size, state->hoisting_scope_list_node->scope->symbol_layout->frame_size); fflush(stdout);
 #endif
    state->current_scope_list_node = parent;
    state->hoisting_scope_list_node = (parent ? parent->hoisting_parent : nullptr);

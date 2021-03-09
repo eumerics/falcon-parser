@@ -48,6 +48,7 @@ typedef struct {
    any_t* closure_export_buffer;
    uint32_t closure_import_size;
    uint32_t* closure_import_buffer;
+   uint32_t frame_size; // only meaningful for hoisting scopes
 } symbol_layout_t;
 value_type_t const vt_unimplemnted = -1;
 value_type_t const vt_void = 0;
@@ -680,7 +681,6 @@ typedef struct _scope_t {
    reference_list_t unresolved_reference_list;
    symbol_list_t closure_import_symbol_list;
    symbol_layout_t* symbol_layout; // layout of scope level variables
-   uint32_t stack_size; // total stack size
 #endif
 } scope_t;
 typedef struct _simple_scope_list_node_t simple_scope_list_node_t;
