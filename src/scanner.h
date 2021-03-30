@@ -624,6 +624,7 @@ inline_spec int scan_numeric_literal(parse_state_t* const state, params_t params
    int numeric_annex = 0;
    int base = 10, integer_digits = 0, fraction_digits = 0, exponent = 0;
    char_t const* number_begin = code;
+   uint8_t integer_flag = compile_flag_integer;
    // parse the integer part
    if(c == '0') {
       if(++code == end) goto _make_numeric_token;
@@ -664,6 +665,7 @@ inline_spec int scan_numeric_literal(parse_state_t* const state, params_t params
    if(base != 10) goto _verify_and_make_numeric_token;
    // parse the decimal part
    if(*code == '.') {
+      integer_flag = 0;
       char_t const* fraction_begin = code + 1;
       while(++code < end && is_decimal(*code));
       fraction_digits = code - fraction_begin;
@@ -699,7 +701,7 @@ _make_numeric_token:
       .value = compile_numeric_literal(
          number_begin, base, integer_digits, fraction_digits, exponent
       ),
-      .compile_flags = compile_flag_numeric_annex
+      .compile_flags = compile_flag_numeric_annex | integer_flag
    };
    make_token(state, begin, begin_position, tkn_numeric_literal, mask_literal, precedence_none, cn);
    //print_number(base); print_number(integer_digits);
@@ -955,7 +957,17 @@ inline_spec int scan_punctuator(parse_state_t* const state, params_t params)
       state->in_regexp_context = 0;
       return_scan(c1, mask_parentheses, precedence_none, 1);
    }
+#ifndef EXTENSIONS
    if(c1 == ':') return_scan(c1, mask_none, precedence_none, 1);
+#else
+   if(c1 == ':') {
+      if(c2 == ':') {
+         return_scan(pnct_namespace, mask_none, precedence_none, 2);
+      } else {
+         return_scan(c1, mask_none, precedence_none, 1);
+      }
+   }
+#endif
    //[17] >>>= >>> ... <<= >>= &&= ||= **= ??= ++ -- << >> && || ** ??
    if(c1 == c2) {
       char_t c3 = (code + 2 < end ? *(code + 2) : 0);
@@ -1052,6 +1064,9 @@ inline_spec int scan_punctuator(parse_state_t* const state, params_t params)
    }
    //[1] ~
    if(c1 == '~') return_scan(c1, mask_unary_ops, precedence_none, 1);
+#ifdef EXTENSIONS
+   if(c1 == '#') return_scan(c1, mask_none, precedence_none, 1);
+#endif
    return 0;
 _make_punctuator_token:
    state->code = code;

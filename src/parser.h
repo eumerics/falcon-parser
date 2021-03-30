@@ -77,8 +77,6 @@
 #define enable_pending_regexp_context() \
    if(state->tokenization_status & status_flag_pending) state->in_regexp_context = 1;
 
-#include "scope.h"
-
 //#define consume_token() (++state->parse_token)
 #define consume_token() ( \
    ++state->tokens_consumed, \
@@ -159,6 +157,7 @@
    }; \
    node->type = pnt_##node_type; \
    node->group = png_##node_type; \
+   if_extensions(node->data_type = nullptr;) \
 }
 #if defined(TEST)
    #define test_memset(p, i, n) memset(p, i, n)
@@ -200,6 +199,7 @@
 }
 #define assign_token() { \
    token_t const* const token = current_token(); \
+   node->flags = flag_none; \
    node->token_id = token->id; \
    node->token_group = token->group; \
    node->compiled_string = token->detail; \
@@ -237,6 +237,7 @@ inline_spec uint8_t node_type(void* node)
 #define set_change_flag_to(type, flags) \
    ((flags & change_mask_group) | change_flag_##type)
 
+#include "scope.h"
 
 #define _init_list(list) \
    list.node_count = 0; \
@@ -299,6 +300,8 @@ parse_list_node_t* make_list_node(parse_state_t* state, void* parse_node) {
 #define _raw_list_head(list) list.head
 #define raw_list_head() _raw_list_head(list_state)
 #define raw_named_list_head(list) _raw_list_head(list)
+
+
 
 #define is_a_directive(token) ( \
    token->id == tkn_string_literal && \
@@ -862,6 +865,39 @@ Literal:
    StringLiteral
 RegularExpressionLiteral
 */
+#ifdef EXTENSIONS
+inline_spec identifier_t* _parse_identifier(parse_state_t* state, parse_tree_state_t* tree_state, bool for_binding_id, params_t params);
+type_identifier_t* parse_type_identifier(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
+{
+   make_node(type_identifier);
+   {
+      start_list();
+      if(optional(pnct_namespace)) {
+         add_to_list(nullptr);
+      }
+      while(exists_ahead(pnct_namespace)) {
+         identifier_t* namespace = _parse_identifier(state, tree_state, false, params);
+         add_to_list(namespace);
+         expect(pnct_namespace);
+      }
+      assign(namespace, raw_list_head());
+   }
+   identifier_t* identifier = _parse_identifier(state, tree_state, false, params);
+   assign(type_name, identifier);
+   {
+      start_list();
+      if(optional('[')) {
+         do {
+            parse(type_identifier);
+            add_to_list(type_identifier);
+         } while(optional(','));
+         expect(']');
+      }
+      assign(parameters, raw_list_head());
+   }
+   return_node();
+}
+#endif
 inline_spec identifier_t* _parse_identifier(parse_state_t* state, parse_tree_state_t* tree_state, bool for_binding_id, params_t params)
 {
    token_t const* const token = current_token();
@@ -882,7 +918,17 @@ inline_spec identifier_t* _parse_identifier(parse_state_t* state, parse_tree_sta
    }
    make_node(identifier); assign_token(); ensure_mask(mask_identifier);
 #ifdef COMPILER
-   node->identifier_flags = 0; node->offset = 0;
+   node->offset = -1;
+#endif
+   complete_node();
+#ifdef EXTENSIONS
+   assign(type_identifier, nullptr);
+   assign(data_type, nullptr);
+   if(for_binding_id) {
+      if(optional(':')) {
+         parse(type_identifier, type_identifier);
+      }
+   }
 #endif
    if((params & COV_CALL) && token_id == rw_await) {
       scope_t* hoisting_scope = state->hoisting_scope_list_node->scope;
@@ -890,7 +936,8 @@ inline_spec identifier_t* _parse_identifier(parse_state_t* state, parse_tree_sta
          hoisting_scope->first_yield_or_await = node;
       }
    }
-   return_node();
+   //return completed_node();
+   return node;
 }
 inline_spec identifier_t* parse_identifier_reference(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
@@ -898,7 +945,7 @@ inline_spec identifier_t* parse_identifier_reference(parse_state_t* state, parse
 #ifdef COMPILER
    resolve_reference(state, reference);
 #endif
-   return reference;
+   passon(reference);
 }
 inline_spec identifier_t* parse_binding_identifier(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
@@ -910,17 +957,21 @@ inline_spec identifier_t* parse_binding_identifier(parse_state_t* state, parse_t
       identifier->flags |= identifier_flag_conditional;
    }
 #endif
-   return identifier;
+   passon(identifier);
 }
 inline_spec identifier_t* parse_label_identifier(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
-   return _parse_identifier(state, tree_state, false, params);
+   identifier_t* label = _parse_identifier(state, tree_state, false, params);
+   passon(label);
 }
 inline_spec identifier_t* parse_identifier_name(parse_state_t* state, parse_tree_state_t* tree_state, params_t params)
 {
    make_node(identifier); assign_token(); ensure_mask(mask_idname);
 #ifdef COMPILER
-   node->identifier_flags = 0; node->offset = 0;
+   node->offset = -1;
+#endif
+#ifdef EXTENSIONS
+   node->type_identifier = nullptr;
 #endif
    return_node();
 }
@@ -936,6 +987,14 @@ inline_spec numeric_literal_t* parse_numeric_literal(parse_state_t* state, parse
    ensure_non_annex_number();
    make_node(numeric_literal);
    assign_numeric_token();
+#ifdef EXTENSIONS
+   token_t const* const token = current_token();
+   compiled_number_t const* const detail = token->detail;
+   data_type_t* data_type = ((detail->compile_flags & compile_flag_integer)
+      ? &std_data_type[vt_int64] : &std_data_type[vt_float64]
+   );
+   assign(data_type, data_type);
+#endif
    ensure(tkn_numeric_literal);
    return_node();
 }
@@ -1487,6 +1546,9 @@ void* parse_hoistable_declaration(parse_state_t* state, parse_tree_state_t* tree
    params_t add_params = 0;
    uint8_t function_flags = flag_none;
    save_begin();
+#ifdef EXTENSIONS
+   uint8_t operator_id = 0;
+#endif
    if(!(params & param_flag_vanilla_function)) {
       if(exists_word(async)) {
          if(exists_newline_ahead() || !exists_ahead_word(function)) {
@@ -1508,6 +1570,14 @@ void* parse_hoistable_declaration(parse_state_t* state, parse_tree_state_t* tree
    }
    if((params & param_flag_default) && !exists_mask(mask_identifier)) {
       assign(id, nullptr);
+#ifdef EXTENSIONS
+   } else if(exists_mask(mask_binary_ops)) {
+      assign(id, nullptr);
+      operator_id = current_token()->id;
+      assign(operator_id, operator_id);
+      function_flags |= function_flag_operator;
+      ensure_mask(mask_binary_ops);
+#endif
    } else {
       parse(id, binding_identifier);
       scope_t const* const scope = state->current_scope_list_node->scope;
@@ -1523,6 +1593,18 @@ void* parse_hoistable_declaration(parse_state_t* state, parse_tree_state_t* tree
    expect('(');
       list_parse(params, formal_parameters, YLD|AWT|VFUN, add_params|LOOSE);
    expect(')');
+#ifdef EXTENSIONS
+   if(optional(':')) {
+      parse(return_type_identifier, type_identifier);
+      assign(return_type, get_type(state, node->return_type_identifier));
+   } else {
+      assign(return_type, nullptr);
+      assign(return_type_identifier, nullptr);
+   }
+   if(function_flags & function_flag_operator) {
+      insert_operator_overload(state, operator_id, node);
+   }
+#endif
    //expect('{'); parse(body, function_body, YLD|AWT, flags); expect('}');
    parse(body, function_body_container, YLD|AWT|VFUN, add_params);
    assign(flags, function_flags);
@@ -2143,6 +2225,12 @@ void* parse_array_literal(parse_state_t* state, parse_tree_state_t* tree_state, 
    start_list();
    ensure('[');
    bool has_trailing_comma = false;
+#ifdef EXTENSIONS
+   //[BUG][IMPROVE] currently only allows 32 elements in an array
+   int shift = 0;
+   uint64_t operators = 0;
+   data_type_t const* data_type = nullptr;
+#endif
    while(!exists(']')) {
       if(!exists(',')) {
          if(exists(pnct_spread)) {
@@ -2151,15 +2239,37 @@ void* parse_array_literal(parse_state_t* state, parse_tree_state_t* tree_state, 
          } else {
             parse(assignment_expression, NONE, IN);
             add_to_list(assignment_expression);
+#ifdef EXTENSIONS
+            parse_node_t* parse_node = assignment_expression;
+            if(data_type == nullptr) {
+               data_type = parse_node->data_type;
+            } else if(parse_node->data_type != data_type) {
+               data_type = &std_data_type[vt_any];
+            }
+#endif
          }
       } else {
          add_to_list(nullptr);
       }
+#ifndef EXTENSIONS
       if(!(has_trailing_comma = optional(','))) break;
+#else
+      if(optional(','));
+      else if(optional('#')) operators |= 0x01 << shift;
+      else if(optional(';')) operators |= 0x02 << shift;
+      else break;
+      shift += 2;
+#endif
    };
    expect(']');
    assign(elements, raw_list_head());
    assign(has_trailing_comma, has_trailing_comma);
+#ifdef EXTENSIONS
+   assign(operators, operators);
+   data_type = get_template_instance(state, &std_data_type[vt_matrix], &data_type);
+   assign(data_type, data_type);
+   printf("array type: "); print_type(data_type, true); printf("\n");
+#endif
    return_node();
 }
 
@@ -2342,6 +2452,7 @@ void* parse_template_literal(parse_state_t* state, parse_tree_state_t* tree_stat
       bool is_tail = exists('`');
       make_node(template_element);
       assign_begin();
+      //assign_token(); //[REVIEW] does not work
       node->compiled_string = token->detail;
       if(token->detail != nullptr) {
          compiled_string_t* compiled_string = (compiled_string_t*)(token->detail);
@@ -4484,6 +4595,9 @@ wasm_export parse_result_t parse(char_t const* code_begin, char_t const* code_en
       .current_scope_list_node = nullptr,
       .hoisting_scope_list_node = nullptr,
       .closure_scope_list = {.head = nullptr, .tail = nullptr},
+#ifdef EXTENSIONS
+      .type_list = {.head = nullptr, .tail = nullptr},
+#endif
       // module
       .export_symbol_table = nullptr,
       .export_reference_list = nullptr,
@@ -4497,6 +4611,14 @@ wasm_export parse_result_t parse(char_t const* code_begin, char_t const* code_en
       .expected_mask = 0,
    };
    parse_state_t* state = &_state;
+#ifdef EXTENSIONS
+   // add predefined types
+   insert_type(state, &std_data_type[vt_any]);
+   insert_type(state, &std_data_type[vt_int64]);
+   insert_type(state, &std_data_type[vt_float64]);
+   insert_type(state, &std_data_type[vt_vector]);
+   insert_type(state, &std_data_type[vt_matrix]);
+#endif
    if(is_module) { state->export_symbol_table = new_symbol_table(state); }
    //new_scope(state, (is_module ? scope_flag_module : scope_flag_script) | scope_flag_hoisting, nullptr);
    if(params & param_flag_streaming) {

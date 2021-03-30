@@ -21,6 +21,7 @@ typedef struct {
 
 #ifdef COMPILER
 typedef uint32_t value_type_t;
+struct _data_type_t;
 typedef struct {
    value_type_t value_type;
    union {
@@ -51,18 +52,23 @@ typedef struct {
    uint32_t frame_size; // only meaningful for hoisting scopes
 } symbol_layout_t;
 value_type_t const vt_unimplemnted = -1;
-value_type_t const vt_void = 0;
-value_type_t const vt_int32 = 1;
-value_type_t const vt_int64 = 2;
-value_type_t const vt_uint32 = 3;
-value_type_t const vt_uint64 = 4;
-value_type_t const vt_float32 = 5;
-value_type_t const vt_float64 = 6;
-value_type_t const vt_null = 7;
-value_type_t const vt_undefined = 8;
+value_type_t const vt_any = 1;
+value_type_t const vt_void = 2;
+value_type_t const vt_null = 3;
+value_type_t const vt_undefined = 4;
+value_type_t const vt_reference = 5;
+value_type_t const vt_function = 6;
+value_type_t const vt_boolean = 7;
+value_type_t const rvt_normal = 0xff00 + 0;
+value_type_t const rvt_return = 0xff00 + 1;
+value_type_t const rvt_continue = 0xff00 + 2;
+value_type_t const rvt_break = 0xff00 + 3;
 any_t any_void = {.value_type = vt_void, .u64 = 0};
 any_t any_null = {.value_type = vt_null, .u64 = 0};
 any_t any_undefined = {.value_type = vt_undefined, .u64 = 0};
+any_t any_unimplemented = {.value_type = vt_unimplemnted, .u64 = 0};
+any_t any_true = {.value_type = vt_boolean, .u64 = 1};
+any_t any_false = {.value_type = vt_boolean, .u64 = 0};
 #endif
 
 typedef struct {
@@ -119,12 +125,21 @@ typedef struct {
 typedef uint8_t node_type_t;
 typedef uint32_t params_t;
 
+#ifdef EXTENSIONS
+   #define if_extensions(x) x
+   struct _data_type_t;
+#else
+   #define if_extensions(x)
+#endif
 #define embed_parse_node() \
    char_t const* begin; \
    char_t const* end; \
    location_t* location; \
+   if_extensions(struct _data_type_t const* data_type;) \
    node_type_t type; \
    uint8_t group;
+//[WATCHOUT] flags below is placed for compacting layout
+// ensure that derived parse nodes do not use ovarlapping flags
 #define embed_compiled_parse_node() \
    embed_parse_node() \
    uint8_t flags; \
@@ -169,16 +184,66 @@ typedef struct {
 
 // parser node
 struct _scope_t;
+#ifdef EXTENSIONS
+struct _type_identifier_t;
+typedef struct _identifier_t identifier_t;
+struct _type_list_node_t;
+struct _data_type_t;
+typedef struct _data_type_t {
+   uint32_t id;
+   uint32_t size;
+   uint8_t flags;
+   string_t const* name;
+   uint32_t parameter_count;
+   struct _data_type_t const** parameters;
+   struct _type_list_node_t* instances;
+} data_type_t;
+typedef struct _type_list_node_t {
+   data_type_t* data_type;
+   struct _type_list_node_t* next;
+} type_list_node_t;
 typedef struct {
+   type_list_node_t* head;
+   type_list_node_t* tail;
+} type_list_t;
+typedef struct _type_identifier_t {
+   embed_parse_node();
+   parse_list_node_t* namespace;
+   identifier_t* type_name;
+   parse_list_node_t* parameters;
+} type_identifier_t;
+struct _function_list_node_t;
+struct _function_t;
+typedef struct {
+   int32_t parameter_count;
+   data_type_t const** parameters;
+   data_type_t const* return_type;
+   struct _function_t* ast;
+} function_overload_t;
+typedef struct _function_list_node_t {
+   function_overload_t* function_overload;
+   struct _function_list_node_t* next;
+} function_list_node_t;
+typedef struct {
+   function_list_node_t* head;
+   function_list_node_t* tail;
+} function_list_t;
+#endif
+typedef struct _identifier_t {
    embed_compiled_parse_node();
 #ifdef COMPILER
-   uint8_t identifier_flags;
-   uint32_t offset; // offset into stack or closure variable array
+   int32_t offset; // offset into stack or closure variable array
+#endif
+#ifdef EXTENSIONS
+   type_identifier_t* type_identifier;
 #endif
 } identifier_t;
 typedef struct {
    embed_parse_node();
    uint8_t token_id;
+#ifdef EXTENSIONS
+   type_identifier_t* type_identifier;
+#endif
 } literal_t;
 typedef struct {
    embed_compiled_numeric_node();
@@ -219,6 +284,9 @@ typedef struct {
    embed_parse_node();
    uint8_t has_trailing_comma;
    void* elements;
+#ifdef EXTENSIONS
+   uint64_t operators;
+#endif
 } array_expression_t;
 // keep array_expression_t and array_pattern_t binary compatible
 // it makes life easier to convert their interpretations in cover expressions
@@ -389,7 +457,7 @@ typedef struct {
    embed_parse_node();
    void* body;
 } function_body_t;
-typedef struct {
+typedef struct _function_t {
    embed_parse_node();
    uint8_t flags;
    void* id;
@@ -397,6 +465,11 @@ typedef struct {
    void* body;
 #ifdef COMPILER
    symbol_layout_t* symbol_layout;
+#endif
+#ifdef EXTENSIONS
+   uint8_t operator_id;
+   data_type_t const* return_type;
+   type_identifier_t* return_type_identifier;
 #endif
 } function_t;
 typedef function_t function_declaration_t;
@@ -613,7 +686,7 @@ typedef struct {
 typedef struct {
    uint8_t type;
    uint8_t binding_flag;
-   uint32_t offset;
+   int32_t offset;
    int32_t import_offset;
    identifier_t* identifier;
 } symbol_t;
@@ -760,6 +833,10 @@ typedef struct {
    scope_list_node_t* current_scope_list_node;
    scope_list_node_t* hoisting_scope_list_node;
    simple_scope_list_t closure_scope_list;
+#ifdef EXTENSIONS
+   type_list_t type_list;
+   function_list_t operator_table[256];
+#endif
    // module
    symbol_list_t** export_symbol_table;
    symbol_list_t* export_reference_list;

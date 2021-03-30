@@ -48,6 +48,227 @@ uint8_t symbol_matches(
    );
 }
 
+#ifdef EXTENSIONS
+bool insert_type(parse_state_t* state, data_type_t* data_type)
+{
+   type_list_node_t* new_type_list_node = parser_malloc(
+      mm_untracked, sizeof(type_list_node_t)
+   );
+   *new_type_list_node = (type_list_node_t){
+      .data_type = data_type, .next = nullptr
+   };
+   if(state->type_list.head == nullptr) {
+      state->type_list = (type_list_t){
+         .head = new_type_list_node, .tail = new_type_list_node
+      };
+   } else {
+      state->type_list.tail->next = new_type_list_node;
+      state->type_list.tail = new_type_list_node;
+   }
+   return true;
+}
+/*
+bool resolve_type(parse_state_t* state, type_identifier_t* type_identifier)
+{
+   identifier_t* type_name = type_identifier->type_name;
+   string_t const* const symbol_string = (
+      type_name->compiled_string
+         ? (string_t*)(type_name->compiled_string)
+         : (string_t*)(type_name)
+   );
+   size_t const symbol_length = symbol_string->end - symbol_string->begin;
+   symbol_hash_t hash = (
+      ((symbol_length & symbol_length_mask) << 5) |
+      (*symbol_string->begin & symbol_first_letter_mask)
+   );
+}
+data_type_t* _get_type(
+   parse_state_t* state, string_t const* const symbol_string,
+   size_t const symbol_length, uint16_t hash
+){
+   type_list_node_t* type_list_node = state->type_list.head;
+   while(type_list_node) {
+      identifier_t const* const compare_identifier = type_list_node->data_type->type_name;
+      if(symbol_matches(compare_identifier, symbol_string, symbol_length)) {
+         *type_list_node_ref = type_list_node;
+         return 1;
+      }
+      type_list_node = type_list_node->next;
+   }
+   return nullptr;
+}
+*/
+bool is_type_compatible(data_type_t const* data_type, data_type_t const* parameter)
+{
+   return true;
+}
+data_type_t const* get_template_instance(parse_state_t* state, data_type_t* template_type, data_type_t const** parameters)
+{
+   int32_t param_count = template_type->parameter_count;
+   type_list_node_t* instance_list_node = template_type->instances;
+   while(instance_list_node) {
+      bool matched = true;
+      data_type_t const* template_instance = instance_list_node->data_type;
+      data_type_t const** instanced_parameters = template_instance->parameters;
+      for(int32_t i = 0; i < param_count; ++i) {
+         if(parameters[i] != instanced_parameters[i]) {
+            matched = false; break;
+         }
+      }
+      if(matched) return template_instance;
+      instance_list_node = instance_list_node->next;
+   }
+   // create a new template instance
+   //[TODO]
+   uint32_t id = 0, size = 0; uint8_t flags = 0;
+   data_type_t* instance = parser_malloc(mm_untracked, sizeof(data_type_t));
+   size_t param_size = param_count * sizeof(data_type_t*);
+   data_type_t const** _parameters = parser_malloc(mm_untracked, param_size);
+   memcpy(_parameters, parameters, param_size);
+   *instance = (data_type_t){
+      .id = 0, .size = size, .flags = flags, .name = template_type->name,
+      .instances = nullptr, .parameter_count = param_count,
+      .parameters = _parameters
+   };
+   type_list_node_t* new_instance_list_node = parser_malloc(
+      mm_untracked, sizeof(type_list_node_t)
+   );
+   *new_instance_list_node = (type_list_node_t){
+      .data_type = instance, .next = nullptr
+   };
+   if(instance_list_node == nullptr) {
+      template_type->instances = new_instance_list_node;
+   } else {
+      instance_list_node->next = new_instance_list_node;
+   }
+   return instance;
+}
+data_type_t const* get_type(parse_state_t* state, type_identifier_t* type_identifier){
+   bool has_type = false, matches_params;
+   identifier_t* type_name = type_identifier->type_name;
+   size_t const type_name_length = type_name->end - type_name->begin;
+   type_list_node_t* type_list_node = state->type_list.head;
+   while(type_list_node) {
+      string_t const* const defined_type_name = type_list_node->data_type->name;
+      size_t const defined_type_name_length = defined_type_name->end - defined_type_name->begin;
+      if((type_name_length == defined_type_name_length) &&
+         (strncmp_impl(type_name->begin, defined_type_name->begin, type_name_length) == 0)
+      ){
+         has_type = true;
+         int32_t param_index = 0;
+         parse_list_node_t* param_list_node = type_identifier->parameters;
+         data_type_t const* defined_data_type = type_list_node->data_type;
+         int32_t param_count = defined_data_type->parameter_count;
+         if(param_count == 0) return type_list_node->data_type;
+         data_type_t const* parameters[param_count];
+         while(param_list_node && param_index < param_count) {
+            type_identifier_t* typeid = (type_identifier_t*)(param_list_node->parse_node);
+            data_type_t const* param_type = get_type(state, typeid);
+            parameters[param_index] = param_type;
+            if(!is_type_compatible(param_type, defined_data_type->parameters[param_index])) {
+               break;
+            }
+            param_list_node = param_list_node->next;
+            ++param_index;
+         }
+         matches_params = (
+            (param_list_node == nullptr) && (param_index == defined_data_type->parameter_count)
+         );
+         if(matches_params) {
+            return get_template_instance(state, type_list_node->data_type, parameters);
+         }
+      }
+      if(has_type) break;
+      type_list_node = type_list_node->next;
+   }
+   return nullptr;
+}
+//*/
+void print_type(data_type_t const* data_type, bool compact)
+{
+   string_t const* type_name = data_type->name;
+   if(!compact) printf("[%10p]:", data_type);
+   printf("%*s", (int)(type_name->end - type_name->begin), type_name->begin);
+   for(int i = 0; i < data_type->parameter_count;) {
+      printf(i == 0 ? "[" : ", ");
+      print_type(data_type->parameters[i], compact);
+      if(++i == data_type->parameter_count) printf("]");
+   }
+}
+function_overload_t* find_operator_overload(
+   parse_state_t* state, uint8_t operator_id,
+   parse_list_node_t* parse_list_node, uint32_t list_length
+){
+   function_list_t* const function_list = &state->operator_table[operator_id];
+   function_list_node_t* fn_list_node = function_list->head;
+   while(fn_list_node) {
+      function_overload_t* operator_overload = fn_list_node->function_overload;
+      if(operator_overload->parameter_count == list_length){
+         if(list_length == 0) break;
+         uint32_t param_index = 0;
+         while(parse_list_node) {
+            data_type_t const* const param_type =
+               node_as(identifier, parse_list_node->parse_node)->data_type;
+            if(param_type != operator_overload->parameters[param_index]) break;
+            parse_list_node = parse_list_node->next;
+            ++param_index;
+         }
+         if(param_index == list_length) break;
+      }
+      fn_list_node = fn_list_node->next;
+   }
+   return (!fn_list_node ? nullptr : fn_list_node->function_overload);
+}
+bool insert_operator_overload(parse_state_t* state, uint8_t operator_id, function_declaration_t* fn)
+{
+   printf("inserting overload for operator %c\n", operator_id); fflush(stdout);
+   //[IMPROVE]
+   uint32_t param_count = 0;
+   parse_list_node_t* param_list_node = fn->params;
+   while(param_list_node){ ++param_count; param_list_node = param_list_node->next; }
+   //
+   function_overload_t* operator_overload = find_operator_overload(state, operator_id, fn->params, param_count);
+   if(operator_overload) {
+      printf("duplicate operator overload is not allowed\n");
+      if(fn->return_type != operator_overload->return_type) {
+         printf("operator overload may not differ just in return type\n");
+      }
+      return false;
+   }
+   function_overload_t* new_function_overload = parser_malloc(mm_untracked, sizeof(function_overload_t));
+   data_type_t const** parameters = nullptr;
+   if(param_count != 0) {
+      parameters = parser_malloc(mm_untracked, param_count * sizeof(data_type_t*));
+      param_list_node = fn->params;
+      uint32_t param_index = 0;
+      while(param_list_node){
+         parameters[param_index] = node_as(identifier, param_list_node->parse_node)->data_type;
+         param_list_node = param_list_node->next;
+         ++param_index;
+      }
+   }
+   *new_function_overload = (function_overload_t){
+      .parameter_count = param_count,
+      .parameters = parameters,
+      .return_type = fn->return_type,
+      .ast = nullptr
+   };
+   function_list_node_t* new_fn_list_node = parser_malloc(mm_untracked, sizeof(function_list_node_t));
+   *new_fn_list_node = (function_list_node_t){
+      .function_overload = new_function_overload, .next = nullptr
+   };
+   function_list_t* const function_list = &state->operator_table[operator_id];
+   function_list_node_t* fn_list_node = function_list->tail;
+   if(!fn_list_node) {
+      function_list->head = function_list->tail = new_fn_list_node;
+   } else {
+      fn_list_node->next = new_fn_list_node;
+      function_list->tail = new_fn_list_node;
+   }
+   return true;
+}
+#endif
+
 bool _get_symbol(
    string_t const* const symbol_string, size_t const symbol_length,
    uint16_t hash, symbol_list_node_t** symbol_list_node_ref
@@ -141,7 +362,7 @@ symbol_list_node_t* add_symbol_to_list(
    symbol_t* new_symbol = parser_malloc(mm_symbols, sizeof(symbol_t));
    *new_symbol = (symbol_t){
       .type = symbol_type, .binding_flag = binding_flag,
-      .offset = 0, .import_offset = -1, .identifier = identifier,
+      .offset = -1, .import_offset = -1, .identifier = identifier,
    };
    symbol_list_node_t* new_symbol_list_node = parser_malloc(mm_symbol_list_nodes, sizeof(symbol_list_node_t));
    *new_symbol_list_node = (symbol_list_node_t){
@@ -239,8 +460,9 @@ void append_to_reference_list(reference_list_t* list, reference_list_node_t* nod
 void _insert_reference(parse_state_t* state, identifier_t* reference, symbol_t const* resolved_symbol)
 {
    reference->flags |= identifier_flag_reference;
-   location_t const* const location = reference->location;
-   location_t const* const symbol_location = resolved_symbol->identifier->location;
+   if(resolved_symbol) {
+      reference->flags |= (resolved_symbol->identifier->flags & identifier_flag_global);
+   }
    scope_t* current_scope = state->current_scope_list_node->scope;
    scope_t* hoisting_scope = state->hoisting_scope_list_node->scope;
    reference_list_node_t* reference_list_node =
@@ -253,6 +475,13 @@ void _insert_reference(parse_state_t* state, identifier_t* reference, symbol_t c
 #endif
       .prev = nullptr, .next = nullptr
    };
+#ifdef EXTENSIONS
+   if(resolved_symbol) {
+      identifier_t const* identifier = resolved_symbol->identifier;
+      reference->type_identifier = identifier->type_identifier;
+      reference->data_type = identifier->data_type;
+   }
+#endif
    reference_list_node_t* target_reference_list_node = nullptr;
    if(resolved_symbol) {
       if(resolved_symbol->binding_flag & binding_flag_hoisted) {
@@ -362,9 +591,11 @@ bool re_resolve_reference(parse_state_t* state, reference_list_node_t* reference
    );
    scope_t* target_scope = target_scope_list_node->scope;
    char const* re_resolution_type = "";
+   //[TODO] global references
    if(reference->flags & identifier_flag_possible_closure) {
       reference->flags |= identifier_flag_closure;
       reference->flags ^= identifier_flag_possible_closure;
+      // check if the resolved symbol is already a closure
       if(!(resolved_symbol->identifier->flags & identifier_flag_closure)) {
          resolved_symbol->identifier->flags |= identifier_flag_closure;
          //target_scope->symbol_layout->stack_size += sizeof(any_t*) - sizeof(any_t);
@@ -465,7 +696,15 @@ bool re_resolve_reference(parse_state_t* state, reference_list_node_t* reference
          re_resolution_type = "init";
       }
    }
+   reference->flags |= resolved_symbol->identifier->flags & identifier_flag_global;
    reference_list_node->resolved_symbol = resolved_symbol;
+#ifdef EXTENSIONS
+   {
+      identifier_t const* identifier = resolved_symbol->identifier;
+      reference->type_identifier = identifier->type_identifier;
+      reference->data_type = identifier->data_type;
+   }
+#endif
    printf("%*s reresolved reference %s %.*s(%d:%d)\n", state->current_scope_list_node->scope->depth + 1, "", re_resolution_type, (int)(reference->end - reference->begin), reference->begin, reference->location->begin.line, reference->location->begin.column); fflush(stdout);
 
    // append reference to resolved reference list
@@ -519,6 +758,9 @@ symbol_list_node_t* add_symbol_to_scoped_list(
       binding_flag & binding_flag_hoisted ? hoisting_scope : current_scope
    );
 #ifdef COMPILER
+   if(state->current_scope_list_node == state->top_level_scope_list_node){
+      identifier->flags |= identifier_flag_global;
+   }
    // on a first symbol in a scope ensure all parents have a first symbol
    if(target_scope->full_symbol_list.head == nullptr) {
       target_scope->full_symbol_list.head = new_symbol_list_node;
@@ -645,6 +887,22 @@ bool insert_symbol(
    symbol_list_node_t* new_symbol_list_node = add_symbol_to_scoped_list(
       state, &symbol_table[hash], symbol_list, identifier, binding_flag, symbol_type
    );
+#ifdef EXTENSIONS
+   type_identifier_t* typeid = identifier->type_identifier;
+   if(typeid) {
+      identifier->data_type = get_type(state, typeid);
+      /*
+      if(identifier->data_type) {
+         printf("matching type: ");
+         print_type(identifier->data_type, false);
+         printf("\n");
+         fflush(stdout);
+      }
+      //*/
+   } else {
+      identifier->data_type = &std_data_type[vt_any];
+   }
+#endif
    return true;
 }
 
@@ -718,6 +976,11 @@ void dump_frame_layout(scope_list_node_t* scope_list_node, bool do_recursive)
          identifier_t* identifier = symbol->identifier;
          uint32_t offset = (symbol->binding_flag & binding_flag_closure ? symbol->offset : identifier->offset);
          printf("%*s   %5d => %.*s(%d:%d)", scope->depth + 1, "", offset, (int)(identifier->end - identifier->begin), identifier->begin, identifier->location->begin.line, identifier->location->begin.column);
+#ifdef EXTENSIONS
+         if(identifier->data_type) {
+            printf(" "); print_type(identifier->data_type, true);
+         }
+#endif
          if(symbol->binding_flag & binding_flag_closure) {
             printf(" => %d", symbol->import_offset);
          }

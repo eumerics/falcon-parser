@@ -93,6 +93,9 @@ uint8_t const pnct_exponentitation = pnct_base + 29;
 uint8_t const pnct_arrow = pnct_base + 30;
 uint8_t const pnct_spread = pnct_base + 31;
 uint8_t const pnct_optional = pnct_base + 32;
+#ifdef EXTENSIONS
+uint8_t const pnct_namespace = pnct_base + 33;
+#endif
 /*
 uint8_t const pnct_ = pnct_base + 0;
 */
@@ -246,6 +249,10 @@ uint8_t const pnt_object_expression = 9;
 uint8_t const png_object_expression = LHS;
 uint8_t const pnt_template_literal = 10;
 uint8_t const png_template_literal = LHS;
+#ifdef EXTENSIONS
+uint8_t const pnt_type_identifier = 12;
+uint8_t const png_type_identifier = NONE;
+#endif
 
 // expressions
 uint8_t const expression_base = 0x20;
@@ -439,6 +446,7 @@ uint8_t const method_flag_constructor = 0x20;
 uint8_t const function_flag_expression = 0x01;
 uint8_t const function_flag_generator = 0x02;
 uint8_t const function_flag_async = 0x04;
+uint8_t const function_flag_operator = 0x08;
 //
 uint8_t const member_flag_computed = 0x01;
 uint8_t const optional_flag_optional = 0x02;
@@ -504,6 +512,7 @@ uint8_t const compile_flag_source = 0x01;
 uint8_t const compile_flag_octal = 0x02;
 uint8_t const compile_flag_not_escape = 0x04;
 uint8_t const compile_flag_numeric_annex = 0x08;
+uint8_t const compile_flag_integer = 0x10;
 
 uint32_t const semantic_flag_break = 0x01;
 uint32_t const semantic_flag_continue = 0x02;
@@ -526,9 +535,19 @@ uint8_t const symbol_flag_function_id = 0x01;
 uint8_t const identifier_flag_conditional = 0x10; // declaration is inside a conditional branch
 uint8_t const identifier_flag_closure = 0x02; // reference is a closure
 uint8_t const identifier_flag_declaration = 0x04; // identifier in a declaration
-uint8_t const identifier_flag_reference = 0x08; // identifer is a reference
+uint8_t const identifier_flag_reference = 0x08; // identifier is a reference
 uint8_t const identifier_flag_initialize = 0x20; // needs default initialization
 uint8_t const identifier_flag_possible_closure = 0x40; // an unresolved reference outside its hoisting scope
+uint8_t const identifier_flag_global = 0x80;
+
+#ifdef EXTENSIONS
+uint8_t const data_type_flag_parameter = 0x01; // represents a template parameter
+uint8_t const data_type_flag_abstract = 0x02; // incomplete type definition
+uint8_t const data_type_flag_union = 0x08;
+uint8_t const data_type_flag_primitive = 0x10;
+uint8_t const data_type_flag_composite = 0x20;
+uint8_t const data_type_flag_template = 0x40;
+#endif
 
 char const* const token_string[256] = {
    [tkn_numeric_literal] = "numeric literal",
@@ -574,6 +593,9 @@ char const* const token_string[256] = {
    [pnct_arrow] = "=>",
    [pnct_spread] = "...",
    [pnct_optional] = "?.",
+#ifdef EXTENSIONS
+   [pnct_namespace] = "::",
+#endif
    ['{'] = "{", ['}'] = "}", ['('] = "(", [')'] = ")", ['['] = "[", [']'] = "]",
    [';'] = ";", [','] = ",", [':'] = ":", ['?'] = "?", ['.'] = ".", ['<'] = "<",
    ['>'] = ">", ['+'] = "+", ['-'] = "-", ['*'] = "*", ['/'] = "/", ['%'] = "%",
